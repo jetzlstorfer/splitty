@@ -51,6 +51,7 @@ html[data-theme="dark"] {
   --cp-highlight: rgba(28, 194, 159, 0.2);
 }
 * { box-sizing: border-box; }
+html { scroll-padding-top: calc(72px + env(safe-area-inset-top)); }
 body { margin: 0; background: var(--cp-bg); color: var(--cp-text); font-family: "Segoe UI", Aptos, Calibri, -apple-system, BlinkMacSystemFont, sans-serif; -webkit-tap-highlight-color: var(--cp-accent-soft); }
 button, input, select { font: inherit; }
 button, a, input, select { touch-action: manipulation; }
@@ -64,7 +65,7 @@ button { color: inherit; }
 h1, h2, h3, p { margin-top: 0; }
 p { line-height: 1.55; }
 .app-shell { max-width: 760px; margin: auto; min-height: 100dvh; background: var(--cp-surface); }
-.topbar { padding: max(env(safe-area-inset-top), 4px) 16px 4px; display: flex; justify-content: space-between; align-items: center; min-height: 56px; background: var(--cp-surface); border-bottom: 1px solid var(--cp-border); }
+.topbar { position: sticky; top: 0; z-index: 5; padding: max(env(safe-area-inset-top), 4px) 16px 4px; display: flex; justify-content: space-between; align-items: center; min-height: 56px; background: var(--cp-surface); border-bottom: 1px solid var(--cp-border); }
 .wordmark { color: var(--cp-text); text-decoration: none; display: flex; align-items: center; font-size: 22px; font-weight: 650; letter-spacing: -.6px; }
 .brand-mark { width: 32px; height: 32px; margin-right: 10px; border-radius: 8px; }
 .sync-pill { display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 8px; background: none; font-size: 12px; color: var(--cp-text-muted); }
@@ -115,6 +116,13 @@ input::placeholder { color: var(--cp-text-soft); }
 .bottom-nav { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: min(100%, 760px); display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--cp-border); background: var(--cp-surface); padding: 4px 8px max(6px, env(safe-area-inset-bottom)); z-index: 5; }
 .bottom-nav > button { display: flex; gap: 4px; flex-direction: column; align-items: center; justify-content: center; padding: 6px 4px; background: none; color: var(--cp-text-soft); font-size: 11px; min-width: 0; min-height: 52px; }
 .bottom-nav > button.active { color: var(--cp-accent-text); font-weight: 600; }
+@supports ((backdrop-filter: blur(16px)) or (-webkit-backdrop-filter: blur(16px))) {
+  .topbar, .bottom-nav {
+    background: color-mix(in srgb, var(--cp-surface) 82%, transparent);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    backdrop-filter: blur(16px) saturate(140%);
+  }
+}
 .expense-action { position: fixed; bottom: calc(76px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); width: min(100%, 760px); padding: 0 16px; display: flex; justify-content: flex-end; pointer-events: none; z-index: 5; }
 .add-button { background: var(--cp-accent); color: var(--cp-accent-fg); border-radius: 28px; padding: 14px 20px; min-height: 52px; display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; box-shadow: var(--cp-shadow); pointer-events: auto; }
 .sheet { color: var(--cp-text); background: var(--cp-surface); border: 0; width: 100%; max-width: 540px; height: 100dvh; max-height: 100dvh; margin: auto; padding: 0 0 env(safe-area-inset-bottom); border-radius: 0; overflow-y: auto; overscroll-behavior: contain; }

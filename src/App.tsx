@@ -247,7 +247,7 @@ export default function App() {
 }
 
 function AppContent({ ledger }: { ledger: Snapshot | null }) {
-  const { t, language, locale, number, money, message, person } = useLocale();
+  const { t, language, locale, number, money, message, person, payer } = useLocale();
   const [tab, setTab] = useState<"expenses" | "search" | "settings">("expenses");
   const [form, setForm] = useState<"expense" | "settlement" | Entry | null>(null);
   const [importing, setImporting] = useState(false);
@@ -422,7 +422,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
               return <div key={entry.id}>{heading && <h3 className="month-heading">{month}</h3>}<button className="expense-row" onClick={() => setForm(entry)} disabled={conflictIds.has(entry.id)}>
                 <span className="date-block"><small>{new Date(`${entry.date}T12:00:00`).toLocaleDateString(locale, { month: "short" })}</small>{Number(entry.date.slice(8))}</span>
                 <span className={`entry-icon ${payment ? "payment" : ""}`}><ExpenseIcon category={category} /></span>
-                <span className="entry-description"><strong>{entry.description}</strong><small>{entry.kind === "imported" ? t("{category} · imported", { category: t(categoryLabels[category]) }) : entry.paidBy === p.member ? t("You paid {amount}", { amount: money(entry.amountCents) }) : t("{name} paid {amount}", { name: person(p, entry.paidBy!), amount: money(entry.amountCents) })}</small></span>
+                <span className="entry-description"><strong>{entry.description}</strong><small>{entry.kind === "imported" ? t("{category} · imported", { category: t(categoryLabels[category]) }) : t("{name} paid {amount}", { name: payer(p, entry.paidBy!), amount: money(entry.amountCents) })}</small></span>
                 <span className={`entry-balance ${contribution < 0 ? "owed" : contribution > 0 ? "lent" : ""}`}><small>{t(contribution === 0 ? "no balance change" : payment ? "balance change" : contribution > 0 ? "you lent" : "you borrowed")}</small><strong>{money(Math.abs(contribution))}</strong></span>
               </button></div>;
             })}{shown.length > limit && <button className="secondary load-more" onClick={() => setLimit(limit + 100)}>{t("Show more ({count})", { count: number(shown.length - limit) })}</button>}</div>}

@@ -235,6 +235,7 @@ export const german = {
   "Use application/json.": "Die Anfrage muss das Format application/json verwenden.",
   "Enter a valid member token.": "Gib einen gültigen Mitglieds-Token ein.",
   "Invalid member token.": "Der Mitglieds-Token ist ungültig.",
+  "Your member token was rotated. Sign in again.": "Dein Mitglieds-Token wurde erneuert. Melde dich erneut an.",
   "Invalid sync cursor.": "Ungültiger Synchronisierungsstand.",
   "Send between 1 and 20 changes.": "Sende zwischen 1 und 20 Änderungen.",
   "Invalid changes.": "Ungültige Änderungen.",

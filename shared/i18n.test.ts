@@ -20,6 +20,8 @@ describe("German and English translations", () => {
     expect(localizeMessage("Failed to fetch", "de")).toMatch(/^Die Netzwerkanfrage/);
     expect(localizeMessage("CSV could not be read: Too many fields", "de")).toMatch(/^Die CSV konnte nicht/);
     expect(localizeMessage("Unknown browser failure", "de")).toMatch(/^Ein unerwarteter Fehler/);
+    expect(localizeMessage("Your member token was rotated. Sign in again.", "de")).toBe("Dein Mitglieds-Token wurde erneuert. Melde dich erneut an.");
+    expect(localizeMessage("Your member token was rotated. Sign in again.", "en")).toBe("Your member token was rotated. Sign in again.");
   });
   it("covers static errors exposed by the model, storage and API", () => {
     for (const file of ["shared\\model.ts", "src\\db.ts", "src\\sync.ts", "src\\importer.ts", "api\\src\\handler.ts", "api\\src\\config.ts", "api\\src\\auth.ts"]) {

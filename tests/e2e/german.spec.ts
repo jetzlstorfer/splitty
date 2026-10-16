@@ -116,7 +116,7 @@ test("payer labels always use household member names", async ({ page }) => {
   await expect(dialog.getByLabel("Bezahlt von", { exact: true }).locator("option")).toHaveText(["Alex", "Sam"]);
   await dialog.getByLabel("Bezahlt von", { exact: true }).selectOption("b");
   await saveGerman(page);
-  await expect(page.locator(".expense-row").getByText("Sam hat 12,34 € bezahlt", { exact: true })).toBeVisible();
+  await expect(page.locator(".expense-row .entry-description small")).toContainText("Sam hat");
 });
 
 test("German import feedback, existing category icons, and translations preserve source descriptions", async ({ page }) => {

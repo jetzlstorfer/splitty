@@ -20,6 +20,11 @@ account; email sign-in enables shared history across your devices.
 This is an independent implementation, not affiliated with Splitwise. No branding,
 screenshots, or proprietary assets are copied.
 
+The mobile UI uses a Splitwise-inspired teal palette, green credit/orange debt
+indicators, a compact ledger, and a floating add-expense button. Light and dark
+themes share the same visual language. The original app icon is a heart containing
+a euro symbol, used consistently in the app, favicon, and Android install icons.
+
 ## Run locally
 
 Use Node.js 22 LTS or newer and npm. From the repository root:

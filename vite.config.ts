@@ -11,12 +11,12 @@ export default defineConfig({
       manifest: {
         name: "Splitty - our shared expenses",
         short_name: "Splitty",
-        description: "A little less counting. A little more living.",
+        description: "Shared expenses, simple splits. Just for two.",
         display: "standalone",
         start_url: "/",
         scope: "/",
-        theme_color: "#f7f4ef",
-        background_color: "#f7f4ef",
+        theme_color: "#ffffff",
+        background_color: "#ffffff",
         icons: [
           { src: "/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
           { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },

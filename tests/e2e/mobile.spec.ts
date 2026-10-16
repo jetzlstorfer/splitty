@@ -31,7 +31,7 @@ async function offlineReady(page: Page) {
 
 test("mobile expense entry, custom splits, settlements and offline reload", async ({ page, context }, info) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Just the two of us." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Just the two of us" })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("mobile-empty.png"), fullPage: true });
   let dialog = await addExpense(page, "Offline groceries", "20.01");
@@ -146,3 +146,61 @@ test("previews, reconciles and deduplicates a Splitwise import", async ({ page }
   dialog = await preview();
   await expect(dialog.getByRole("heading", { name: "0 new entries" })).toBeVisible();
 });
+
+for (const [theme, width] of [["light", 393], ["dark", 393], ["light", 320]] as const) {
+  test(`Splitwise-style ${theme} presentation at ${width}px`, async ({ page }, info) => {
+    await page.setViewportSize({ width, height: 851 });
+    await page.emulateMedia({ colorScheme: theme === "light" ? "dark" : "light" });
+    await page.goto(`/?scoutTheme=${theme}`);
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+    await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", theme === "light" ? "#ffffff" : "#1c2524");
+    await expect(page.locator(".add-button")).toHaveCSS("background-color", "rgb(28, 194, 159)");
+    await expect(page.getByRole("button", { name: "Expenses", exact: true })).toHaveAttribute("aria-current", "page");
+
+    await addExpense(page, "Groceries", "40");
+    await save(page);
+    const dialog = await addExpense(page, "Dinner together", "60");
+    await dialog.getByLabel("Paid by").selectOption("b");
+    await save(page);
+
+    const credit = theme === "light" ? "rgb(8, 127, 105)" : "rgb(84, 214, 183)";
+    const debt = theme === "light" ? "rgb(196, 71, 32)" : "rgb(255, 148, 108)";
+    await expect(page.locator(".entry-balance.lent")).toHaveCSS("color", credit);
+    await expect(page.locator(".entry-balance.owed")).toHaveCSS("color", debt);
+    await expect(page.locator(".balance-amount")).toHaveCSS("color", debt);
+    await expect(page.locator(".balance-amount")).toContainText("10,00");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    const row = await page.locator(".expense-row").first().boundingBox();
+    const action = await page.locator(".add-button").boundingBox();
+    expect(row!.y + row!.height).toBeLessThan(action!.y);
+    expect(action!.height).toBeGreaterThanOrEqual(48);
+    const contrast = await page.locator(".entry-balance.owed").evaluate((element) => {
+      const luminance = (color: string) => {
+        const channels = color.match(/\d+/g)!.slice(0, 3).map(Number).map((c) => {
+          const s = c / 255;
+          return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+        });
+        return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+      };
+      const background = luminance(getComputedStyle(document.querySelector(".app-shell")!).backgroundColor);
+      return [element, document.querySelector(".entry-balance.lent")!].map((item) => {
+        const foreground = luminance(getComputedStyle(item).color);
+        return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
+      });
+    });
+    expect(Math.min(...contrast)).toBeGreaterThanOrEqual(4.5);
+    await page.screenshot({ path: info.outputPath(`splitty-${theme}-${width}.png`) });
+
+    await page.getByRole("button", { name: "Add expense", exact: true }).click();
+    await expect(page.getByRole("dialog")).toHaveCSS("border-radius", "0px");
+    await page.getByLabel("Description", { exact: true }).fill("Weekend groceries");
+    await page.getByRole("textbox", { name: "Amount in EUR" }).fill("24.50");
+    await page.screenshot({ path: info.outputPath(`splitty-form-${theme}-${width}.png`) });
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    expect(await page.locator(".app-shell").evaluate((element) => element.getBoundingClientRect().width)).toBeLessThanOrEqual(760);
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Settings", exact: true })).toHaveAttribute("aria-current", "page");
+  });
+}

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { liveQuery } from "dexie";
 import {
-  ArrowLeft, ArrowUpRight, Check, ChevronDown, Cloud, CloudOff,
-  Download, Heart, Languages, Plus, Receipt, RefreshCw, Search, Settings, Trash2, Upload, X
+  Check, ChevronDown, Cloud, CloudOff,
+  Download, Languages, Plus, Receipt, RefreshCw, Search, Settings, Trash2, Upload, Users, X
 } from "lucide-react";
 import { calculateShareA, expenseBalance, parseMoney, validateEntry, type Entry, type Member, type SplitType } from "../shared/model";
 import { db, queueEntries, resolveConflict, updatePreferences, getPreferences, type Conflict, type Preferences } from "./db";
@@ -147,7 +147,6 @@ function ExpenseForm({ entry, settlement, preferences: p, close, saved }: {
   const other = p.member === "a" ? p.nameB : p.nameA;
   return <Sheet title={t(entry ? "Edit entry" : settlement ? "Settle up" : "Add an expense")} close={close}>
     <form onSubmit={submit} className="expense-form" lang={language}>
-      <p className="expense-with">{other === t("Your wife") ? t("With your wife and you") : t("With {name} and you", { name: other })}</p>
       <div className="description-field"><label htmlFor="expense-description">{t("Description")}</label><div className="description-input"><ExpenseIcon category={category} size={24} /><input id="expense-description" autoFocus value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t(settlement ? "Payment" : "Enter a description")} required maxLength={500} /></div></div>
       <label>{t("Amount in EUR")}<div className="amount-input"><span>€</span><input aria-label={t("Amount in EUR")} inputMode="decimal" value={amount} readOnly={imported} onChange={(e) => setAmount(e.target.value)} placeholder={language === "de" ? "0,00" : "0.00"} required /></div></label>
       {imported ? <p className="notice">{t("Imported balance: {amount} for {name}. The CSV does not reliably identify the original payer or split, so those amounts are preserved. Description and date can be edited.", { amount: money(entry.balanceA), name: p.nameA })}</p> : <>
@@ -217,9 +216,8 @@ function ImportForm({ preferences: p, close, saved }: { preferences: Preferences
     } catch (e) { setError(e instanceof Error ? e.message : "Import failed. No entries were added."); }
     finally { setBusy(false); }
   }
-  return <Sheet title={t("Bring your history")} close={close}><div className="panel-content">
-    <div className="form-symbol"><Upload size={28} /></div>
-    <p>{t("Your Splitwise history belongs here, too. Choose a two-person EUR group export. The file stays on this device until you confirm; imported entries then sync with your household.")}</p>
+  return <Sheet title={t("Import from Splitwise")} close={close}><div className="panel-content">
+    <p>{t("Choose a CSV export for two people in EUR. Entries stay on this device until you confirm, then sync with your household.")}</p>
     <FilePicker label={t("Splitwise CSV")} accept=".csv,text/csv" choose={(file) => void choose(file)} disabled={busy} />
     {!!members.length && <>
       <label>{t("Export column for {name}", { name: p.nameA })}<select value={memberA} disabled={busy} onChange={(e) => { setMemberA(e.target.value); setPreview(null); }}>{members.map((member) => <option key={member}>{member}</option>)}</select></label>
@@ -250,7 +248,7 @@ export default function App() {
 
 function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const { t, language, locale, number, money, message, person } = useLocale();
-  const [tab, setTab] = useState<"expenses" | "settings">("expenses");
+  const [tab, setTab] = useState<"expenses" | "search" | "settings">("expenses");
   const [form, setForm] = useState<"expense" | "settlement" | Entry | null>(null);
   const [importing, setImporting] = useState(false);
   const [search, setSearch] = useState("");
@@ -314,6 +312,12 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
 
   const saved = () => { setSyncStatus("Saved on this device"); void sync(); };
 
+  function navigate(next: typeof tab) {
+    setTab(next);
+    setLimit(100);
+    window.scrollTo(0, 0);
+  }
+
   async function signIn(event: FormEvent) {
     event.preventDefault(); setSignInBusy(true); setError("");
     try {
@@ -360,7 +364,8 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const active = ledger.entries.filter((entry) => !entry.deleted);
   const balanceA = active.reduce((sum, entry) => sum + entry.balanceA, 0);
   const balance = p.member === "a" ? balanceA : -balanceA;
-  const shown = active.filter((entry) => normalizeText(`${entry.description} ${entry.category} ${t(categoryLabels[expenseCategory(entry.description, entry.category, entry.kind, entry.categoryMode)])} ${entry.date}`).includes(normalizeText(search)))
+  const query = tab === "search" ? normalizeText(search.trim()) : "";
+  const shown = active.filter((entry) => !query || normalizeText(`${entry.description} ${entry.category} ${t(categoryLabels[expenseCategory(entry.description, entry.category, entry.kind, entry.categoryMode)])} ${entry.date}`).includes(query))
     .sort((a, b) => b.date.localeCompare(a.date) || b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
   const conflictIds = new Set(ledger.conflicts.map((conflict) => conflict.entryId));
 
@@ -376,21 +381,28 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     <header className="topbar"><a className="wordmark" href="/" aria-label={t("Splitty home")}><img className="brand-mark" src="/icon.svg" width="32" height="32" alt="" />Splitty</a>
       <button className={`sync-pill ${online ? "" : "offline"}`} onClick={() => void sync()} disabled={syncBusy} aria-label={t("Synchronize devices")}>{online ? <Cloud size={16} /> : <CloudOff size={16} />}<span>{syncBusy ? t("Syncing") : ledger.pending ? t("{count} pending", { count: number(ledger.pending) }) : t(online ? "Sync" : "Offline")}</span></button>
     </header>
-    <main>
+    <main className={tab === "expenses" ? "with-expense-action" : undefined}>
       {error && <div className="banner error" role="alert">{message(error)}<button className="icon-button" aria-label={t("Dismiss error")} onClick={() => setError("")}><X size={18} /></button></div>}
       {update && <div className="banner">{t("An app update is ready. Your saved entries will be kept.")}<button onClick={() => void update().catch((e: Error) => setError(e.message))} className="text-button">{t("Update")}</button></div>}
-      {tab === "expenses" ? <>
-        <section className="household-heading">
-          <div className="group-cover" aria-hidden="true"><img src="/icon.svg" width="64" height="64" alt="" /></div>
-          <h1>{t("Just the two of us")}</h1>
-          <div className="couple"><span>{(p.nameA[0] || "A").toUpperCase()}</span><span>{(p.nameB[0] || "B").toUpperCase()}</span><small>{p.nameA} & {p.nameB}</small><span className="currency-tag">EUR</span></div>
-        </section>
-        <section className="balance-card" aria-label={t("Household balance")}>
-          <p>{balance === 0 ? t("You are all settled up") : balance < 0 && other === t("Your wife") ? t("You owe your wife") : t(balance > 0 ? "{name} owes you" : "You owe {name}", { name: other })}</p>
-          <div className={`balance-amount ${balance < 0 ? "owed" : balance === 0 ? "settled" : ""}`}>{money(Math.abs(balance))}</div>
-          <div className="balance-footer"><button className="settle-button" onClick={() => setForm("settlement")}>{t("Settle up")}</button><span><span className={`status-dot ${ledger.pending || !online ? "pending" : ""}`} />{t(ledger.pending ? "Saved locally · sync pending" : identity ? "Shared between you two" : "Local ledger · sign in to share")}</span></div>
-        </section>
-        {!!ledger.conflicts.length && <section className="conflict-panel"><h3>{t("Let's keep both edits safe")}</h3><p>{t("These entries changed on another device. Choose which version to keep.")}</p>{ledger.conflicts.map((conflict) => {
+      {tab !== "settings" ? <>
+        {tab === "expenses" ? <>
+          <header className="page-heading">
+            <h1>{t("Expenses")}<span className="entry-count">{number(active.length)}</span></h1>
+            <p className="household-members">{p.nameA} & {p.nameB}</p>
+          </header>
+          <section className="balance-card" aria-label={t("Household balance")}>
+            <div className="balance-summary">
+              <p>{balance === 0 ? t("You are all settled up") : balance < 0 && other === t("Your wife") ? t("You owe your wife") : t(balance > 0 ? "{name} owes you" : "You owe {name}", { name: other })}</p>
+              <div className={`balance-amount ${balance < 0 ? "owed" : balance === 0 ? "settled" : ""}`}>{money(Math.abs(balance))}</div>
+            </div>
+            <button className="settle-button" onClick={() => setForm("settlement")}>{t("Settle up")}</button>
+          </section>
+        </> : <>
+          <header className="page-heading search-heading"><h1>{t("Search")}</h1><button className="text-button" onClick={() => setImporting(true)}><Upload size={18} />{t("Import")}</button></header>
+          <label className="search"><Search size={19} /><input aria-label={t("Search expenses")} type="search" placeholder={t("Search expenses")} value={search} onChange={(e) => { setSearch(e.target.value); setLimit(100); }} /></label>
+          <p className="search-hint">{t("Description, category or date")}</p>
+        </>}
+        {!!ledger.conflicts.length && <section className="conflict-panel"><h3>{t("Conflicting edits")}</h3><p>{t("These entries changed on another device. Choose which version to keep.")}</p>{ledger.conflicts.map((conflict) => {
           const local = ledger.entries.find((entry) => entry.id === conflict.entryId);
           return <div key={conflict.entryId}><strong>{local?.description}</strong><p>{t("This device: {local} · Other device: {remote} ({name}'s balance)", { local: local?.deleted ? t("Deleted") : money(local?.balanceA ?? 0), remote: conflict.remote?.deleted ? t("Deleted") : conflict.remote ? money(conflict.remote.balanceA) : t("Not present"), name: p.nameA })}</p><div className="button-row">
             <button className="secondary" onClick={() => void resolveConflict(conflict.entryId, false).then(saved).catch((e: Error) => setError(e.message))}>{t("Keep other device")}</button>
@@ -398,9 +410,9 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
           </div></div>;
         })}</section>}
         <p className="sync-status" role="status">{message(syncStatus)}</p>
-        <section className="ledger-section"><div className="section-title"><h2>{t("Expenses")}<span>{number(active.length)}</span></h2><button className="text-button" onClick={() => setImporting(true)}><Upload size={16} />{t("Import")}</button></div>
-          <label className="search"><Search size={19} /><input aria-label={t("Search expenses")} type="search" placeholder={t("Search expenses")} value={search} onChange={(e) => { setSearch(e.target.value); setLimit(100); }} /></label>
-          {!shown.length ? <div className="empty-state"><span><Receipt size={32} /></span><h3>{t(search ? "No matching expenses" : "No expenses yet")}</h3><p>{t(search ? "Try a different description, category or date." : "Add an expense to start sharing, or import your Splitwise history.")}</p>{!search && <><button className="primary" onClick={() => setForm("expense")}><Plus size={18} />{t("Add an expense")}</button><button className="text-button" onClick={() => setImporting(true)}>{t("Import from Splitwise")}<ArrowUpRight size={16} /></button></>}</div> :
+        <section className="ledger-section" aria-label={t(tab === "search" ? "Search results" : "Expenses")}>
+          {tab === "search" && <div className="section-title"><h2>{t("Search results")}<span>{number(shown.length)}</span></h2></div>}
+          {!shown.length ? <div className="empty-state"><h2>{t(query ? "No matching expenses" : "No expenses yet")}</h2>{query && <p>{t("Try a different description, category or date.")}</p>}</div> :
             <div className="expense-list">{shown.slice(0, limit).map((entry, index) => {
               const month = new Date(`${entry.date}T12:00:00`).toLocaleDateString(locale, { month: "long", year: "numeric" });
               const heading = index === 0 || entry.date.slice(0, 7) !== shown[index - 1].date.slice(0, 7);
@@ -415,26 +427,29 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
               </button></div>;
             })}{shown.length > limit && <button className="secondary load-more" onClick={() => setLimit(limit + 100)}>{t("Show more ({count})", { count: number(shown.length - limit) })}</button>}</div>}
         </section>
-      </> : <section className="settings-page"><button className="text-button" onClick={() => setTab("expenses")}><ArrowLeft size={17} />{t("Back to expenses")}</button><h1>{t("Settings")}</h1><p className="muted">{t("Your household and account")}</p>
+      </> : <section className="settings-page"><header className="page-heading"><h1>{t("Settings")}</h1></header>
         <section className="settings-card"><h2><Languages size={20} />{t("Language")}</h2>
           <label>{t("App language")}<select aria-label={t("App language")} value={language} onChange={(event) => void updatePreferences({ language: event.target.value === "en" ? "en" : "de" }).catch((e: Error) => setError(e.message))}>
             <option value="de" lang="de">Deutsch</option><option value="en" lang="en">English</option>
-          </select></label><p className="muted">{t("Saved on this device. Your partner can use a different language.")}</p>
+          </select></label>
         </section>
-        <section className="settings-card"><h2><Cloud size={20} />{t("Keep us in sync")}</h2><p className="muted" role="status">{message(syncStatus)}</p>
+        <section className="settings-card"><h2><Cloud size={20} />{t("Synchronization")}</h2><p className="muted" role="status">{message(syncStatus)}</p>
           {identity ? <><p>{t("Signed in as {name}.", { name: person(p, identity.member) })}</p><div className="button-row"><button className="secondary" disabled={syncBusy} onClick={() => void sync()}><RefreshCw size={16} />{t("Sync now")}</button><button className="text-button" onClick={() => void signOut()}>{t("Sign out")}</button></div><p className="muted">{t("Signing out does not erase this device's offline history. Use a trusted device.")}</p></> :
-            <form onSubmit={(event) => void signIn(event)}><p>{t("Enter the reusable token for your household member. It stays valid until rotated.")}</p><label>{t("Member token")}<input type="password" autoComplete="off" autoCapitalize="off" spellCheck={false} required maxLength={43} value={memberToken} onChange={(event) => setMemberToken(event.target.value)} /></label><button className="primary" disabled={signInBusy || !online}>{t(signInBusy ? "Signing in…" : "Sign in")}</button><p className="muted">{t("This device stays signed in until you sign out or the member token is rotated.")}</p><p className="muted">{t("Cross-device sync needs the configured backend. Until then, entries stay on this device.")}</p></form>}
+            <form onSubmit={(event) => void signIn(event)}><label>{t("Member token")}<input type="password" autoComplete="off" autoCapitalize="off" spellCheck={false} required maxLength={43} value={memberToken} onChange={(event) => setMemberToken(event.target.value)} /></label><button className="primary" disabled={signInBusy || !online}>{t(signInBusy ? "Signing in…" : "Sign in")}</button><p className="muted">{t("This device stays signed in until you sign out or the member token is rotated.")}</p></form>}
         </section>
-        <section className="settings-card"><h2><Heart size={20} />{t("The two of us")}</h2><label>{t("First person")}<input defaultValue={p.nameA} key={`a-${p.nameA}`} maxLength={60} readOnly={!!identity} onBlur={(e) => { if (e.target.value.trim() && e.target.value.trim() !== p.nameA) void updatePreferences({ nameA: e.target.value.trim() }).catch((err: Error) => setError(err.message)); }} /></label><label>{t("Second person")}<input defaultValue={p.nameB} key={`b-${p.nameB}`} maxLength={60} readOnly={!!identity} onBlur={(e) => { if (e.target.value.trim() && e.target.value.trim() !== p.nameB) void updatePreferences({ nameB: e.target.value.trim() }).catch((err: Error) => setError(err.message)); }} /></label>
+        <section className="settings-card"><h2><Users size={20} />{t("Household")}</h2><label>{t("First person")}<input defaultValue={p.nameA} key={`a-${p.nameA}`} maxLength={60} readOnly={!!identity} onBlur={(e) => { if (e.target.value.trim() && e.target.value.trim() !== p.nameA) void updatePreferences({ nameA: e.target.value.trim() }).catch((err: Error) => setError(err.message)); }} /></label><label>{t("Second person")}<input defaultValue={p.nameB} key={`b-${p.nameB}`} maxLength={60} readOnly={!!identity} onBlur={(e) => { if (e.target.value.trim() && e.target.value.trim() !== p.nameB) void updatePreferences({ nameB: e.target.value.trim() }).catch((err: Error) => setError(err.message)); }} /></label>
           {!identity && <label>{t("This device belongs to")}<select value={p.member} onChange={(e) => void updatePreferences({ member: e.target.value as Member }).catch((err: Error) => setError(err.message))}><option value="a">{p.nameA}</option><option value="b">{p.nameB}</option></select></label>}
           <p className="muted">{t("EUR and an equal split are always the default. Signed-in names come from your household configuration.")}</p>
         </section>
-        <section className="settings-card"><h2><Receipt size={20} />{t("Your history, always yours")}</h2><button className="secondary" onClick={() => setImporting(true)}><Upload size={17} />{t("Import from Splitwise")}</button><button className="secondary" onClick={backup}><Download size={17} />{t("Download a backup")}</button><FilePicker label={t("Restore missing entries from a backup")} accept=".json,application/json" choose={(file) => void restore(file)} /><p className="muted">{t("Offline data lives in this browser. Clearing site data removes unsynced entries. Keep backups, and sync before changing devices.")}</p></section>
-        <div className="settings-footnote">{t("Made for the everyday things we share.")}<br />{t("Splitty · offline-first · just for two")}</div>
+        <section className="settings-card"><h2><Download size={20} />{t("Backups")}</h2><button className="secondary" onClick={backup}><Download size={17} />{t("Download a backup")}</button><FilePicker label={t("Restore missing entries from a backup")} accept=".json,application/json" choose={(file) => void restore(file)} /><p className="muted">{t("Offline data lives in this browser. Clearing site data removes unsynced entries. Keep backups, and sync before changing devices.")}</p></section>
       </section>}
     </main>
-    <div className="expense-action"><button className="add-button" aria-label={t("Add expense")} onClick={() => setForm("expense")}><Plus size={23} /><span>{t("Add expense")}</span></button></div>
-    <nav className="bottom-nav" aria-label={t("Main navigation")}><button className={tab === "expenses" ? "active" : ""} aria-current={tab === "expenses" ? "page" : undefined} onClick={() => setTab("expenses")}><Receipt size={23} /><span>{t("Expenses")}</span></button><button className={tab === "settings" ? "active" : ""} aria-current={tab === "settings" ? "page" : undefined} onClick={() => setTab("settings")}><Settings size={23} /><span>{t("Settings")}</span></button></nav>
+    {tab === "expenses" && <div className="expense-action"><button className="add-button" aria-label={t("Add expense")} onClick={() => setForm("expense")}><Plus size={23} /><span>{t("Add expense")}</span></button></div>}
+    <nav className="bottom-nav" aria-label={t("Main navigation")}>
+      <button className={tab === "expenses" ? "active" : ""} aria-current={tab === "expenses" ? "page" : undefined} onClick={() => navigate("expenses")}><Receipt size={22} /><span>{t("Expenses")}</span></button>
+      <button className={tab === "search" ? "active" : ""} aria-current={tab === "search" ? "page" : undefined} onClick={() => navigate("search")}><Search size={22} /><span>{t("Search")}</span></button>
+      <button className={tab === "settings" ? "active" : ""} aria-current={tab === "settings" ? "page" : undefined} onClick={() => navigate("settings")}><Settings size={22} /><span>{t("Settings")}</span></button>
+    </nav>
     {form && <ExpenseForm entry={typeof form === "object" ? form : undefined} settlement={form === "settlement" || (typeof form === "object" && form.kind === "settlement")} preferences={p} close={() => setForm(null)} saved={saved} />}
     {importing && <ImportForm preferences={p} close={() => setImporting(false)} saved={saved} />}
   </div>;

@@ -26,7 +26,11 @@ This is an independent implementation, not affiliated with Splitwise. No brandin
 screenshots, or proprietary assets are copied.
 
 The mobile UI uses a Splitwise-inspired teal palette, green credit/orange debt
-indicators, a compact ledger, and a floating add-expense button. Light and dark
+indicators, and a compact balance summary and ledger. The bottom navigation is
+**Ausgaben / Expenses**, **Suche / Search**, **Einstellungen / Settings**.
+Search and Splitwise import live on **Suche / Search**; search filters never hide
+entries on the main expense page. The floating add-expense button appears only on
+**Ausgaben / Expenses**, leaving search and settings unobstructed. Light and dark
 themes share the same visual language. The original app icon is a heart containing
 a euro symbol, used consistently in the app, favicon, and Android install icons.
 
@@ -110,7 +114,7 @@ development environment); a PC's loopback URL is not reachable from the phone.
 
 1. Configure the two names under Settings, or sign in to use the backend names.
    Keep person A/B consistent on every device and in the backend configuration.
-2. Select **Import** and choose the group CSV. Map the export column for the first
+2. Open **Suche / Search > Importieren / Import** and choose the group CSV. Map the export column for the first
    person; the other column maps to the second person.
 3. Preview the entry count, skipped duplicates and resulting file balance.
 4. Confirm only after comparing with Splitwise. A malformed row, unsupported

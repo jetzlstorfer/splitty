@@ -38,7 +38,7 @@ async function offlineReady(page: Page) {
 
 test("mobile expense entry, custom splits, settlements and offline reload", async ({ page, context }, info) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Just the two of us" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^Expenses/, level: 1 })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("mobile-empty.png"), fullPage: true });
   let dialog = await addExpense(page, "Offline groceries", "20.01");
@@ -121,8 +121,9 @@ test("previews, reconciles and deduplicates a Splitwise import", async ({ page }
     + "2024-01-02,Payment,Zahlung,10.00,EUR,10.00,-10.00\n"
     + "2024-01-03,Gesamtbilanz,,,EUR,-31.54,31.54\n";
   async function preview() {
+    await page.getByRole("button", { name: "Search", exact: true }).click();
     await page.getByRole("button", { name: "Import", exact: true }).click();
-    const dialog = page.getByRole("dialog", { name: "Bring your history" });
+    const dialog = page.getByRole("dialog", { name: "Import from Splitwise" });
     await dialog.getByLabel("Splitwise CSV").setInputFiles({
       name: "synthetic.csv", mimeType: "text/csv", buffer: Buffer.from(csv)
     });
@@ -134,12 +135,14 @@ test("previews, reconciles and deduplicates a Splitwise import", async ({ page }
   await expect(dialog.getByText("Matches the final balance in your export.")).toBeVisible();
   await dialog.getByRole("button", { name: "Confirm import" }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
+  await page.getByRole("button", { name: "Expenses", exact: true }).click();
   await expect(page.locator(".balance-amount")).toContainText("31.54");
   dialog = await preview();
   await expect(dialog.getByRole("heading", { name: "0 new entries" })).toBeVisible();
   await expect(dialog.getByText("2 already imported · skipped")).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Confirm import" })).toBeDisabled();
   await dialog.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("button", { name: "Expenses", exact: true }).click();
   await page.getByText("Dinner, together", { exact: true }).click();
   dialog = page.getByRole("dialog", { name: "Edit entry" });
   await expect(dialog.getByRole("textbox", { name: "Amount in EUR" })).toHaveAttribute("readonly");

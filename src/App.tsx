@@ -149,10 +149,6 @@ function ExpenseForm({ entry, settlement, preferences: p, close, saved }: {
     <form onSubmit={submit} className="expense-form" lang={language}>
       <p className="expense-with">{other === t("Your wife") ? t("With your wife and you") : t("With {name} and you", { name: other })}</p>
       <div className="description-field"><label htmlFor="expense-description">{t("Description")}</label><div className="description-input"><ExpenseIcon category={category} size={24} /><input id="expense-description" autoFocus value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t(settlement ? "Payment" : "Enter a description")} required maxLength={500} /></div></div>
-      {!imported && !settlement && <label className="category-picker">{t("Category")}<select aria-label={t("Category")} value={categoryChoice} onChange={(event) => setCategoryChoice(event.target.value as Category | "auto")}>
-        <option value="auto">{t("Automatic")}</option>
-        {(Object.keys(categoryLabels) as Category[]).filter((key) => key !== "payment").map((key) => <option key={key} value={key}>{t(categoryLabels[key])}</option>)}
-      </select><span className="category-detected" role="status">{t(categoryChoice === "auto" ? "Detected: {category}" : "Selected: {category}", { category: t(categoryLabels[category]) })}</span></label>}
       <label>{t("Amount in EUR")}<div className="amount-input"><span>€</span><input aria-label={t("Amount in EUR")} inputMode="decimal" value={amount} readOnly={imported} onChange={(e) => setAmount(e.target.value)} placeholder={language === "de" ? "0,00" : "0.00"} required /></div></label>
       {imported ? <p className="notice">{t("Imported balance: {amount} for {name}. The CSV does not reliably identify the original payer or split, so those amounts are preserved. Description and date can be edited.", { amount: money(entry.balanceA), name: p.nameA })}</p> : <>
         <div className="split-summary">
@@ -176,6 +172,10 @@ function ExpenseForm({ entry, settlement, preferences: p, close, saved }: {
         </>}
       </>}
       <label>{t("Date")}<input type="date" value={date} onChange={(e) => setDate(e.target.value)} required /></label>
+      {!imported && !settlement && <label className="category-picker">{t("Category")}<select aria-label={t("Category")} value={categoryChoice} onChange={(event) => setCategoryChoice(event.target.value as Category | "auto")}>
+        <option value="auto">{t("Automatic")}</option>
+        {(Object.keys(categoryLabels) as Category[]).filter((key) => key !== "payment").map((key) => <option key={key} value={key}>{t(categoryLabels[key])}</option>)}
+      </select><span className="category-detected" role="status">{t(categoryChoice === "auto" ? "Detected: {category}" : "Selected: {category}", { category: t(categoryLabels[category]) })}</span></label>}
       {error && <p className="error" role="alert">{message(error)}</p>}
       <button className="primary" disabled={busy} type="submit"><Check size={19} />{t(busy ? "Saving…" : "Save")}</button>
       {entry && <button className="danger-link" type="button" disabled={busy} onClick={remove}><Trash2 size={16} />{t("Delete entry")}</button>}

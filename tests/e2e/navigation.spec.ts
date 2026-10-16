@@ -63,8 +63,8 @@ test.describe("touch navigation", () => {
         await expect(button).toHaveAttribute("aria-current", "page");
         await expect(nav.locator('[aria-current="page"]')).toHaveCount(1);
         await expect(button).toHaveCSS("font-weight", "600");
-        await expect(button.locator("svg")).toHaveCSS("color", await button.evaluate((element) =>
-          getComputedStyle(element).color));
+        await expect.poll(() => button.evaluate((element) =>
+          getComputedStyle(element.querySelector("svg")!).color === getComputedStyle(element).color)).toBe(true);
       }
     }
     await page.keyboard.press("Tab");

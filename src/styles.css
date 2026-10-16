@@ -115,15 +115,15 @@ input::placeholder { color: var(--cp-text-soft); }
 .entry-balance.owed { color: var(--cp-owed); }
 .load-more { margin-top: 24px; }
 .bottom-nav { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: min(100%, 760px); display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--cp-border); background: var(--cp-surface); padding: 4px 8px max(6px, env(safe-area-inset-bottom)); z-index: 5; }
-.bottom-nav > button { display: flex; gap: 4px; flex-direction: column; align-items: center; justify-content: center; padding: 6px 4px; background: none; color: var(--cp-text-soft); font-size: 11px; min-width: 0; min-height: 52px; }
+.bottom-nav > button { display: flex; gap: 4px; flex-direction: column; align-items: center; justify-content: center; padding: 6px 4px; background: none; color: var(--cp-text-soft); font-size: 11px; min-width: 0; min-height: 52px; -webkit-tap-highlight-color: transparent; }
 .bottom-nav > button.active { color: var(--cp-accent-text); font-weight: 600; }
 .bottom-nav > button > svg { box-sizing: content-box; padding: 3px 14px; margin-block: -3px; border-radius: 20px; }
 .bottom-nav > button.active > svg { background: var(--cp-accent-soft); }
-@supports ((backdrop-filter: blur(16px)) or (-webkit-backdrop-filter: blur(16px))) {
+@supports ((backdrop-filter: blur(32px)) or (-webkit-backdrop-filter: blur(32px))) {
   .topbar, .bottom-nav {
     background: color-mix(in srgb, var(--cp-surface) 82%, transparent);
-    -webkit-backdrop-filter: blur(16px) saturate(140%);
-    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(32px) saturate(140%);
+    backdrop-filter: blur(32px) saturate(140%);
   }
 }
 .expense-action { position: fixed; bottom: calc(76px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); width: min(100%, 760px); padding: 0 16px; display: flex; justify-content: flex-end; pointer-events: none; z-index: 5; }

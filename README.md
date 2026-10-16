@@ -194,7 +194,9 @@ Static Web App and a Standard LRS storage account, with the API application sett
    names/tokens, stable household ID and globally unique resource names. The Bicep
    token parameters are secure; never commit token values or deployment parameter files.
 3. Add the Static Web App deployment token as the GitHub environment secret
-   `AZURE_STATIC_WEB_APPS_API_TOKEN` in the `production` environment.
+   `AZURE_STATIC_WEB_APPS_API_TOKEN` in the `production` environment. This is the
+   deployment token from the Azure Static Web App, not either member's sign-in
+   token. The workflow checks that it is configured before installing dependencies.
 4. Merge or push to `main` to run **Deploy to Azure** automatically. You can also
    run the workflow manually from your intended branch. Production deployments
    share one concurrency group, so automatic and manual runs cannot deploy in

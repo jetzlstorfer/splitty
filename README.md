@@ -1,3 +1,5 @@
+[![Deploy to Azure](https://github.com/jetzlstorfer/splitty/actions/workflows/deploy.yml/badge.svg)](https://github.com/jetzlstorfer/splitty/actions/workflows/deploy.yml)
+
 # Splitty
 
 A private, Android-first expense ledger for two people. Install it as a PWA, enter

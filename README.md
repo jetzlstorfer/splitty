@@ -195,7 +195,10 @@ Static Web App and a Standard LRS storage account, with the API application sett
    token parameters are secure; never commit token values or deployment parameter files.
 3. Add the Static Web App deployment token as the GitHub environment secret
    `AZURE_STATIC_WEB_APPS_API_TOKEN` in the `production` environment.
-4. Run the **Deploy to Azure** workflow manually from your intended branch.
+4. Merge or push to `main` to run **Deploy to Azure** automatically. You can also
+   run the workflow manually from your intended branch. Production deployments
+   share one concurrency group, so automatic and manual runs cannot deploy in
+   parallel; an active deployment is allowed to finish.
 5. Open the resulting HTTPS URL, sign in with the matching member token on each
    device, import once, and verify both devices show the same balance.
 

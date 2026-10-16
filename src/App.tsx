@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { liveQuery } from "dexie";
 import {
-  Check, ChevronDown, Cloud, CloudOff,
+  BarChart3, Check, ChevronDown, Cloud, CloudOff,
   Download, Languages, Plus, Receipt, RefreshCw, Search, Settings, Trash2, Upload, Users, X
 } from "lucide-react";
 import { calculateShareA, expenseBalance, parseMoney, validateEntry, type Entry, type Member, type SplitType } from "../shared/model";
@@ -11,6 +11,7 @@ import { api, ApiError, synchronize, type Identity } from "./sync";
 import { LanguageContext, useLocale } from "./i18n";
 import { categoryLabels, detectCategory, expenseCategory, normalizeText, storedCategory, type Category } from "./categories";
 import ExpenseIcon from "./ExpenseIcon";
+import Statistics from "./Statistics";
 
 const today = () => {
   const date = new Date();
@@ -248,7 +249,7 @@ export default function App() {
 
 function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const { t, language, locale, number, money, message, person, payer } = useLocale();
-  const [tab, setTab] = useState<"expenses" | "search" | "settings">("expenses");
+  const [tab, setTab] = useState<"expenses" | "search" | "statistics" | "settings">("expenses");
   const [form, setForm] = useState<"expense" | "settlement" | Entry | null>(null);
   const [importing, setImporting] = useState(false);
   const [search, setSearch] = useState("");
@@ -384,7 +385,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     <main className={tab === "expenses" ? "with-expense-action" : undefined}>
       {error && <div className="banner error" role="alert">{message(error)}<button className="icon-button" aria-label={t("Dismiss error")} onClick={() => setError("")}><X size={18} /></button></div>}
       {update && <div className="banner">{t("An app update is ready. Your saved entries will be kept.")}<button onClick={() => void update().catch((e: Error) => setError(e.message))} className="text-button">{t("Update")}</button></div>}
-      {tab !== "settings" ? <>
+      {tab === "statistics" ? <Statistics entries={ledger.entries} preferences={p} /> : tab !== "settings" ? <>
         {tab === "expenses" ? <>
           <header className="page-heading">
             <h1>{t("Expenses")}<span className="entry-count">{number(active.length)}</span></h1>
@@ -448,6 +449,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     <nav className="bottom-nav" aria-label={t("Main navigation")}>
       <button className={tab === "expenses" ? "active" : ""} aria-current={tab === "expenses" ? "page" : undefined} onClick={() => navigate("expenses")}><Receipt size={22} /><span>{t("Expenses")}</span></button>
       <button className={tab === "search" ? "active" : ""} aria-current={tab === "search" ? "page" : undefined} onClick={() => navigate("search")}><Search size={22} /><span>{t("Search")}</span></button>
+      <button className={tab === "statistics" ? "active" : ""} aria-current={tab === "statistics" ? "page" : undefined} onClick={() => navigate("statistics")}><BarChart3 size={22} /><span>{t("Statistics")}</span></button>
       <button className={tab === "settings" ? "active" : ""} aria-current={tab === "settings" ? "page" : undefined} onClick={() => navigate("settings")}><Settings size={22} /><span>{t("Settings")}</span></button>
     </nav>
     {form && <ExpenseForm entry={typeof form === "object" ? form : undefined} settlement={form === "settlement" || (typeof form === "object" && form.kind === "settlement")} preferences={p} close={() => setForm(null)} saved={saved} />}

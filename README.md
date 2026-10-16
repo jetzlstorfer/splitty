@@ -264,5 +264,10 @@ tests use a fresh synthetic household and launch/stop their own frontend/API.
 Dependabot checks frontend and API npm dependencies and GitHub Actions weekly.
 Its configuration is in [.github/dependabot.yml](.github/dependabot.yml).
 
+The API pins Azurite's transitive `uuid` dependency to the CommonJS-compatible
+11.1.1 release to address GHSA-w5hq-g745-h8pq. Remove this override once Azurite's
+dependency tree selects patched versions without it. Azurite is development-only;
+after changing its dependencies, run the storage-backed integration checks.
+
 Receipt scanning/OCR is deferred; multiple currencies, multi-person groups, push
 notifications and recurring-expense automation are outside the initial scope.

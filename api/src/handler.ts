@@ -1,5 +1,5 @@
 import { validateMutation, type MutationResult } from "../../shared/model";
-import { authenticate, consumeLink, logout, requestLink, sessionCookie } from "./auth";
+import { authenticate, logout, sessionCookie, signInWithToken } from "./auth";
 import { getConfig, HttpError } from "./config";
 import { applyMutation, readChanges } from "./ledger";
 import { tables } from "./storage";
@@ -33,16 +33,10 @@ export async function handler(request: Request, logError: (message: string) => v
       if (request.headers.get("content-type")?.split(";")[0].trim() !== "application/json") throw new HttpError(415, "Use application/json.");
     }
     const { auth, ledger } = await tables(config);
-    if (path === "auth/request" && request.method === "POST") {
+    if (path === "auth/token" && request.method === "POST") {
       const data = await body(request);
-      if (typeof data.email !== "string" || data.email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) throw new HttpError(400, "Enter a valid email address.");
-      if (data.language !== undefined && data.language !== "de" && data.language !== "en") throw new HttpError(400, "Invalid language.");
-      return json(await requestLink(data.email, config, auth, data.language === "de" ? "de" : "en"), 202);
-    }
-    if (path === "auth/consume" && request.method === "POST") {
-      const data = await body(request);
-      if (typeof data.token !== "string") throw new HttpError(400, "Missing sign-in token.");
-      const cookie = await consumeLink(data.token, config, auth);
+      if (typeof data.token !== "string" || !/^[a-zA-Z0-9_-]{43}$/.test(data.token)) throw new HttpError(400, "Enter a valid member token.");
+      const cookie = await signInWithToken(data.token, config, auth);
       return json({ signedIn: true }, 200, { "Set-Cookie": cookie });
     }
     if (path === "auth/logout" && request.method === "POST") {
@@ -76,7 +70,7 @@ export async function handler(request: Request, logError: (message: string) => v
     throw new HttpError(404, "Endpoint not found.");
   } catch (error) {
     if (error instanceof HttpError) return json({ error: error.message }, error.status);
-    // Avoid logging financial payloads, email addresses, cookies or sign-in tokens.
+    // Avoid logging financial payloads, cookies or member tokens.
     logError(`Splitty request failed (${error instanceof Error ? error.name : "unknown error"}).`);
     return json({ error: "The server could not complete this request. Your changes remain saved on your device. Retry shortly." }, 500);
   }

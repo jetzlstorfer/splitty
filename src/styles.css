@@ -201,7 +201,6 @@ form > label, .panel-content > label { margin-bottom: 20px; }
 .settings-footnote { margin-top: 32px; text-align: center; color: var(--cp-text-soft); font-size: 11px; line-height: 1.8; }
 .loading { display: grid; place-content: center; text-align: center; min-height: 100dvh; color: var(--cp-text-muted); }
 .loading > img { margin: auto auto 20px; border-radius: 16px; }
-.development-link { display: block; padding: 12px 0; }
 @media (min-width: 640px) {
   .app-shell { border-left: 1px solid var(--cp-border); border-right: 1px solid var(--cp-border); }
   .topbar { padding-inline: 32px; }

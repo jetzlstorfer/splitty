@@ -19,7 +19,7 @@ async function importExpenses(page: Page, count: number) {
 test("search owns import, filtering, pagination and editing without filtering Expenses", async ({ page }) => {
   await page.goto("/");
   const nav = page.getByRole("navigation", { name: "Hauptnavigation" });
-  await expect(nav.getByRole("button")).toHaveText(["Ausgaben", "Suche", "Einstellungen"]);
+  await expect(nav.getByRole("button")).toHaveText(["Ausgaben", "Suche", "Statistik", "Einstellungen"]);
   await expect(page.getByRole("heading", { name: "Noch keine Ausgaben" })).toBeVisible();
   await expect(page.getByRole("searchbox")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Import/ })).toHaveCount(0);
@@ -65,13 +65,13 @@ test("search owns import, filtering, pagination and editing without filtering Ex
   await expect(page.getByRole("button", { name: /Import/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Sicherung herunterladen", exact: true })).toBeVisible();
   await page.getByLabel("App-Sprache", { exact: true }).selectOption("en");
-  await expect(page.getByRole("navigation").getByRole("button")).toHaveText(["Expenses", "Search", "Settings"]);
+  await expect(page.getByRole("navigation").getByRole("button")).toHaveText(["Expenses", "Search", "Statistics", "Settings"]);
   await page.getByRole("button", { name: "Search", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Search", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Import", exact: true })).toBeVisible();
 });
 
-test("compact mobile layout shows six expenses and keeps all three tabs usable at 320px", async ({ page }) => {
+test("compact mobile layout shows six expenses and keeps all four tabs usable at 320px", async ({ page }) => {
   await page.goto("/");
   await importExpenses(page, 8);
   await page.getByRole("button", { name: "Ausgaben", exact: true }).click();
@@ -90,7 +90,7 @@ test("compact mobile layout shows six expenses and keeps all three tabs usable a
 
   for (const [width, height] of [[320, 740], [393, 851], [851, 393], [1280, 900]]) {
     await page.setViewportSize({ width, height });
-    for (const tab of ["Ausgaben", "Suche", "Einstellungen"]) {
+    for (const tab of ["Ausgaben", "Suche", "Statistik", "Einstellungen"]) {
       await page.getByRole("navigation").getByRole("button", { name: tab, exact: true }).click();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       const targets = await page.getByRole("navigation").getByRole("button").evaluateAll((buttons) =>

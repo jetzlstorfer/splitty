@@ -1,0 +1,38 @@
+name: Check
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            api/package-lock.json
+      - run: npm ci
+      - run: npm ci --prefix api
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build && npm run build:api
+      - name: Start isolated table emulator
+        run: |
+          mkdir -p "$RUNNER_TEMP/splitty-azurite"
+          api/node_modules/.bin/azurite-table --silent --skipApiVersionCheck --location "$RUNNER_TEMP/splitty-azurite" &
+          for attempt in {1..30}; do
+            if curl --silent --output /dev/null http://127.0.0.1:10002/; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - run: npm test -- tests/api.integration.test.ts
+        env:
+          RUN_AZURE_TESTS: "1"
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e

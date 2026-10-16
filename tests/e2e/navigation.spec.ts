@@ -1,5 +1,51 @@
 import { expect, test, type Page } from "@playwright/test";
 
+for (const reducedMotion of ["no-preference", "reduce"] as const) {
+  test(`visual feedback preserves expense entry with motion preference: ${reducedMotion}`, async ({ page }) => {
+    await page.emulateMedia({ reducedMotion });
+    await page.goto("/");
+    const nav = page.getByRole("navigation");
+    await nav.getByRole("button", { name: "Einstellungen", exact: true }).click();
+    await page.getByLabel("App-Sprache", { exact: true }).selectOption("en");
+    await nav.getByRole("button", { name: "Expenses", exact: true }).click();
+    const motion = reducedMotion === "no-preference";
+    await expect(page.locator(".balance-card")).toHaveCSS("animation-name", motion ? "rise-in" : "none");
+    await expect(page.locator(".add-button")).toHaveCSS("transition-duration", motion ? /0\.18s/ : "0s");
+
+    await page.getByRole("button", { name: "Add expense", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toHaveCSS("animation-name", motion ? "sheet-in" : "none");
+    expect(await dialog.evaluate((element) => getComputedStyle(element, "::backdrop").animationName))
+      .toBe(motion ? "fade-in" : "none");
+    await expect(dialog.getByLabel("Description", { exact: true })).toBeFocused();
+    await dialog.getByLabel("Description", { exact: true }).fill("Coffee together");
+    await dialog.getByRole("textbox", { name: "Amount in EUR" }).fill("12");
+    const split = dialog.getByRole("button", { name: /Split equally/ });
+    await split.click();
+    await expect(split).toHaveAttribute("aria-expanded", "true");
+    await expect(dialog.locator(".split-options")).toBeVisible();
+    await expect(split.locator("svg")).toHaveCSS("transform", "matrix(-1, 0, 0, -1, 0, 0)");
+    await split.click();
+    await expect(dialog.locator(".split-options")).toHaveCount(0);
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+    await expect(page.locator(".expense-row")).toContainText("Coffee together");
+    await expect(page.locator(".balance-amount")).toContainText("6.00");
+
+    await nav.getByRole("button", { name: "Statistics", exact: true }).click();
+    await expect(page.locator(".statistics-total")).toContainText("12.00");
+    await expect(page.locator(".statistics-bar").last()).toHaveCSS("animation-name", motion ? "bar-in" : "none");
+    await expect(page.locator(".statistics-meter > span").first()).toHaveCSS("animation-name", motion ? "meter-in" : "none");
+    await expect(page.locator(".statistics-meter > span").first()).toHaveCSS("transition-duration", motion ? "0.35s" : "0s");
+
+    await nav.getByRole("button", { name: "Expenses", exact: true }).click();
+    await page.getByRole("button", { name: "Add expense", exact: true }).click();
+    await page.keyboard.press("Escape");
+    await expect(dialog).not.toBeVisible();
+    await expect(page.getByRole("button", { name: "Add expense", exact: true })).toBeFocused();
+  });
+}
+
 async function importExpenses(page: Page, count: number) {
   await page.getByRole("button", { name: "Suche", exact: true }).click();
   await page.getByRole("button", { name: "Importieren", exact: true }).click();

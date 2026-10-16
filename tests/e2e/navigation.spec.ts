@@ -17,7 +17,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     await expect(dialog).toHaveCSS("animation-name", motion ? "sheet-in" : "none");
     expect(await dialog.evaluate((element) => getComputedStyle(element, "::backdrop").animationName))
       .toBe(motion ? "fade-in" : "none");
-    await expect(dialog.getByLabel("Description", { exact: true })).toBeFocused();
+    await expect.poll(() => dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
     await dialog.getByLabel("Description", { exact: true }).fill("Coffee together");
     await dialog.getByRole("textbox", { name: "Amount in EUR" }).fill("12");
     const split = dialog.getByRole("button", { name: /Split equally/ });

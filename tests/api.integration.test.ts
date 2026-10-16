@@ -24,11 +24,8 @@ async function call(path: string, data?: unknown, cookie?: string, requestOrigin
 }
 
 async function login(member: "a" | "b"): Promise<string> {
-  const result = await call("auth/request", { email: `${member}@example.com` });
-  expect(result.status).toBe(202);
-  const data = await result.json() as { developmentLink: string };
-  const token = new URL(data.developmentLink).hash.slice("#signin=".length);
-  const signedIn = await call("auth/consume", { token });
+  const token = member === "a" ? "A".repeat(43) : "B".repeat(43);
+  const signedIn = await call("auth/token", { token });
   expect(signedIn.status).toBe(200);
   return signedIn.headers.get("set-cookie")!.split(";")[0];
 }
@@ -39,7 +36,7 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     partitions.push(household);
     Object.assign(process.env, {
       APP_ORIGIN: origin, HOUSEHOLD_ID: household, TABLE_STORAGE_CONNECTION_STRING: "UseDevelopmentStorage=true",
-      MEMBER_A_EMAIL: "a@example.com", MEMBER_B_EMAIL: "b@example.com",
+      MEMBER_A_TOKEN: "A".repeat(43), MEMBER_B_TOKEN: "B".repeat(43),
       MEMBER_A_NAME: "Alex", MEMBER_B_NAME: "Sam", LOCAL_DEVELOPMENT: "true"
     });
   });
@@ -58,22 +55,24 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
   }, 30_000);
   it("requires authentication and rejects cross-origin writes", async () => {
     expect((await call("sync")).status).toBe(401);
-    expect((await call("auth/request", { email: "a@example.com" }, undefined, "https://evil.example")).status).toBe(403);
-    const unknown = await call("auth/request", { email: "stranger@example.com" });
-    expect(await unknown.json()).not.toHaveProperty("developmentLink");
+    expect((await call("auth/token", { token: "A".repeat(43) }, undefined, "https://evil.example")).status).toBe(403);
+    expect((await call("auth/token", { token: "X".repeat(43) })).status).toBe(401);
   });
-  it("makes links single-use, identifies the member, and revokes sessions", async () => {
-    const response = await call("auth/request", { email: "a@example.com" });
-    const data = await response.json() as { developmentLink: string };
-    const token = new URL(data.developmentLink).hash.slice("#signin=".length);
-    const consumed = await call("auth/consume", { token });
+  it("reuses member tokens, identifies the member, and revokes sessions", async () => {
+    const token = "A".repeat(43);
+    const consumed = await call("auth/token", { token });
     expect(consumed.status).toBe(200);
     const cookie = consumed.headers.get("set-cookie")!;
     expect(cookie).toContain("HttpOnly");
     expect(cookie).toContain("SameSite=Lax");
-    expect((await call("auth/consume", { token })).status).toBe(401);
+    expect(cookie).not.toMatch(/(?:Max-Age|Expires)=/i);
+    const secondSession = await call("auth/token", { token });
+    expect(secondSession.status).toBe(200);
     const me = await call("me", undefined, cookie);
     expect(await me.json()).toMatchObject({ member: "a" });
+    process.env.MEMBER_A_TOKEN = "C".repeat(43);
+    expect((await call("me", undefined, cookie)).status).toBe(401);
+    process.env.MEMBER_A_TOKEN = token;
     expect((await call("auth/logout", {}, cookie)).status).toBe(200);
     expect((await call("me", undefined, cookie)).status).toBe(401);
   });

@@ -6,18 +6,16 @@ export interface Config {
   origin: string;
   household: string;
   connection: string;
-  emailA: string;
-  emailB: string;
+  memberAToken: string;
+  memberBToken: string;
   nameA: string;
   nameB: string;
   local: boolean;
-  emailConnection?: string;
-  emailSender?: string;
 }
 
 export function getConfig(): Config {
   const env = process.env;
-  const required = ["APP_ORIGIN", "HOUSEHOLD_ID", "TABLE_STORAGE_CONNECTION_STRING", "MEMBER_A_EMAIL", "MEMBER_B_EMAIL"] as const;
+  const required = ["APP_ORIGIN", "HOUSEHOLD_ID", "TABLE_STORAGE_CONNECTION_STRING", "MEMBER_A_TOKEN", "MEMBER_B_TOKEN"] as const;
   if (required.some((key) => !env[key])) throw new HttpError(503, "The backend is not configured. See the setup instructions.");
   let origin: URL;
   try { origin = new URL(env.APP_ORIGIN!); }
@@ -30,17 +28,14 @@ export function getConfig(): Config {
     || !/^[a-zA-Z0-9_-]{1,100}$/.test(env.HOUSEHOLD_ID!)) {
     throw new HttpError(503, "Invalid or unsafe backend configuration.");
   }
-  const emailA = env.MEMBER_A_EMAIL!.trim().toLowerCase(), emailB = env.MEMBER_B_EMAIL!.trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailA) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailB) || emailA === emailB) {
-    throw new HttpError(503, "Configure two different valid household email addresses.");
-  }
-  if (!local && (!env.EMAIL_CONNECTION_STRING || !env.EMAIL_SENDER)) {
-    throw new HttpError(503, "Email delivery is not configured.");
+  const memberAToken = env.MEMBER_A_TOKEN!, memberBToken = env.MEMBER_B_TOKEN!;
+  if (!/^[a-zA-Z0-9_-]{43}$/.test(memberAToken) || !/^[a-zA-Z0-9_-]{43}$/.test(memberBToken) || memberAToken === memberBToken) {
+    throw new HttpError(503, "Configure two different 43-character member tokens.");
   }
   return {
     origin: origin.origin, household: env.HOUSEHOLD_ID!, connection: env.TABLE_STORAGE_CONNECTION_STRING!,
-    emailA, emailB, nameA: env.MEMBER_A_NAME?.trim() || "First person",
+    memberAToken, memberBToken, nameA: env.MEMBER_A_NAME?.trim() || "First person",
     nameB: env.MEMBER_B_NAME?.trim() || "Second person",
-    local, emailConnection: env.EMAIL_CONNECTION_STRING, emailSender: env.EMAIL_SENDER
+    local
   };
 }

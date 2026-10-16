@@ -22,12 +22,10 @@ async function save(page: Page) {
   await expect(page.getByRole("dialog")).not.toBeVisible();
 }
 
-async function login(page: Page, email: string) {
+async function login(page: Page, token: string) {
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByLabel("Email address").fill(email);
-  await page.getByRole("button", { name: "Email me a sign-in link" }).click();
-  await page.getByRole("link", { name: "Local development sign-in link" }).click();
-  await page.getByRole("button", { name: "Sign in on this device" }).click();
+  await page.getByLabel("Member token").fill(token);
+  await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByText("Signed in as", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "Expenses", exact: true }).click();
 }
@@ -92,14 +90,14 @@ test("mobile expense entry, custom splits, settlements and offline reload", asyn
   await context.setOffline(false);
 });
 
-test("email sign-in and two devices converge after an offline change", async ({ page, browser }) => {
+test("member-token sign-in and two devices converge after an offline change", async ({ page, browser }) => {
   const second: BrowserContext = await browser.newContext({ viewport: { width: 393, height: 851 } });
   const partner = await second.newPage();
   try {
     await page.goto("/"); await partner.goto("/");
     await useEnglish(partner);
-    await login(page, "first@example.com");
-    await login(partner, "second@example.com");
+    await login(page, "A".repeat(43));
+    await login(partner, "B".repeat(43));
     await offlineReady(page);
     await page.context().setOffline(true);
     await addExpense(page, "Shared across devices", "18");

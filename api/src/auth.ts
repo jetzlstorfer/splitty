@@ -1,19 +1,17 @@
-import { createHash, randomBytes } from "node:crypto";
-import { EmailClient } from "@azure/communication-email";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { TableClient } from "@azure/data-tables";
 import type { Member } from "../../shared/model";
-import { translate, type Language } from "../../shared/i18n";
 import { HttpError, type Config } from "./config";
 import { optionalEntity, statusCode } from "./storage";
 
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
-const token = () => randomBytes(32).toString("base64url");
+const randomToken = () => randomBytes(32).toString("base64url");
 const partition = (config: Config) => `auth-${config.household}`;
 const sessionName = (config: Config) => config.local ? "splitty-local" : "__Host-splitty";
-interface AuthEntity { member: Member; expiresAt: number }
+interface AuthEntity { member: Member; credentialDigest: string }
 
-export function sessionCookie(config: Config, value: string, maxAge = 30 * 24 * 3600): string {
-  return `${sessionName(config)}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${config.local ? "" : "; Secure"}`;
+export function sessionCookie(config: Config, value: string, maxAge?: number): string {
+  return `${sessionName(config)}=${value}; Path=/; HttpOnly; SameSite=Lax${maxAge === undefined ? "" : `; Max-Age=${maxAge}`}${config.local ? "" : "; Secure"}`;
 }
 
 function readCookie(request: Request, config: Config): string | null {
@@ -25,70 +23,24 @@ export async function authenticate(request: Request, config: Config, table: Tabl
   const value = readCookie(request, config);
   if (!value || !/^[a-zA-Z0-9_-]{43}$/.test(value)) throw new HttpError(401, "Sign in to sync this device.");
   const session = await optionalEntity<AuthEntity>(table, partition(config), `s-${digest(value)}`);
-  if (!session || session.expiresAt <= Date.now()) throw new HttpError(401, "Your session expired. Sign in again to sync.");
+  if (!session || !/^[a-f0-9]{64}$/.test(session.credentialDigest)) throw new HttpError(401, "Sign in to sync this device.");
+  const expectedDigest = digest(session.member === "a" ? config.memberAToken : config.memberBToken);
+  if (!timingSafeEqual(Buffer.from(session.credentialDigest, "hex"), Buffer.from(expectedDigest, "hex"))) {
+    throw new HttpError(401, "Your member token was rotated. Sign in again.");
+  }
   return session.member;
 }
 
-export function signInEmail(link: string, language: Language) {
-  return {
-    subject: translate(language, "Your Splitty sign-in link"),
-    plainText: translate(language, "Sign in to your shared expense ledger:\n\n{link}\n\nThis link expires in 15 minutes and can be used once. Open it on the device you want to sign in on. If you did not request this, ignore this email.", { link })
-  };
-}
-
-export async function requestLink(email: string, config: Config, table: TableClient, language: Language = "en"): Promise<{ message: string; developmentLink?: string }> {
-  const message = "If this is one of your household email addresses, a sign-in link is on its way. Check your inbox.";
-  const normalized = email.trim().toLowerCase();
-  const member = normalized === config.emailA ? "a" : normalized === config.emailB ? "b" : null;
-  if (!member) return { message };
-  const pk = partition(config), rateKey = `rate-${member}`;
-  const previous = await optionalEntity<{ nextAllowed: number }>(table, pk, rateKey);
-  if (previous && previous.nextAllowed > Date.now()) return { message };
-  try {
-    const rate = { partitionKey: pk, rowKey: rateKey, nextAllowed: Date.now() + 60_000 };
-    if (previous) await table.updateEntity(rate, "Replace", { etag: previous.etag });
-    else await table.createEntity(rate);
-  } catch (error) {
-    if (statusCode(error) === 409 || statusCode(error) === 412) return { message };
-    throw error;
-  }
-  const raw = token(), rowKey = `t-${digest(raw)}`;
-  await table.createEntity({ partitionKey: pk, rowKey, member, expiresAt: Date.now() + 15 * 60_000 });
-  const link = `${config.origin}/#signin=${raw}`;
-  if (config.local) return { message: "Local mode: use the link below. No email was sent.", developmentLink: link };
-  try {
-    const client = new EmailClient(config.emailConnection!);
-    const poller = await client.beginSend({
-      senderAddress: config.emailSender!,
-      recipients: { to: [{ address: normalized }] },
-      content: signInEmail(link, language)
-    });
-    const result = await poller.pollUntilDone();
-    if (result.status !== "Succeeded") throw new Error("Email delivery was not accepted.");
-  } catch (error) {
-    await table.deleteEntity(pk, rowKey);
-    throw error;
-  }
-  return { message };
-}
-
-export async function consumeLink(value: string, config: Config, table: TableClient): Promise<string> {
-  if (!/^[a-zA-Z0-9_-]{43}$/.test(value)) throw new HttpError(400, "Invalid sign-in link.");
-  const pk = partition(config), row = `t-${digest(value)}`;
-  const entity = await optionalEntity<AuthEntity>(table, pk, row);
-  if (!entity || entity.expiresAt <= Date.now()) throw new HttpError(401, "This link expired or was already used. Request a new one.");
-  const raw = token();
-  try {
-    await table.submitTransaction([
-      ["delete", { partitionKey: pk, rowKey: row }],
-      ["create", { partitionKey: pk, rowKey: `s-${digest(raw)}`, member: entity.member, expiresAt: Date.now() + 30 * 24 * 3600_000 }]
-    ]);
-  } catch (error) {
-    if (statusCode(error) === 404 || statusCode(error) === 409 || statusCode(error) === 412) {
-      throw new HttpError(401, "This link has already been used. Request a new one.");
-    }
-    throw error;
-  }
+export async function signInWithToken(value: string, config: Config, table: TableClient): Promise<string> {
+  const provided = Buffer.from(digest(value));
+  const tokenA = timingSafeEqual(provided, Buffer.from(digest(config.memberAToken)));
+  const tokenB = timingSafeEqual(provided, Buffer.from(digest(config.memberBToken)));
+  if (!tokenA && !tokenB) throw new HttpError(401, "Invalid member token.");
+  const member: Member = tokenA ? "a" : "b";
+  const pk = partition(config), raw = randomToken();
+  await table.createEntity({
+    partitionKey: pk, rowKey: `s-${digest(raw)}`, member, credentialDigest: digest(value)
+  });
   return sessionCookie(config, raw);
 }
 

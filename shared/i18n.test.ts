@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { german, isMessageKey, localizeMessage, localeFor, translate, type MessageKey } from "./i18n";
-import { signInEmail } from "../api/src/auth";
 
 describe("German and English translations", () => {
   it("keeps all placeholders aligned across languages", () => {
@@ -27,7 +26,6 @@ describe("German and English translations", () => {
       const source = readFileSync(file.replaceAll("\\", process.platform === "win32" ? "\\" : "/"), "utf8");
       const matches = source.matchAll(/throw new (?:Error|HttpError|ApiError)\((?:\d+, )?"([^"]+)"/g);
       for (const match of matches) {
-        if (match[1] === "Email delivery was not accepted.") continue;
         expect(isMessageKey(match[1]), `Missing translation in ${file}: ${match[1]}`).toBe(true);
       }
     }
@@ -38,11 +36,5 @@ describe("German and English translations", () => {
     expect(parts.filter((part) => part.type === "integer").map((part) => part.value).join("")).toBe("1234");
     expect(new Intl.NumberFormat(localeFor("en")).format(1234.56)).toBe("1,234.56");
     expect(new Intl.DateTimeFormat(localeFor("de"), { month: "long" }).format(new Date("2024-10-01"))).toBe("Oktober");
-  });
-  it("sends sign-in emails in the requested language without changing the link", () => {
-    const link = "https://example.test/#signin=synthetic-token";
-    expect(signInEmail(link, "de")).toMatchObject({ subject: "Dein Splitty-Anmeldelink" });
-    expect(signInEmail(link, "de").plainText).toContain(link);
-    expect(signInEmail(link, "en")).toMatchObject({ subject: "Your Splitty sign-in link" });
   });
 });

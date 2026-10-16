@@ -249,7 +249,7 @@ export default function App() {
 }
 
 function AppContent({ ledger }: { ledger: Snapshot | null }) {
-  const { t, language, locale, number, money, message, person } = useLocale();
+  const { t, locale, number, money, message, person } = useLocale();
   const [tab, setTab] = useState<"expenses" | "settings">("expenses");
   const [form, setForm] = useState<"expense" | "settlement" | Entry | null>(null);
   const [importing, setImporting] = useState(false);
@@ -261,12 +261,8 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const [syncBusy, setSyncBusy] = useState(navigator.onLine);
   const syncLock = useRef(false);
   const [error, setError] = useState("");
-  const [email, setEmail] = useState("");
-  const [emailBusy, setEmailBusy] = useState(false);
-  const [emailMessage, setEmailMessage] = useState("");
-  const [devLink, setDevLink] = useState("");
-  const [signInToken, setSignInToken] = useState(() => new URLSearchParams(window.location.hash.slice(1)).get("signin") ?? "");
-  const [confirmBusy, setConfirmBusy] = useState(false);
+  const [memberToken, setMemberToken] = useState("");
+  const [signInBusy, setSignInBusy] = useState(false);
   const [update, setUpdate] = useState<(() => Promise<void>) | null>(null);
 
   const performSync = useCallback(() => {
@@ -292,28 +288,18 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   }, [performSync]);
 
   useEffect(() => {
-    const signInHash = () => {
-      const token = new URLSearchParams(window.location.hash.slice(1)).get("signin");
-      if (token) {
-        setSignInToken(token);
-        history.replaceState(null, "", window.location.pathname + window.location.search);
-      }
-    };
-    signInHash();
     const connected = () => { setOnline(true); void sync(); };
     const disconnected = () => { setOnline(false); setSyncBusy(false); setSyncStatus("Offline · changes stay on this device"); };
     const focus = () => { if (document.visibilityState === "visible") void sync(); };
     const failure = (event: Event) => setError(String((event as CustomEvent).detail));
     const available = (event: Event) => setUpdate(() => (event as CustomEvent<() => Promise<void>>).detail);
     window.addEventListener("online", connected); window.addEventListener("offline", disconnected);
-    window.addEventListener("hashchange", signInHash);
     document.addEventListener("visibilitychange", focus);
     window.addEventListener("splitty-error", failure); window.addEventListener("splitty-update", available);
     void performSync();
     const interval = window.setInterval(() => { if (document.visibilityState === "visible") void sync(); }, 60_000);
     return () => {
       window.removeEventListener("online", connected); window.removeEventListener("offline", disconnected);
-      window.removeEventListener("hashchange", signInHash);
       document.removeEventListener("visibilitychange", focus);
       window.removeEventListener("splitty-error", failure); window.removeEventListener("splitty-update", available);
       window.clearInterval(interval);
@@ -329,12 +315,12 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const saved = () => { setSyncStatus("Saved on this device"); void sync(); };
 
   async function signIn(event: FormEvent) {
-    event.preventDefault(); setEmailBusy(true); setEmailMessage(""); setError(""); setDevLink("");
+    event.preventDefault(); setSignInBusy(true); setError("");
     try {
-      const result = await api<{ message: string; developmentLink?: string }>("auth/request", { email, language });
-      setEmailMessage(result.message); setDevLink(result.developmentLink ?? "");
-    } catch (e) { setError(e instanceof Error ? e.message : "Could not send a sign-in email."); }
-    finally { setEmailBusy(false); }
+      await api("auth/token", { token: memberToken });
+      setMemberToken(""); setTab("settings"); await sync();
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not sign in with this token."); }
+    finally { setSignInBusy(false); }
   }
 
   async function signOut() {
@@ -342,15 +328,6 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
       await api("auth/logout", {});
       setIdentity(null); setSyncStatus("Signed out · local history remains on this device");
     } catch (e) { setError(e instanceof Error ? e.message : "Could not sign out."); }
-  }
-
-  async function confirmSignIn() {
-    setConfirmBusy(true); setError("");
-    try {
-      await api("auth/consume", { token: signInToken });
-      setSignInToken(""); setTab("settings"); await sync();
-    } catch (e) { setError(e instanceof Error ? e.message : "Could not use this sign-in link."); }
-    finally { setConfirmBusy(false); }
   }
 
   function backup() {
@@ -391,7 +368,6 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     const input = event.target;
     if (input instanceof HTMLInputElement || input instanceof HTMLSelectElement) {
       input.setCustomValidity(input.validity.valueMissing ? t("Please fill out this field.")
-        : input instanceof HTMLInputElement && input.type === "email" ? t("Enter a valid email address.")
         : input instanceof HTMLInputElement && input.type === "date" ? t("Enter a valid date.") : "");
     }
   }} onInputCapture={(event) => {
@@ -447,7 +423,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
         </section>
         <section className="settings-card"><h2><Cloud size={20} />{t("Keep us in sync")}</h2><p className="muted" role="status">{message(syncStatus)}</p>
           {identity ? <><p>{t("Signed in as {name}.", { name: person(p, identity.member) })}</p><div className="button-row"><button className="secondary" disabled={syncBusy} onClick={() => void sync()}><RefreshCw size={16} />{t("Sync now")}</button><button className="text-button" onClick={() => void signOut()}>{t("Sign out")}</button></div><p className="muted">{t("Signing out does not erase this device's offline history. Use a trusted device.")}</p></> :
-            <form onSubmit={signIn}><p>{t("Use your household email address. No passwords to remember.")}</p><label>{t("Email address")}<input type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t("you@example.com")} /></label><button className="primary" disabled={emailBusy || !online}>{t(emailBusy ? "Sending…" : "Email me a sign-in link")}</button>{emailMessage && <p role="status">{message(emailMessage)}</p>}{devLink && <a className="development-link" href={devLink}>{t("Local development sign-in link")}</a>}<p className="muted">{t("Cross-device sync needs the configured backend. Until then, entries stay on this device.")}</p></form>}
+            <form onSubmit={(event) => void signIn(event)}><p>{t("Enter the reusable token for your household member. It stays valid until rotated.")}</p><label>{t("Member token")}<input type="password" autoComplete="off" autoCapitalize="off" spellCheck={false} required maxLength={43} value={memberToken} onChange={(event) => setMemberToken(event.target.value)} /></label><button className="primary" disabled={signInBusy || !online}>{t(signInBusy ? "Signing in…" : "Sign in")}</button><p className="muted">{t("This device stays signed in until you sign out or the member token is rotated.")}</p><p className="muted">{t("Cross-device sync needs the configured backend. Until then, entries stay on this device.")}</p></form>}
         </section>
         <section className="settings-card"><h2><Heart size={20} />{t("The two of us")}</h2><label>{t("First person")}<input defaultValue={p.nameA} key={`a-${p.nameA}`} maxLength={60} readOnly={!!identity} onBlur={(e) => { if (e.target.value.trim() && e.target.value.trim() !== p.nameA) void updatePreferences({ nameA: e.target.value.trim() }).catch((err: Error) => setError(err.message)); }} /></label><label>{t("Second person")}<input defaultValue={p.nameB} key={`b-${p.nameB}`} maxLength={60} readOnly={!!identity} onBlur={(e) => { if (e.target.value.trim() && e.target.value.trim() !== p.nameB) void updatePreferences({ nameB: e.target.value.trim() }).catch((err: Error) => setError(err.message)); }} /></label>
           {!identity && <label>{t("This device belongs to")}<select value={p.member} onChange={(e) => void updatePreferences({ member: e.target.value as Member }).catch((err: Error) => setError(err.message))}><option value="a">{p.nameA}</option><option value="b">{p.nameB}</option></select></label>}
@@ -461,6 +437,5 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     <nav className="bottom-nav" aria-label={t("Main navigation")}><button className={tab === "expenses" ? "active" : ""} aria-current={tab === "expenses" ? "page" : undefined} onClick={() => setTab("expenses")}><Receipt size={23} /><span>{t("Expenses")}</span></button><button className={tab === "settings" ? "active" : ""} aria-current={tab === "settings" ? "page" : undefined} onClick={() => setTab("settings")}><Settings size={23} /><span>{t("Settings")}</span></button></nav>
     {form && <ExpenseForm entry={typeof form === "object" ? form : undefined} settlement={form === "settlement" || (typeof form === "object" && form.kind === "settlement")} preferences={p} close={() => setForm(null)} saved={saved} />}
     {importing && <ImportForm preferences={p} close={() => setImporting(false)} saved={saved} />}
-    {!!signInToken && <Sheet title={t("Welcome back")} close={() => setSignInToken("")}><div className="panel-content"><div className="form-symbol"><Heart size={28} /></div><p>{t("Sign in on this device to share your ledger. Your offline entries will be kept and synchronized.")}</p><button className="primary" disabled={confirmBusy} onClick={() => void confirmSignIn()}>{t(confirmBusy ? "Signing in…" : "Sign in on this device")}</button>{error && <p role="alert" className="error">{message(error)}</p>}</div></Sheet>}
   </div>;
 }

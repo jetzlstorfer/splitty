@@ -2,7 +2,7 @@
 
 A private, Android-first expense ledger for two people. Install it as a PWA, enter
 an amount in EUR, and split equally by default. It works locally without an
-account; email sign-in enables shared history across your devices.
+account; reusable member tokens enable shared history across your devices.
 
 ## What is implemented
 
@@ -12,14 +12,14 @@ account; email sign-in enables shared history across your devices.
 - IndexedDB persistence and a transactional outbox: saving never waits for a server.
 - An installable app shell, offline reloads, and explicit prompts for app updates.
 - German by default, with a persistent **Einstellungen > App-Sprache** switch to
-  English. Dates, amounts, messages, accessible labels, and sign-in emails follow
+  English. Dates, amounts, messages, accessible labels, and sign-in text follow
   the selected language. Language is a device preference, not a shared household setting.
 - Live category icons while entering descriptions and throughout the expense list,
   with an optional manual category override.
 - Reviewed German/English Splitwise CSV import for two-person EUR groups, with
   cent-exact accounting, duplicate prevention and final-balance reconciliation.
 - JSON backups and restoration of missing entries without overwriting local history.
-- Azure Functions/Table Storage sync, single-use email sign-in links, two-person
+- Azure Functions/Table Storage sync, reusable member tokens, two-person
   access control, and explicit conflict resolution.
 
 This is an independent implementation, not affiliated with Splitwise. No branding,
@@ -73,8 +73,10 @@ sync is unavailable and entries remain on that browser. Service-worker/offline
 reload behavior is enabled in production builds, not the Vite development server.
 
 For local sign-in and sync, copy `api\local.settings.example.json` to
-`api\local.settings.json`, configure the two names and emails, and run these in
-separate terminals:
+`api\local.settings.json`, replace both example member tokens with random values,
+configure the two names, and run these in separate terminals. Generate a token
+with `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"`
+and repeat the command for the second member:
 
 ```powershell
 # Terminal 1: local Azure Table Storage emulator; use an ignored directory.
@@ -87,10 +89,10 @@ npm --prefix api run dev
 npm run dev
 ```
 
-The example emails are `first@example.com` and `second@example.com`. In explicitly
-enabled local mode, the sign-in form displays a development link rather than
-sending email. This mode is rejected for non-loopback origins, production Node
-environments, and Azure-hosted instances. No sign-in token is logged.
+The two tokens are independent 256-bit credentials. Keep them private and send
+each member only their own token. The local example values are placeholders, not
+secure credentials. Local development mode is rejected for non-loopback origins,
+production Node environments, and Azure-hosted instances. No sign-in token is logged.
 
 To exercise the installable production build locally, build and preview:
 
@@ -146,16 +148,13 @@ Azure Static Web Apps (Free)
                  |
 Azure Storage / Table Storage (Standard LRS)
   household entries, ordered changes, operation receipts
-  hashed sign-in tokens and server-side sessions
-                 |
-Azure Communication Services Email
-  sign-in links only
+  server-side device sessions
 ```
 
 Azure is not necessary for local-only use, but automatic sharing requires a shared
 backend somewhere. This setup avoids an always-on server and database. Static Web
 Apps Free includes managed API hosting; Table Storage charges for storage and
-operations, and Communication Services charges for email. For two people this is
+operations. For two people this is
 intended to be a very small pay-as-you-go workload, not a guaranteed free service.
 Verify current regional pricing and set budget alerts. Alerts are not spending caps.
 Cold starts can delay sync/sign-in, but not expense entry, which always saves locally.
@@ -188,17 +187,21 @@ devices with OS screen locks. This is not end-to-end encrypted storage.
 No resources are provisioned automatically. `infra\main.bicep` describes a Free
 Static Web App and a Standard LRS storage account, with the API application settings.
 
-1. Create/link Azure Communication Services and an Email Communication Services
-   domain. An Azure-managed domain is sufficient; obtain its allowed sender and
-   the Communication Services connection string. Do not put these in Git.
+1. Generate two random member tokens with
+   `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"`.
+   Store them in a password manager and distribute each only to its member.
 2. Deploy `infra\main.bicep` into your chosen resource group, providing the two
-   emails/names, stable household ID, globally unique resource names, sender and
-   secret email connection string through secure deployment parameters.
+   names/tokens, stable household ID and globally unique resource names. The Bicep
+   token parameters are secure; never commit token values or deployment parameter files.
 3. Add the Static Web App deployment token as the GitHub environment secret
    `AZURE_STATIC_WEB_APPS_API_TOKEN` in the `production` environment.
 4. Run the **Deploy to Azure** workflow manually from your intended branch.
-5. Open the resulting HTTPS URL, sign in as each person on separate devices,
-   import once, and verify both devices show the same balance.
+5. Open the resulting HTTPS URL, sign in with the matching member token on each
+   device, import once, and verify both devices show the same balance.
+
+For an existing Static Web App, add or replace `MEMBER_A_TOKEN` and
+`MEMBER_B_TOKEN` under **Configuration** with the same generated values, remove
+the old email-related settings, and deploy the updated app/API.
 
 For a custom domain, set `APP_ORIGIN` to that exact HTTPS origin, without a trailing
 slash. The frontend and API must share that origin. Keep `LOCAL_DEVELOPMENT=false`.
@@ -207,15 +210,14 @@ Both members are trusted household editors; neither can access another household
 Do not repoint an existing device to a different household without first backing
 up and clearing that site's local data.
 
-Authentication uses random, hashed-at-rest, 15-minute single-use links. The link
-token is in the URL fragment (not an HTTP URL/query) and is removed from browser
-history on load. An explicit confirmation consumes the link, preventing ordinary
-email preview fetches from signing a device in. Sessions last 30 days and use an
-HttpOnly, Secure, SameSite cookie in production. Writes require an exact matching
-Origin and JSON content type. Email requests are allowlisted and limited to one
-per minute per household member. Expired auth records remain inert in Table
-Storage; periodically remove expired tokens/sessions as an operational cleanup.
-Rotate storage/email credentials through Azure settings, never through client code.
+Each member has a reusable 256-bit token that does not expire. The server keeps
+these tokens in backend settings and never stores them in browser storage; signing
+in exchanges one for a server-side session using an HttpOnly, Secure, SameSite
+cookie in production with no expiry. A device stays signed in until it signs out
+or that member token is rotated. The session stores the member-token digest, so
+replacing a member token revokes that member's existing sessions. Treat tokens
+like passwords: anyone who has one can access the shared ledger. Rotate storage
+and member tokens through Azure settings, never through client code.
 
 Table Storage LRS is replication, not protection against accidental deletion.
 Retain JSON backups separately and back up the table account, including change
@@ -225,7 +227,6 @@ snapshot-and-cursor migration for all devices.
 References: [Static Web Apps](https://learn.microsoft.com/azure/static-web-apps/overview),
 [Table Storage](https://learn.microsoft.com/azure/storage/tables/table-storage-overview),
 [Storage concurrency](https://learn.microsoft.com/azure/storage/common/storage-concurrency),
-[Communication Services Email](https://learn.microsoft.com/azure/communication-services/concepts/email/email-overview).
 
 ## Checks
 

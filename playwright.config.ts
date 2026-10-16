@@ -28,8 +28,8 @@ export default defineConfig({
         LOCAL_DEVELOPMENT: "true",
         TABLE_STORAGE_CONNECTION_STRING: "UseDevelopmentStorage=true",
         HOUSEHOLD_ID: `browser-test-${randomUUID()}`,
-        MEMBER_A_EMAIL: "first@example.com",
-        MEMBER_B_EMAIL: "second@example.com",
+        MEMBER_A_TOKEN: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        MEMBER_B_TOKEN: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
         MEMBER_A_NAME: "Alex",
         MEMBER_B_NAME: "Sam"
       }

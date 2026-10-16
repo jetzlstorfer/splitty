@@ -12,21 +12,20 @@ param storageName string
 @description('A stable identifier for your shared household. Do not change after importing.')
 param householdId string = 'our-household'
 
-@description('Email address of the first person, matching the import mapping.')
-param memberAEmail string
-
-@description('Email address of the second person.')
-param memberBEmail string
-
 param memberAName string
 param memberBName string
 
 @secure()
-@description('Connection string from Azure Communication Services with an email domain linked.')
-param emailConnectionString string
+@minLength(43)
+@maxLength(43)
+@description('Reusable 43-character base64url token for the first person.')
+param memberAToken string
 
-@description('Verified sender address from the linked Email Communication Services domain.')
-param emailSender string
+@secure()
+@minLength(43)
+@maxLength(43)
+@description('Reusable 43-character base64url token for the second person.')
+param memberBToken string
 
 resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: storageName
@@ -60,13 +59,11 @@ resource settings 'Microsoft.Web/staticSites/config@2023-12-01' = {
     APP_ORIGIN: 'https://${site.properties.defaultHostname}'
     HOUSEHOLD_ID: householdId
     TABLE_STORAGE_CONNECTION_STRING: 'DefaultEndpointsProtocol=https;AccountName=${storage.name};AccountKey=${storage.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
-    MEMBER_A_EMAIL: memberAEmail
-    MEMBER_B_EMAIL: memberBEmail
+    MEMBER_A_TOKEN: memberAToken
+    MEMBER_B_TOKEN: memberBToken
     MEMBER_A_NAME: memberAName
     MEMBER_B_NAME: memberBName
     LOCAL_DEVELOPMENT: 'false'
-    EMAIL_CONNECTION_STRING: emailConnectionString
-    EMAIL_SENDER: emailSender
   }
 }
 

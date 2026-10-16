@@ -29,6 +29,18 @@ describe("expense statistics", () => {
     });
   });
 
+  it("pads early years to four digits across the minimum selectable year's boundary", () => {
+    const result = summarizeStatistics([
+      entry({ date: "0001-01-01", amountCents: 125 })
+    ], "0001-01", "0001-01");
+    expect(result.months).toEqual([
+      { month: "0000-08", total: 0 }, { month: "0000-09", total: 0 },
+      { month: "0000-10", total: 0 }, { month: "0000-11", total: 0 },
+      { month: "0000-12", total: 0 }, { month: "0001-01", total: 125 }
+    ]);
+    expect(result).toMatchObject({ total: 125, count: 1 });
+  });
+
   it("filters the summary at month boundaries without filtering the six-month chart", () => {
     const januaryLast = entry({ id: "last", date: "2025-01-31", amountCents: 300, paidBy: "b" });
     const result = summarizeStatistics([

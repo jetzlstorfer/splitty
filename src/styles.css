@@ -222,7 +222,7 @@ form > label, .panel-content > label { margin-bottom: 20px; }
 .statistics-payer { margin: 20px 0; }
 .payer-b .statistics-meter > span { background: #8594d5; }
 .payer-unknown .statistics-meter > span { background: var(--cp-text-soft); }
-.statistics-page .refund { background: repeating-linear-gradient(135deg, var(--cp-owed) 0 3px, var(--cp-owed-soft) 3px 6px); }
+.statistics-page .statistics-bar.refund, .statistics-page .statistics-meter > .refund { background: repeating-linear-gradient(135deg, var(--cp-owed) 0 3px, var(--cp-owed-soft) 3px 6px); }
 .statistics-highlight { display: flex; align-items: center; gap: 12px; padding: 18px 16px; margin-top: 16px; border-radius: 18px; background: var(--cp-surface-soft); }
 .statistics-highlight > div { flex: 1; min-width: 0; }
 .statistics-highlight h2 { font-size: 11px; color: var(--cp-text-muted); font-weight: 500; margin-bottom: 5px; }

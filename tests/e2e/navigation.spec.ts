@@ -1,5 +1,35 @@
 import { expect, test, type Page } from "@playwright/test";
 
+test.describe("touch navigation", () => {
+  test.use({ hasTouch: true });
+
+  test("bottom tabs suppress native tap flashes and retain active and keyboard feedback", async ({ page }) => {
+    await page.goto("/");
+    const nav = page.getByRole("navigation", { name: "Hauptnavigation" });
+    for (const theme of ["light", "dark"]) {
+      await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
+      for (const name of ["Suche", "Statistik", "Einstellungen", "Ausgaben", "Ausgaben"]) {
+        const button = nav.getByRole("button", { name, exact: true });
+        for (const target of [button, button.locator("svg"), button.locator("span")]) {
+          await expect(target).toHaveCSS("-webkit-tap-highlight-color", "rgba(0, 0, 0, 0)");
+        }
+        await button.locator("svg").tap();
+        await expect(button).toHaveAttribute("aria-current", "page");
+        await expect(nav.locator('[aria-current="page"]')).toHaveCount(1);
+        await expect(button).toHaveCSS("font-weight", "600");
+        await expect(button.locator("svg")).toHaveCSS("color", await button.evaluate((element) =>
+          getComputedStyle(element).color));
+      }
+    }
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Shift+Tab");
+    const expenses = nav.getByRole("button", { name: "Ausgaben", exact: true });
+    await expect(expenses).toBeFocused();
+    await expect(expenses).toHaveCSS("outline-style", "solid");
+    await expect(expenses).toHaveCSS("outline-width", "3px");
+  });
+});
+
 async function importExpenses(page: Page, count: number) {
   await page.getByRole("button", { name: "Suche", exact: true }).click();
   await page.getByRole("button", { name: "Importieren", exact: true }).click();

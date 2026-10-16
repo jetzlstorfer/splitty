@@ -17,7 +17,7 @@ test("German is the default and category icons update while typing, saving and e
   await page.setViewportSize({ width: 320, height: 851 });
   await page.goto("/");
   await expect(page.locator("html")).toHaveAttribute("lang", "de");
-  await expect(page.getByRole("heading", { name: "Nur wir zwei" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^Ausgaben/, level: 1 })).toBeVisible();
   await expect(page.getByRole("status")).toContainText("Zum Synchronisieren anmelden");
   const dialog = await addGerman(page, "Billa");
   for (const [term, category] of [
@@ -55,6 +55,7 @@ test("German is the default and category icons update while typing, saving and e
   await row.click();
   await expect(page.getByLabel("Kategorie", { exact: true })).toHaveValue("groceries");
   await page.getByRole("button", { name: "Schließen", exact: true }).click();
+  await page.getByRole("button", { name: "Suche", exact: true }).click();
   await page.getByLabel("Ausgaben suchen", { exact: true }).fill("Lebensmittel");
   await expect(row).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -112,6 +113,7 @@ test("German import feedback, existing category icons, and translations preserve
     + "2024-01-05,Apotheke,Medikamente,10.00,EUR,5.00,-5.00\n"
     + "2024-01-06,Payment,Zahlung,10.00,EUR,-10.00,10.00\n"
     + "2024-01-07,Gesamtbilanz,,,EUR,20.00,-20.00\n";
+  await page.getByRole("button", { name: "Suche", exact: true }).click();
   await page.getByRole("button", { name: "Importieren", exact: true }).click();
   const dialog = page.getByRole("dialog");
   const file = dialog.getByLabel("Splitwise-CSV", { exact: true });
@@ -125,6 +127,7 @@ test("German import feedback, existing category icons, and translations preserve
   await expect(dialog.getByText("Stimmt mit dem Endsaldo deines Exports überein.")).toBeVisible();
   await dialog.getByRole("button", { name: "Import bestätigen", exact: true }).click();
   await expect(dialog).not.toBeVisible();
+  await page.getByRole("button", { name: "Ausgaben", exact: true }).click();
   for (const [description, category] of [
     ["Billa", "Lebensmittel"], ["Tanken", "Tanken"], ["Putzfrau", "Reinigung"],
     ["Friseur", "Friseur"], ["Apotheke", "Apotheke"], ["Payment", "Zahlung"]
@@ -136,8 +139,9 @@ test("German import feedback, existing category icons, and translations preserve
   await page.getByRole("button", { name: "Einstellungen", exact: true }).click();
   await page.getByLabel("App-Sprache", { exact: true }).selectOption("en");
   await page.getByRole("button", { name: "Expenses", exact: true }).click();
+  await expect(page.locator(".balance-amount")).toContainText("20.00");
+  await page.getByRole("button", { name: "Search", exact: true }).click();
   await page.getByLabel("Search expenses", { exact: true }).fill("Groceries");
   await expect(page.getByText("Billa", { exact: true })).toBeVisible();
   await expect(page.locator(".expense-row").getByRole("img", { name: "Groceries", exact: true })).toBeVisible();
-  await expect(page.locator(".balance-amount")).toContainText("20.00");
 });

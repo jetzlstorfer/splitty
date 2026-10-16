@@ -29,6 +29,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     await expect(dialog.locator(".split-options")).toHaveCount(0);
     await dialog.getByRole("button", { name: "Save", exact: true }).click();
     await expect(dialog).not.toBeVisible();
+    await expect(page.getByRole("button", { name: "Add expense", exact: true })).toBeFocused();
     await expect(page.locator(".expense-row")).toContainText("Coffee together");
     await expect(page.locator(".balance-amount")).toContainText("6.00");
 
@@ -41,6 +42,11 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     await nav.getByRole("button", { name: "Expenses", exact: true }).click();
     await page.getByRole("button", { name: "Add expense", exact: true }).click();
     await page.keyboard.press("Escape");
+    await expect(dialog).not.toBeVisible();
+    await expect(page.getByRole("button", { name: "Add expense", exact: true })).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
     await expect(dialog).not.toBeVisible();
     await expect(page.getByRole("button", { name: "Add expense", exact: true })).toBeFocused();
   });

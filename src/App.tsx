@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { liveQuery } from "dexie";
 import {
   BarChart3, Check, ChevronDown, Cloud, CloudOff,
@@ -41,9 +41,10 @@ function Sheet({ title, children, close }: { title: string; children: ReactNode;
   const { t } = useLocale();
   const dialog = useRef<HTMLDialogElement>(null);
   const heading = useId();
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = dialog.current;
     element?.showModal();
+    // Close before React removes the dialog so the browser can restore focus to its opener.
     return () => element?.close();
   }, []);
   return <dialog ref={dialog} onCancel={close} className="sheet" aria-labelledby={heading}>

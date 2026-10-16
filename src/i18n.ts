@@ -16,6 +16,9 @@ export function useLocale() {
     const name = member === "a" ? preferences.nameA : preferences.nameB;
     return !name || name === (member === "a" ? "You" : "Your wife") ? t(member === "a" ? "You" : "Your wife") : name;
   };
-  const payer = (preferences: Preferences, member: Member) => member === preferences.member ? t("You") : person(preferences, member);
+  const payer = (preferences: Preferences, member: Member) => {
+    const name = person(preferences, member);
+    return name === t(member === "a" ? "You" : "Your wife") ? t(member === "a" ? "First person" : "Second person") : name;
+  };
   return { language, locale, t, money, number, message, person, payer };
 }

@@ -100,7 +100,7 @@ test("header and footer stay visible with themed blur while scrolling", async ({
         for (const bar of layout) {
           expect(bar.left).toBeGreaterThanOrEqual(0);
           expect(bar.right).toBeLessThanOrEqual(width);
-          expect(bar.blur).toContain("blur(16px)");
+          expect(bar.blur).toContain("blur(32px)");
           expect(bar.background).toMatch(/(?:0?\.82|82%)/);
         }
         if (position > 0) expect(await page.evaluate(() => scrollY)).toBeGreaterThan(0);

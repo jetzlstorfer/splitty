@@ -1,0 +1,22 @@
+{
+  "name": "splitty-api",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/api/src/functions.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/dev.ts",
+    "start": "func start"
+  },
+  "dependencies": {
+    "@azure/communication-email": "^1.0.0",
+    "@azure/data-tables": "^13.3.0",
+    "@azure/functions": "^4.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "azurite": "^3.34.0",
+    "tsx": "^4.19.2",
+    "typescript": "~5.7.2"
+  }
+}

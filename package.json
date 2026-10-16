@@ -1,0 +1,35 @@
+{
+  "name": "splitty",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc -p tsconfig.json && vite build",
+    "build:api": "npm --prefix api run build",
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "dexie": "^4.0.11",
+    "lucide-react": "^0.468.0",
+    "papaparse": "^5.5.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.0",
+    "@types/node": "^22.10.0",
+    "@types/papaparse": "^5.3.16",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "fake-indexeddb": "^6.0.0",
+    "typescript": "~5.7.2",
+    "vite": "^6.0.5",
+    "vite-plugin-pwa": "^0.21.1",
+    "vitest": "^3.0.5"
+  }
+}

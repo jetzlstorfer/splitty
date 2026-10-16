@@ -1,0 +1,17 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "FUNCTIONS_WORKER_RUNTIME": "node",
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "TABLE_STORAGE_CONNECTION_STRING": "UseDevelopmentStorage=true",
+    "APP_ORIGIN": "http://127.0.0.1:5173",
+    "HOUSEHOLD_ID": "our-household",
+    "MEMBER_A_EMAIL": "first@example.com",
+    "MEMBER_B_EMAIL": "second@example.com",
+    "MEMBER_A_NAME": "Alex",
+    "MEMBER_B_NAME": "Sam",
+    "LOCAL_DEVELOPMENT": "true",
+    "EMAIL_CONNECTION_STRING": "",
+    "EMAIL_SENDER": ""
+  }
+}

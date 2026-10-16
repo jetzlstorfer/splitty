@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+local.settings.json
+splitwise-data/
+*.csv
+splitty-backup-*.json
+*.tsbuildinfo
+.azure/
+playwright-report/
+test-results/

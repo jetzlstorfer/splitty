@@ -71,6 +71,52 @@ test("search owns import, filtering, pagination and editing without filtering Ex
   await expect(page.getByRole("button", { name: "Import", exact: true })).toBeVisible();
 });
 
+test("header and footer stay visible with themed blur while scrolling", async ({ page }) => {
+  await page.goto("/");
+  await importExpenses(page, 40);
+  await page.getByRole("button", { name: "Ausgaben", exact: true }).click();
+  await expect(page.locator(".expense-row")).toHaveCount(40);
+
+  for (const [width, height] of [[320, 740], [851, 393], [1280, 900]]) {
+    await page.setViewportSize({ width, height });
+    for (const theme of ["light", "dark"]) {
+      await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
+      for (const position of [0, 0.5, 1]) {
+        await page.evaluate((position) => {
+          window.scrollTo(0, (document.documentElement.scrollHeight - innerHeight) * position);
+        }, position);
+        await expect.poll(() => page.locator(".topbar").evaluate((element) =>
+          element.getBoundingClientRect().top)).toBe(0);
+        const layout = await page.locator(".topbar, .bottom-nav").evaluateAll((elements) =>
+          elements.map((element) => {
+            const rect = element.getBoundingClientRect();
+            const style = getComputedStyle(element);
+            return {
+              left: rect.left, right: rect.right, bottom: rect.bottom,
+              blur: style.backdropFilter, background: style.backgroundColor
+            };
+          }));
+        expect(layout[1].bottom).toBe(height);
+        for (const bar of layout) {
+          expect(bar.left).toBeGreaterThanOrEqual(0);
+          expect(bar.right).toBeLessThanOrEqual(width);
+          expect(bar.blur).toContain("blur(16px)");
+          expect(bar.background).toMatch(/(?:0?\.82|82%)/);
+        }
+        if (position > 0) expect(await page.evaluate(() => scrollY)).toBeGreaterThan(0);
+      }
+      const lastRow = page.locator(".expense-row").last();
+      const rowBottom = await lastRow.evaluate((element) => element.getBoundingClientRect().bottom);
+      const actionTop = await page.locator(".expense-action").evaluate((element) => element.getBoundingClientRect().top);
+      expect(rowBottom).toBeLessThanOrEqual(actionTop);
+      await lastRow.click();
+      await expect(page.getByRole("dialog")).toBeVisible();
+      await page.getByRole("button", { name: "Speichern", exact: true }).click();
+      await expect(page.getByRole("dialog")).not.toBeVisible();
+    }
+  }
+});
+
 test("compact mobile layout shows six expenses and keeps all four tabs usable at 320px", async ({ page }) => {
   await page.goto("/");
   await importExpenses(page, 8);

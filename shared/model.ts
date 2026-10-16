@@ -19,6 +19,7 @@ export interface Entry {
   importKey?: string;
   splitType?: SplitType;
   percentageA?: number;
+  categoryMode?: "auto" | "manual";
 }
 
 export interface Mutation {
@@ -94,6 +95,9 @@ export function validateEntry(value: unknown): Entry {
   if (e.splitType !== undefined && !["equal", "exact", "percent", "all-a", "all-b"].includes(String(e.splitType))) {
     throw new Error("Invalid split method.");
   }
+  if (e.categoryMode !== undefined && e.categoryMode !== "auto" && e.categoryMode !== "manual") {
+    throw new Error("Invalid expense fields.");
+  }
   if (e.percentageA !== undefined && (typeof e.percentageA !== "number" || !Number.isFinite(e.percentageA)
     || e.percentageA < 0 || e.percentageA > 100
     || Math.abs(e.percentageA * 100 - Math.round(e.percentageA * 100)) > 0.000001)) {
@@ -124,7 +128,8 @@ export function validateEntry(value: unknown): Entry {
     revision: e.revision, updatedAt: e.updatedAt, deleted: e.deleted,
     ...(e.importKey ? { importKey: e.importKey as string } : {}),
     ...(e.splitType && e.kind === "expense" ? { splitType: e.splitType as SplitType } : {}),
-    ...(e.splitType === "percent" && e.kind === "expense" ? { percentageA: e.percentageA as number } : {})
+    ...(e.splitType === "percent" && e.kind === "expense" ? { percentageA: e.percentageA as number } : {}),
+    ...(e.categoryMode ? { categoryMode: e.categoryMode as "auto" | "manual" } : {})
   };
 }
 

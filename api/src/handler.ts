@@ -36,7 +36,8 @@ export async function handler(request: Request, logError: (message: string) => v
     if (path === "auth/request" && request.method === "POST") {
       const data = await body(request);
       if (typeof data.email !== "string" || data.email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) throw new HttpError(400, "Enter a valid email address.");
-      return json(await requestLink(data.email, config, auth), 202);
+      if (data.language !== undefined && data.language !== "de" && data.language !== "en") throw new HttpError(400, "Invalid language.");
+      return json(await requestLink(data.email, config, auth, data.language === "de" ? "de" : "en"), 202);
     }
     if (path === "auth/consume" && request.method === "POST") {
       const data = await body(request);

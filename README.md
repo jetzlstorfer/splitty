@@ -11,6 +11,11 @@ account; email sign-in enables shared history across your devices.
 - Shared running balance, settlements, search, editing and deletion.
 - IndexedDB persistence and a transactional outbox: saving never waits for a server.
 - An installable app shell, offline reloads, and explicit prompts for app updates.
+- German by default, with a persistent **Einstellungen > App-Sprache** switch to
+  English. Dates, amounts, messages, accessible labels, and sign-in emails follow
+  the selected language. Language is a device preference, not a shared household setting.
+- Live category icons while entering descriptions and throughout the expense list,
+  with an optional manual category override.
 - Reviewed German/English Splitwise CSV import for two-person EUR groups, with
   cent-exact accounting, duplicate prevention and final-balance reconciliation.
 - JSON backups and restoration of missing entries without overwriting local history.
@@ -24,6 +29,34 @@ The mobile UI uses a Splitwise-inspired teal palette, green credit/orange debt
 indicators, a compact ledger, and a floating add-expense button. Light and dark
 themes share the same visual language. The original app icon is a heart containing
 a euro symbol, used consistently in the app, favicon, and Android install icons.
+
+### Expense categories
+
+Detection runs entirely on the device and recognizes both German and English,
+regardless of the selected interface language. It ignores case and handles umlauts
+and common transliterations. Terms match whole words or phrases, so `spar` does
+not match `spare parts` and `uni` does not match `university`.
+
+| Category | Examples |
+| --- | --- |
+| Groceries / Lebensmittel | Billa, Hofer, Spar, Interspar, Uni, Unimarkt, Lidl, groceries |
+| Fuel / Tanken | Tanken, Tankstelle, Benzin, Diesel, OMV, petrol, gas station |
+| Cleaning / Reinigung | Putzfrau, Putzhilfe, Reinigung, cleaning lady |
+| Hairdresser / Friseur | Friseur, Frisör, hairdresser, haircut, barber |
+| Pharmacy / Apotheke | Apotheke, Medikamente, pharmacy, medication |
+| Restaurant / Essen | Essen, Mittagessen, Abendessen, Gasthaus, restaurant, dinner |
+
+Additional categories cover restaurants, coffee, transport, parking, cars, home,
+utilities, phone/internet, shopping, health, pets, entertainment, travel, gifts,
+insurance, and education. Unknown descriptions use a general receipt icon.
+`Gasrechnung` and `gas bill` mean utilities, not car fuel.
+
+Automatic categories update when a description changes. Manual selections stay
+fixed, including an explicit General selection. Imported expenses retain their
+original category and accounting data; icons use a recognized source category first,
+or infer one from the description for general/unknown source categories.
+Payments always use the payment icon. Changing language does not translate or
+rewrite personal expense descriptions, names, imported data, or import IDs.
 
 ## Run locally
 

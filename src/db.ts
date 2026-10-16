@@ -1,5 +1,6 @@
 import Dexie, { type EntityTable } from "dexie";
 import { validateEntry, type Entry, type Member, type Mutation, type MutationResult, type SyncPage } from "../shared/model";
+import type { Language } from "../shared/i18n";
 
 export interface Preferences {
   id: "preferences";
@@ -7,6 +8,7 @@ export interface Preferences {
   nameA: string;
   nameB: string;
   cursor: number;
+  language?: Language;
 }
 
 export interface Conflict {
@@ -34,8 +36,15 @@ export class SplittyDatabase extends Dexie {
 export const db = new SplittyDatabase();
 
 export async function getPreferences(database = db): Promise<Preferences> {
-  return await database.preferences.get("preferences")
+  const preferences: Preferences = await database.preferences.get("preferences")
     ?? { id: "preferences", member: "a", nameA: "You", nameB: "Your wife", cursor: 0 };
+  return { ...preferences, language: preferences.language === "en" ? "en" : "de" };
+}
+
+export async function updatePreferences(changes: Partial<Omit<Preferences, "id" | "cursor">>, database = db): Promise<void> {
+  await database.transaction("rw", database.preferences, async () => {
+    await database.preferences.put({ ...await getPreferences(database), ...changes });
+  });
 }
 
 export async function queueEntries(entries: Entry[], database = db): Promise<void> {

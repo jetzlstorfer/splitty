@@ -9,9 +9,10 @@ export default defineConfig({
       registerType: "prompt",
       includeAssets: ["icon.svg"],
       manifest: {
-        name: "Splitty - our shared expenses",
+        name: "Splitty - Gemeinsame Ausgaben",
         short_name: "Splitty",
-        description: "Shared expenses, simple splits. Just for two.",
+        description: "Gemeinsame Ausgaben einfach teilen. Nur für zwei.",
+        lang: "de",
         display: "standalone",
         start_url: "/",
         scope: "/",

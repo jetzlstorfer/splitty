@@ -143,7 +143,18 @@ input::placeholder { color: var(--cp-text-soft); }
 .expense-with { font-size: 14px; color: var(--cp-text-muted); margin-bottom: 24px; }
 .expense-with strong { color: var(--cp-text); font-weight: 500; border: 1px solid var(--cp-border); padding: 5px 9px; border-radius: 4px; }
 .description-input { display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--cp-border-strong); }
-.description-input > svg { flex-shrink: 0; color: var(--cp-text-soft); }
+.description-field { margin-bottom: 16px; }
+.description-field > label { margin-bottom: 8px; }
+.expense-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.description-input > .expense-icon { color: var(--cp-accent-text); }
+.category-picker { margin-bottom: 20px; }
+.category-picker select { font-size: 14px; }
+.category-detected { font-size: 12px; color: var(--cp-text-soft); }
+.file-picker { display: flex; align-items: center; gap: 10px; position: relative; min-height: 48px; padding: 8px; border: 1px solid var(--cp-border); border-radius: 6px; overflow-wrap: anywhere; }
+.file-picker-button { flex-shrink: 0; background: var(--cp-surface-soft); padding: 8px; border-radius: 4px; color: var(--cp-text); }
+.file-picker input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.file-picker:focus-within { outline: 3px solid var(--cp-accent); outline-offset: 3px; }
+.file-picker:has(input:disabled) { opacity: .55; }
 .description-input > input { border: 0; padding-left: 0; font-size: 20px; border-radius: 0; }
 .form-symbol { display: grid; place-items: center; width: 56px; height: 56px; margin: 0 auto 24px; border-radius: 8px; color: var(--cp-accent-text); background: var(--cp-accent-soft); }
 label { display: flex; flex-direction: column; gap: 8px; font-size: 12px; color: var(--cp-text-muted); font-weight: 500; }
@@ -205,7 +216,11 @@ form > label, .panel-content > label { margin-bottom: 20px; }
   .expense-row { gap: 16px; }
 }
 @media (max-width: 359px) {
-  .entry-icon { display: none; }
+  .entry-icon { width: 28px; }
+  .expense-row { gap: 7px; }
+  .entry-description strong { font-size: 14px; }
+  .entry-balance strong { font-size: 14px; }
+  .entry-balance small { font-size: 10px; }
   .balance-footer { gap: 10px; }
   .balance-footer > span { font-size: 10px; }
 }

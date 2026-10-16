@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { EmailClient } from "@azure/communication-email";
 import type { TableClient } from "@azure/data-tables";
 import type { Member } from "../../shared/model";
+import { translate, type Language } from "../../shared/i18n";
 import { HttpError, type Config } from "./config";
 import { optionalEntity, statusCode } from "./storage";
 
@@ -28,7 +29,14 @@ export async function authenticate(request: Request, config: Config, table: Tabl
   return session.member;
 }
 
-export async function requestLink(email: string, config: Config, table: TableClient): Promise<{ message: string; developmentLink?: string }> {
+export function signInEmail(link: string, language: Language) {
+  return {
+    subject: translate(language, "Your Splitty sign-in link"),
+    plainText: translate(language, "Sign in to your shared expense ledger:\n\n{link}\n\nThis link expires in 15 minutes and can be used once. Open it on the device you want to sign in on. If you did not request this, ignore this email.", { link })
+  };
+}
+
+export async function requestLink(email: string, config: Config, table: TableClient, language: Language = "en"): Promise<{ message: string; developmentLink?: string }> {
   const message = "If this is one of your household email addresses, a sign-in link is on its way. Check your inbox.";
   const normalized = email.trim().toLowerCase();
   const member = normalized === config.emailA ? "a" : normalized === config.emailB ? "b" : null;
@@ -53,10 +61,7 @@ export async function requestLink(email: string, config: Config, table: TableCli
     const poller = await client.beginSend({
       senderAddress: config.emailSender!,
       recipients: { to: [{ address: normalized }] },
-      content: {
-        subject: "Your Splitty sign-in link",
-        plainText: `Sign in to your shared expense ledger:\n\n${link}\n\nThis link expires in 15 minutes and can be used once. Open it on the device you want to sign in on. If you did not request this, ignore this email.`
-      }
+      content: signInEmail(link, language)
     });
     const result = await poller.pollUntilDone();
     if (result.status !== "Succeeded") throw new Error("Email delivery was not accepted.");

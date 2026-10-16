@@ -249,7 +249,7 @@ export default function App() {
 }
 
 function AppContent({ ledger }: { ledger: Snapshot | null }) {
-  const { t, locale, number, money, message, person } = useLocale();
+  const { t, language, locale, number, money, message, person } = useLocale();
   const [tab, setTab] = useState<"expenses" | "settings">("expenses");
   const [form, setForm] = useState<"expense" | "settlement" | Entry | null>(null);
   const [importing, setImporting] = useState(false);

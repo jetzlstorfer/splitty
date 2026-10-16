@@ -60,7 +60,7 @@ rewrite personal expense descriptions, names, imported data, or import IDs.
 
 ## Run locally
 
-Use Node.js 22 LTS or newer and npm. From the repository root:
+Use Node.js 22.13+ (22 LTS) or Node.js 24+ and npm. From the repository root:
 
 ```powershell
 npm ci
@@ -230,6 +230,8 @@ References: [Static Web Apps](https://learn.microsoft.com/azure/static-web-apps/
 ## Checks
 
 ```powershell
+npm run lint        # ESLint for frontend, API, shared code, tests, and configuration
+npm run lint:fix    # Apply available safe autofixes; remaining issues still fail
 npm test
 npm run build
 npm run build:api
@@ -246,6 +248,12 @@ npm test -- src\importer.test.ts
 npx playwright install chromium
 npm run test:e2e
 ```
+
+ESLint uses the recommended JavaScript, TypeScript, and React Hooks rules,
+including dependency-array checks. Warnings fail the command, and generated
+output, dependencies, test reports, and private imports are excluded. Both CI
+and the deployment workflow run lint before tests and builds. TypeScript
+type-checking remains part of `build` and `build:api`; lint does not replace it.
 
 The optional private-export check targets the original supplied 3,001-entry EUR
 export (including 15 payments). Ordinary tests use synthetic data. CI runs the

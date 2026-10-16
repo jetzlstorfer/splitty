@@ -17,6 +17,7 @@ jobs:
             package-lock.json
             api/package-lock.json
       - run: npm ci && npm ci --prefix api
+      - run: npm run lint
       - run: npm test && npm run build && npm run build:api
       - run: npm prune --omit=dev --prefix api
       - name: Publish prebuilt frontend and managed Functions

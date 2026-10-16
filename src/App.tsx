@@ -41,8 +41,9 @@ function Sheet({ title, children, close }: { title: string; children: ReactNode;
   const dialog = useRef<HTMLDialogElement>(null);
   const heading = useId();
   useEffect(() => {
-    dialog.current?.showModal();
-    return () => dialog.current?.close();
+    const element = dialog.current;
+    element?.showModal();
+    return () => element?.close();
   }, []);
   return <dialog ref={dialog} onCancel={close} className="sheet" aria-labelledby={heading}>
     <div className="sheet-head"><button className="icon-button" onClick={close} aria-label={t("Close")}><X size={22} /></button><h2 id={heading}>{title}</h2><span /></div>
@@ -116,12 +117,12 @@ function ExpenseForm({ entry, settlement, preferences: p, close, saved }: {
         if (split === "percent" && (!/^\d+(?:[.,]\d{1,2})?$/.test(share) || Number(share.replace(",", ".")) > 100)) {
           throw new Error("Enter a percentage between 0 and 100.");
         }
-        if (split === "exact") shareA = parseMoney(share);
+        const submittedShareA = split === "exact" ? parseMoney(share) : shareA;
         value = {
           id: entry?.id ?? crypto.randomUUID(), kind: settlement ? "settlement" : "expense",
           description: description.trim(), date, category,
-          currency: "EUR", amountCents, paidBy, shareA: settlement ? null : shareA,
-          balanceA: settlement ? (paidBy === "a" ? amountCents : -amountCents) : expenseBalance(amountCents, paidBy, shareA),
+          currency: "EUR", amountCents, paidBy, shareA: settlement ? null : submittedShareA,
+          balanceA: settlement ? (paidBy === "a" ? amountCents : -amountCents) : expenseBalance(amountCents, paidBy, submittedShareA),
           revision: entry?.revision ?? 0, updatedAt: new Date().toISOString(), deleted: false,
           ...(!settlement ? {
             categoryMode: categoryChoice === "auto" ? "auto" : "manual",
@@ -257,7 +258,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const [online, setOnline] = useState(navigator.onLine);
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [syncStatus, setSyncStatus] = useState("Saved on this device");
-  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncBusy, setSyncBusy] = useState(navigator.onLine);
   const syncLock = useRef(false);
   const [error, setError] = useState("");
   const [email, setEmail] = useState("");
@@ -268,22 +269,27 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [update, setUpdate] = useState<(() => Promise<void>) | null>(null);
 
-  const sync = useCallback(async () => {
-    if (syncLock.current || !navigator.onLine) return;
-    syncLock.current = true; setSyncBusy(true);
-    try {
-      const me = await api<Identity>("me");
+  const performSync = useCallback(() => {
+    if (syncLock.current || !navigator.onLine) return Promise.resolve();
+    syncLock.current = true;
+    return api<Identity>("me").then(async (me) => {
       if ((me.member !== "a" && me.member !== "b") || !me.nameA || !me.nameB) throw new Error("Invalid sign-in response.");
       setIdentity(me);
       await updatePreferences({ member: me.member, nameA: me.nameA, nameB: me.nameB });
       setSyncStatus("Syncing…");
       await synchronize();
       setSyncStatus(await db.conflicts.count() ? "Some edits need your attention" : await db.outbox.count() ? "Saved locally · changes waiting to sync" : "Up to date");
-    } catch (e) {
+    }).catch((e: unknown) => {
       if (e instanceof ApiError && e.status === 401) { setIdentity(null); setSyncStatus("Sign in to sync"); }
       else setSyncStatus(e instanceof Error ? e.message : "Sync failed; your changes remain on this device.");
-    } finally { syncLock.current = false; setSyncBusy(false); }
+    }).finally(() => { syncLock.current = false; setSyncBusy(false); });
   }, []);
+
+  const sync = useCallback(async () => {
+    if (syncLock.current || !navigator.onLine) return;
+    setSyncBusy(true);
+    await performSync();
+  }, [performSync]);
 
   useEffect(() => {
     const signInHash = () => {
@@ -295,7 +301,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     };
     signInHash();
     const connected = () => { setOnline(true); void sync(); };
-    const disconnected = () => { setOnline(false); setSyncStatus("Offline · changes stay on this device"); };
+    const disconnected = () => { setOnline(false); setSyncBusy(false); setSyncStatus("Offline · changes stay on this device"); };
     const focus = () => { if (document.visibilityState === "visible") void sync(); };
     const failure = (event: Event) => setError(String((event as CustomEvent).detail));
     const available = (event: Event) => setUpdate(() => (event as CustomEvent<() => Promise<void>>).detail);
@@ -303,7 +309,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     window.addEventListener("hashchange", signInHash);
     document.addEventListener("visibilitychange", focus);
     window.addEventListener("splitty-error", failure); window.addEventListener("splitty-update", available);
-    void sync();
+    void performSync();
     const interval = window.setInterval(() => { if (document.visibilityState === "visible") void sync(); }, 60_000);
     return () => {
       window.removeEventListener("online", connected); window.removeEventListener("offline", disconnected);
@@ -312,7 +318,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
       window.removeEventListener("splitty-error", failure); window.removeEventListener("splitty-update", available);
       window.clearInterval(interval);
     };
-  }, [sync]);
+  }, [performSync, sync]);
 
   useEffect(() => {
     if (!ledger?.pending) return;
@@ -380,7 +386,6 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const shown = active.filter((entry) => normalizeText(`${entry.description} ${entry.category} ${t(categoryLabels[expenseCategory(entry.description, entry.category, entry.kind, entry.categoryMode)])} ${entry.date}`).includes(normalizeText(search)))
     .sort((a, b) => b.date.localeCompare(a.date) || b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
   const conflictIds = new Set(ledger.conflicts.map((conflict) => conflict.entryId));
-  let lastMonth = "";
 
   return <div className="app-shell" onInvalidCapture={(event) => {
     const input = event.target;
@@ -420,9 +425,9 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
         <section className="ledger-section"><div className="section-title"><h2>{t("Expenses")}<span>{number(active.length)}</span></h2><button className="text-button" onClick={() => setImporting(true)}><Upload size={16} />{t("Import")}</button></div>
           <label className="search"><Search size={19} /><input aria-label={t("Search expenses")} type="search" placeholder={t("Search expenses")} value={search} onChange={(e) => { setSearch(e.target.value); setLimit(100); }} /></label>
           {!shown.length ? <div className="empty-state"><span><Receipt size={32} /></span><h3>{t(search ? "No matching expenses" : "No expenses yet")}</h3><p>{t(search ? "Try a different description, category or date." : "Add an expense to start sharing, or import your Splitwise history.")}</p>{!search && <><button className="primary" onClick={() => setForm("expense")}><Plus size={18} />{t("Add an expense")}</button><button className="text-button" onClick={() => setImporting(true)}>{t("Import from Splitwise")}<ArrowUpRight size={16} /></button></>}</div> :
-            <div className="expense-list">{shown.slice(0, limit).map((entry) => {
+            <div className="expense-list">{shown.slice(0, limit).map((entry, index) => {
               const month = new Date(`${entry.date}T12:00:00`).toLocaleDateString(locale, { month: "long", year: "numeric" });
-              const heading = month !== lastMonth; lastMonth = month;
+              const heading = index === 0 || entry.date.slice(0, 7) !== shown[index - 1].date.slice(0, 7);
               const contribution = p.member === "a" ? entry.balanceA : -entry.balanceA;
               const category = expenseCategory(entry.description, entry.category, entry.kind, entry.categoryMode);
               const payment = category === "payment";

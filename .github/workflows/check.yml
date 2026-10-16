@@ -18,6 +18,7 @@ jobs:
             api/package-lock.json
       - run: npm ci
       - run: npm ci --prefix api
+      - run: npm run lint
       - run: npm test
       - run: npm run build && npm run build:api
       - name: Start isolated table emulator

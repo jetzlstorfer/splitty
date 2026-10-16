@@ -103,6 +103,22 @@ test("language persists offline and does not change expenses or manual categorie
   await context.setOffline(false);
 });
 
+test("payer labels always use household member names", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Einstellungen", exact: true }).click();
+  await page.getByLabel("Erste Person", { exact: true }).fill("Alex");
+  await page.getByLabel("Erste Person", { exact: true }).press("Tab");
+  await page.getByLabel("Zweite Person", { exact: true }).fill("Sam");
+  await page.getByLabel("Zweite Person", { exact: true }).press("Tab");
+  await page.getByRole("button", { name: "Ausgaben", exact: true }).click();
+
+  const dialog = await addGerman(page, "Billa");
+  await expect(dialog.getByLabel("Bezahlt von", { exact: true }).locator("option")).toHaveText(["Alex", "Sam"]);
+  await dialog.getByLabel("Bezahlt von", { exact: true }).selectOption("b");
+  await saveGerman(page);
+  await expect(page.locator(".expense-row").getByText("Sam hat 12,34 € bezahlt", { exact: true })).toBeVisible();
+});
+
 test("German import feedback, existing category icons, and translations preserve source descriptions", async ({ page }) => {
   await page.goto("/");
   const csv = "Datum,Beschreibung,Kategorie,Kosten,Währung,Alex,Sam\n"

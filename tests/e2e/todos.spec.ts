@@ -43,3 +43,22 @@ test("doctor and pharmacy expenses create insurance to-dos that can be checked o
   await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
   await expect(page.getByRole("region", { name: "Erledigt" })).toContainText("Apotheke Rezept");
 });
+
+test("doctor specialties map to Gesundheit and create insurance to-dos", async ({ page }) => {
+  await page.goto("/");
+  for (const description of ["Augenarzt", "Zahnarzt", "Zahnärztin"]) {
+    await add(page, description);
+  }
+  const nav = page.getByRole("navigation", { name: "Hauptnavigation" });
+  await nav.getByRole("button", { name: "To-dos" }).click();
+  const open = page.getByRole("region", { name: "Offene To-dos" });
+  await expect(open.getByRole("listitem")).toHaveCount(3);
+  for (const description of ["Augenarzt", "Zahnarzt", "Zahnärztin"]) {
+    await expect(open).toContainText(`Ausgabe: ${description}`);
+    await page.getByRole("button", { name: `Ausgabe öffnen: ${description}`, exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Eintrag bearbeiten" });
+    await expect(dialog.getByLabel("Kategorie", { exact: true })).toHaveValue("auto");
+    await expect(dialog.getByRole("status")).toContainText("Gesundheit");
+    await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
+  }
+});

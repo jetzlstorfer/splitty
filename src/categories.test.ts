@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectCategory, expenseCategory, normalizeText } from "./categories";
+import { detectCategory, expenseCategory, normalizeText, storedCategory } from "./categories";
 
 describe("bilingual expense category detection", () => {
   it.each([
@@ -24,6 +24,21 @@ describe("bilingual expense category detection", () => {
   });
   it.each(["spare parts", "unicorn", "uniform", "gastronomy", "shellfish", "jetlag", "blue sky", "vergessen", "ikigai", "Unknown purchase"])("does not use substring matches for %s", (description) => {
     expect(detectCategory(description)).toBe("general");
+  });
+  it.each([
+    "Augenarzt", "Augenärztin Dr. Huber", "Zahnarzt Kontrolle", "Zahnärztin", "Zahnaerztin",
+    "Hausarzt", "Hausärztin", "Hautarzt", "Hautärztin", "Kinderarzt", "Kinderärztin",
+    "Frauenarzt", "Frauenärztin", "HNO-Arzt", "HNO-Ärztin", "HNOarzt", "HNOärztin",
+    "Facharzt", "Fachärztin"
+  ])("recognizes doctor expenses as health: %s", (description) => {
+    expect(detectCategory(description)).toBe("health");
+  });
+  it("recognizes the German health category without overriding explicit categories", () => {
+    expect(storedCategory("Gesundheit")).toBe("health");
+    expect(expenseCategory("Kontrolle", "Gesundheit", "imported")).toBe("health");
+    expect(expenseCategory("Augenarzt", "general", "expense", "manual")).toBe("general");
+    expect(expenseCategory("Augenarzt", "pets", "imported")).toBe("pets");
+    expect(detectCategory("Tierarzt Kontrolle")).toBe("pets");
   });
   it("preserves meaningful imported categories and payment semantics", () => {
     expect(expenseCategory("Tanken", "Lebensmittel", "imported")).toBe("groceries");

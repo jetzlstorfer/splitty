@@ -32,7 +32,7 @@ const rules: Array<[Category, string[]]> = [
   ["utilities", ["strom", "elektrizität", "heizung", "gasrechnung", "erdgas", "wasser", "nebenkosten", "electricity", "heating", "gas bill", "natural gas", "utilities", "water bill"]],
   ["internet", ["internet", "telefon", "handy", "magenta", "a1", "mobilfunk", "broadband", "phone", "mobile plan", "fernsehen telefon internet"]],
   ["pets", ["tierarzt", "tierfutter", "hundefutter", "katzenfutter", "haustiere", "fressnapf", "zooplus", "pets", "pet food", "vet", "veterinarian"]],
-  ["health", ["arzt", "ärztin", "zahnarzt", "krankenhaus", "physio", "physiotherapie", "brille", "health", "doctor", "dentist", "hospital", "medical"]],
+  ["health", ["arzt", "ärztin", "augenarzt", "augenärztin", "zahnarzt", "zahnärztin", "hausarzt", "hausärztin", "hautarzt", "hautärztin", "kinderarzt", "kinderärztin", "frauenarzt", "frauenärztin", "hno arzt", "hno ärztin", "hnoarzt", "hnoärztin", "facharzt", "fachärztin", "krankenhaus", "physio", "physiotherapie", "brille", "gesundheit", "health", "doctor", "dentist", "hospital", "medical"]],
   ["car", ["auto", "autoreparatur", "werkstatt", "reifen", "vignette", "maut", "car", "car repair", "tires", "tyres", "toll"]],
   ["home", ["miete", "möbel", "haushaltsgegenstände", "haushalt", "baumarkt", "ikea", "obi", "bauhaus", "hornbach", "instandhaltung", "rent", "furniture", "household", "home", "maintenance"]],
   ["shopping", ["kleidung", "schuhe", "drogerie", "bipa", "dm", "h m", "zara", "zalando", "shopping", "clothes", "clothing", "shoes", "electronics", "elektronik"]],

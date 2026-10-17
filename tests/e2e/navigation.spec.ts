@@ -153,7 +153,7 @@ test("search owns import, filtering, pagination and editing without filtering Ex
   await expect(page.getByRole("button", { name: "Import", exact: true })).toBeVisible();
 });
 
-test("header and footer stay visible with themed blur while scrolling", async ({ page }) => {
+test("header fades into the status area and both bars retain themed blur while scrolling", async ({ page }) => {
   await page.goto("/");
   await importExpenses(page, 40);
   await page.getByRole("button", { name: "Ausgaben", exact: true }).click();
@@ -163,6 +163,7 @@ test("header and footer stay visible with themed blur while scrolling", async ({
     await page.setViewportSize({ width, height });
     for (const theme of ["light", "dark"]) {
       await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
+      const surface = await page.locator(".app-shell").evaluate((element) => getComputedStyle(element).backgroundColor);
       for (const position of [0, 0.5, 1]) {
         await page.evaluate((position) => {
           window.scrollTo(0, (document.documentElement.scrollHeight - innerHeight) * position);
@@ -175,7 +176,8 @@ test("header and footer stay visible with themed blur while scrolling", async ({
             const style = getComputedStyle(element);
             return {
               left: rect.left, right: rect.right, bottom: rect.bottom,
-              blur: style.backdropFilter, background: style.backgroundColor
+              blur: style.backdropFilter, background: style.backgroundColor,
+              fade: style.backgroundImage
             };
           }));
         expect(layout[1].bottom).toBe(height);
@@ -185,6 +187,8 @@ test("header and footer stay visible with themed blur while scrolling", async ({
           expect(bar.blur).toContain("blur(16px)");
           expect(bar.background).toMatch(/(?:0?\.35|35%)/);
         }
+        expect(layout[0].fade).toBe(`linear-gradient(${surface} 0px, rgba(0, 0, 0, 0))`);
+        expect(layout[1].fade).toBe("none");
         if (position > 0) expect(await page.evaluate(() => scrollY)).toBeGreaterThan(0);
       }
       const lastRow = page.locator(".expense-row").last();

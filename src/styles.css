@@ -132,6 +132,9 @@ input::placeholder { color: var(--cp-text-soft); }
     -webkit-backdrop-filter: blur(16px) saturate(140%);
     backdrop-filter: blur(16px) saturate(140%);
   }
+  .topbar {
+    background-image: linear-gradient(to bottom, var(--cp-surface) env(safe-area-inset-top), transparent);
+  }
 }
 .expense-action { position: fixed; bottom: calc(76px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); width: min(100%, 760px); padding: 0 16px; display: flex; justify-content: flex-end; pointer-events: none; z-index: 5; }
 .add-button { background: var(--cp-accent); color: var(--cp-accent-fg); border-radius: 28px; padding: 14px 20px; min-height: 52px; display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; box-shadow: var(--cp-shadow); pointer-events: auto; }

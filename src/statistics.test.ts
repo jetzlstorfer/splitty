@@ -141,6 +141,23 @@ describe("expense statistics", () => {
     ]);
   });
 
+  it.each([null, "2025-01"])("groups kiga with Kindergarten in statistics for %s", (month) => {
+    const result = summarizeStatistics([
+      entry({ description: "kiga", amountCents: 100 }),
+      entry({ description: "KiGa Beitrag", categoryMode: "auto", amountCents: 200 }),
+      entry({ description: "Kindergarten", amountCents: 300 }),
+      imported({ description: "Monthly fee", category: "KiGa", amountCents: 400 }),
+      imported({ description: "KIGA", category: "Allgemein", amountCents: 500 }),
+      entry({ description: "kiga", category: "general", categoryMode: "manual", amountCents: 50 })
+    ], month, "2025-01");
+    expect(result.categories).toEqual([
+      { category: "education", total: 1500 },
+      { category: "general", total: 50 }
+    ]);
+    expect(result).toMatchObject({ total: 1550, count: 6 });
+    expect(result.months.at(-1)?.total).toBe(1550);
+  });
+
   it("rounds an average to the nearest cent and leaves entries unchanged", () => {
     const first = Object.freeze(entry({ id: "first", amountCents: 100 }));
     const second = Object.freeze(entry({ id: "second", amountCents: 101 }));

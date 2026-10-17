@@ -39,7 +39,7 @@ const rules: Array<[Category, string[]]> = [
   ["travel", ["hotel", "hotels", "urlaub", "reise", "flug", "flugzeug", "airbnb", "booking", "travel", "holiday", "vacation", "flight", "airfare"]],
   ["gifts", ["geschenk", "geschenke", "geburtstagsgeschenk", "gift", "gifts", "present"]],
   ["insurance", ["versicherung", "versicherungen", "insurance"]],
-  ["education", ["schule", "kindergarten", "universität", "studium", "kurs", "education", "school", "university", "tuition"]],
+  ["education", ["schule", "kindergarten", "kiga", "universität", "studium", "kurs", "education", "school", "university", "tuition"]],
   ["entertainment", ["kino", "netflix", "spotify", "konzert", "museum", "theater", "fitness", "sport", "unterhaltung", "cinema", "movie", "concert", "gym", "entertainment", "games"]]
 ];
 

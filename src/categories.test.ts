@@ -17,11 +17,12 @@ describe("bilingual expense category detection", () => {
     ["Internet", "internet"], ["mobile plan", "internet"], ["Kleidung", "shopping"], ["clothes", "shopping"],
     ["Urlaub", "travel"], ["flight", "travel"], ["Geschenk", "gifts"], ["birthday gift", "gifts"],
     ["Versicherung", "insurance"], ["insurance", "insurance"], ["Kino", "entertainment"],
-    ["Netflix", "entertainment"], ["Schule", "education"], ["university", "education"]
+    ["Netflix", "entertainment"], ["Schule", "education"], ["university", "education"],
+    ["Kindergarten", "education"], ["kiga", "education"], ["KiGa Beitrag", "education"]
   ])("recognizes %s as %s", (description, category) => {
     expect(detectCategory(description)).toBe(category);
   });
-  it.each(["spare parts", "unicorn", "uniform", "gastronomy", "shellfish", "jetlag", "blue sky", "vergessen", "Unknown purchase"])("does not use substring matches for %s", (description) => {
+  it.each(["spare parts", "unicorn", "uniform", "gastronomy", "shellfish", "jetlag", "blue sky", "vergessen", "ikigai", "Unknown purchase"])("does not use substring matches for %s", (description) => {
     expect(detectCategory(description)).toBe("general");
   });
   it("preserves meaningful imported categories and payment semantics", () => {
@@ -31,6 +32,7 @@ describe("bilingual expense category detection", () => {
     expect(expenseCategory("Billa", "", "settlement")).toBe("payment");
     expect(expenseCategory("Anything", "Nebenkosten - Sonstiges", "imported")).toBe("utilities");
     expect(expenseCategory("Anything", "Unterhaltung - Sonstiges", "imported")).toBe("entertainment");
+    expect(expenseCategory("Monthly fee", "KiGa", "imported")).toBe("education");
   });
   it("supports manual overrides including general and automatic recategorization", () => {
     expect(expenseCategory("Billa", "fuel", "expense", "manual")).toBe("fuel");

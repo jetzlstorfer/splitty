@@ -11,6 +11,18 @@ describe("insurance todos", () => {
     expect(needsInsuranceSubmission(example({ description: "Apotheke", deleted: true }))).toBe(false);
     expect(needsInsuranceSubmission(example({ description: "Something", category: "Pharmacy", categoryMode: "manual" }))).toBe(true);
   });
+  it.each(["Augenarzt", "Zahnarzt", "Zahnärztin", "Hautarzt", "Kinderärztin", "HNO-Arzt"])("creates an open insurance todo for %s", (description) => {
+    const entry = example({ description, categoryMode: "auto" });
+    expect(insuranceTodos([entry])).toEqual([{ entry, done: false }]);
+  });
+  it("respects stored health categories, overrides, and excluded expenses", () => {
+    expect(needsInsuranceSubmission(example({ description: "Kontrolle", category: "Gesundheit", kind: "imported" }))).toBe(true);
+    expect(needsInsuranceSubmission(example({ description: "Augenarzt" }))).toBe(true);
+    expect(needsInsuranceSubmission(example({ description: "Augenarzt", category: "general", categoryMode: "manual" }))).toBe(false);
+    expect(needsInsuranceSubmission(example({ description: "Augenarzt", deleted: true }))).toBe(false);
+    expect(needsInsuranceSubmission(example({ description: "Zahnarzt", kind: "settlement" }))).toBe(false);
+    expect(needsInsuranceSubmission(example({ description: "Tierarzt" }))).toBe(false);
+  });
   it("lists open todos before submitted ones, newest first", () => {
     const todos = insuranceTodos([
       example({ id: "old", description: "Arzt", date: "2024-01-01" }),

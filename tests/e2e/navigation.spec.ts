@@ -153,7 +153,7 @@ test("search owns import, filtering, pagination and editing without filtering Ex
   await expect(page.getByRole("button", { name: "Import", exact: true })).toBeVisible();
 });
 
-test("header fades into the status area and both bars retain themed blur while scrolling", async ({ page }) => {
+test("header and footer fade into safe areas and retain themed blur while scrolling", async ({ page }) => {
   await page.goto("/");
   await importExpenses(page, 40);
   await page.getByRole("button", { name: "Ausgaben", exact: true }).click();
@@ -188,7 +188,7 @@ test("header fades into the status area and both bars retain themed blur while s
           expect(bar.background).toMatch(/(?:0?\.35|35%)/);
         }
         expect(layout[0].fade).toBe(`linear-gradient(${surface} 0px, rgba(0, 0, 0, 0))`);
-        expect(layout[1].fade).toBe("none");
+        expect(layout[1].fade).toBe(`linear-gradient(to top, ${surface} 0px, rgba(0, 0, 0, 0))`);
         if (position > 0) expect(await page.evaluate(() => scrollY)).toBeGreaterThan(0);
       }
       const lastRow = page.locator(".expense-row").last();

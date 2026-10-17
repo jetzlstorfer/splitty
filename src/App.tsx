@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { liveQuery } from "dexie";
 import {
-  BarChart3, Check, ChevronDown, Cloud, CloudOff,
+  BarChart3, Check, ChevronDown, ClipboardCheck, Cloud, CloudOff,
   Download, Languages, Plus, Receipt, RefreshCw, Search, Settings, Trash2, Upload, Users, X
 } from "lucide-react";
 import { calculateShareA, expenseBalance, parseMoney, validateEntry, type Entry, type Member, type SplitType } from "../shared/model";
@@ -12,6 +12,7 @@ import { LanguageContext, useLocale } from "./i18n";
 import { categoryLabels, detectCategory, expenseCategory, normalizeText, storedCategory, type Category } from "./categories";
 import ExpenseIcon from "./ExpenseIcon";
 import Statistics from "./Statistics";
+import { insuranceTodos, type InsuranceTodo } from "./todos";
 
 const today = () => {
   const date = new Date();
@@ -129,7 +130,8 @@ function ExpenseForm({ entry, settlement, preferences: p, close, saved }: {
           ...(!settlement ? {
             categoryMode: categoryChoice === "auto" ? "auto" : "manual",
             splitType, ...(split === "percent" ? { percentageA: Number(share.replace(",", ".")) } : {})
-          } : {})
+          } : {}),
+          ...(entry?.insuranceSubmittedAt ? { insuranceSubmittedAt: entry.insuranceSubmittedAt } : {})
         };
       }
       await queueEntries([value]);
@@ -238,6 +240,37 @@ function ImportForm({ preferences: p, close, saved }: { preferences: Preferences
   </div></Sheet>;
 }
 
+function TodoList({ todos, openCount, status, blocked, open, toggle }: {
+  todos: InsuranceTodo[]; openCount: number; status: string; blocked: Set<string>;
+  open: (entry: Entry) => void; toggle: (entry: Entry, submitted: boolean) => void;
+}) {
+  const { t, number, money, locale } = useLocale();
+  return <section className="todos-page"><header className="page-heading"><h1>{t("To-dos")}<span className="entry-count">{number(openCount)}</span></h1></header>
+    <p className="sync-status" role="status">{status}</p>
+    {!todos.length ? <div className="empty-state"><h2>{t("No to-dos")}</h2><p>{t("Doctor and pharmacy expenses appear here so you can submit them to your insurance.")}</p></div> :
+      [false, true].map((done) => {
+        const group = todos.filter((todo) => todo.done === done);
+        return !!group.length && <section key={String(done)} className="todo-group" aria-label={t(done ? "Done" : "Open to-dos")}>
+          <div className="section-title"><h2>{t(done ? "Done" : "Open to-dos")}<span>{number(group.length)}</span></h2></div>
+          <ul className="todo-list">{group.map(({ entry }) => {
+            const category = expenseCategory(entry.description, entry.category, entry.kind, entry.categoryMode);
+            const details = t("Expense: {description} · {date} · {amount}", {
+              description: entry.description, amount: money(entry.amountCents),
+              date: new Date(`${entry.date}T12:00:00`).toLocaleDateString(locale, { day: "numeric", month: "short", year: "numeric" })
+            });
+            return <li key={entry.id} className={`todo-item ${done ? "done" : ""}`}>
+              <label className="todo-check"><input type="checkbox" checked={done} disabled={blocked.has(entry.id)} onChange={(event) => toggle(entry, event.target.checked)} />
+                <span className="entry-icon"><ExpenseIcon category={category} /></span>
+                <span className="entry-description"><strong>{t("Submit to insurance")}</strong><small>{details}</small></span>
+              </label>
+              <button className="text-button" disabled={blocked.has(entry.id)} onClick={() => open(entry)} aria-label={`${t("Open expense")}: ${entry.description}`}>{t("Open expense")}</button>
+            </li>;
+          })}</ul>
+        </section>;
+      })}
+  </section>;
+}
+
 export default function App() {
   const ledger = useLedger();
   const language = ledger?.preferences.language ?? "de";
@@ -250,7 +283,7 @@ export default function App() {
 
 function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const { t, language, locale, number, money, message, person, payer } = useLocale();
-  const [tab, setTab] = useState<"expenses" | "search" | "statistics" | "settings">("expenses");
+  const [tab, setTab] = useState<"expenses" | "todos" | "search" | "statistics" | "settings">("expenses");
   const [form, setForm] = useState<"expense" | "settlement" | Entry | null>(null);
   const [importing, setImporting] = useState(false);
   const [search, setSearch] = useState("");
@@ -370,6 +403,12 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const shown = active.filter((entry) => !query || normalizeText(`${entry.description} ${entry.category} ${t(categoryLabels[expenseCategory(entry.description, entry.category, entry.kind, entry.categoryMode)])} ${entry.date}`).includes(query))
     .sort((a, b) => b.date.localeCompare(a.date) || b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
   const conflictIds = new Set(ledger.conflicts.map((conflict) => conflict.entryId));
+  const todos = insuranceTodos(active);
+  const openTodos = todos.filter((todo) => !todo.done).length;
+  const markSubmitted = (entry: Entry, submitted: boolean) => {
+    const { insuranceSubmittedAt: _previous, ...rest } = entry;
+    return queueEntries([submitted ? { ...rest, insuranceSubmittedAt: new Date().toISOString() } : rest]);
+  };
 
   return <div className="app-shell" onInvalidCapture={(event) => {
     const input = event.target;
@@ -386,7 +425,8 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     <main className={tab === "expenses" ? "with-expense-action" : undefined}>
       {error && <div className="banner error" role="alert">{message(error)}<button className="icon-button" aria-label={t("Dismiss error")} onClick={() => setError("")}><X size={18} /></button></div>}
       {update && <div className="banner">{t("An app update is ready. Your saved entries will be kept.")}<button onClick={() => void update().catch((e: Error) => setError(e.message))} className="text-button">{t("Update")}</button></div>}
-      {tab === "statistics" ? <Statistics entries={ledger.entries} preferences={p} /> : tab !== "settings" ? <>
+      {tab === "todos" ? <TodoList todos={todos} openCount={openTodos} status={message(syncStatus)} blocked={conflictIds} open={setForm}
+        toggle={(entry, submitted) => void markSubmitted(entry, submitted).then(saved).catch((e: Error) => setError(e.message))} /> : tab === "statistics" ? <Statistics entries={ledger.entries} preferences={p} /> : tab !== "settings" ? <>
         {tab === "expenses" ? <>
           <header className="page-heading">
             <h1>{t("Expenses")}<span className="entry-count">{number(active.length)}</span></h1>
@@ -449,6 +489,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     {tab === "expenses" && <div className="expense-action"><button className="add-button" aria-label={t("Add expense")} onClick={() => setForm("expense")}><Plus size={23} /><span>{t("Add expense")}</span></button></div>}
     <nav className="bottom-nav" aria-label={t("Main navigation")}>
       <button className={tab === "expenses" ? "active" : ""} aria-current={tab === "expenses" ? "page" : undefined} onClick={() => navigate("expenses")}><Receipt size={22} /><span>{t("Expenses")}</span></button>
+      <button className={tab === "todos" ? "active" : ""} aria-current={tab === "todos" ? "page" : undefined} onClick={() => navigate("todos")}><ClipboardCheck size={22} /><span>{t("To-dos")}{!!openTodos && <span className="nav-badge" aria-hidden="true">{number(openTodos)}</span>}</span></button>
       <button className={tab === "search" ? "active" : ""} aria-current={tab === "search" ? "page" : undefined} onClick={() => navigate("search")}><Search size={22} /><span>{t("Search")}</span></button>
       <button className={tab === "statistics" ? "active" : ""} aria-current={tab === "statistics" ? "page" : undefined} onClick={() => navigate("statistics")}><BarChart3 size={22} /><span>{t("Statistics")}</span></button>
       <button className={tab === "settings" ? "active" : ""} aria-current={tab === "settings" ? "page" : undefined} onClick={() => navigate("settings")}><Settings size={22} /><span>{t("Settings")}</span></button>

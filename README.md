@@ -20,6 +20,9 @@ account; reusable member tokens enable shared history across your devices.
   with an optional manual category override.
 - Reviewed German/English Splitwise CSV import for two-person EUR groups, with
   cent-exact accounting, duplicate prevention and final-balance reconciliation.
+- A **To-dos** tab with a "Bei Versicherung einreichen" (submit to insurance) item
+  for every doctor (Arzt) or pharmacy (Apotheke) expense. The submitted state is
+  stored on the expense itself, so it syncs across devices for the whole household.
 - JSON backups and restoration of missing entries without overwriting local history.
 - Azure Functions/Table Storage sync, reusable member tokens, two-person
   access control, and explicit conflict resolution.
@@ -29,7 +32,8 @@ screenshots, or proprietary assets are copied.
 
 The mobile UI uses a Splitwise-inspired teal palette, green credit/orange debt
 indicators, and a compact balance summary and ledger. The bottom navigation is
-**Ausgaben / Expenses**, **Suche / Search**, **Einstellungen / Settings**.
+**Ausgaben / Expenses**, **To-dos**, **Suche / Search**, **Statistik / Statistics**,
+**Einstellungen / Settings**.
 Search and Splitwise import live on **Suche / Search**; search filters never hide
 entries on the main expense page. The floating add-expense button appears only on
 **Ausgaben / Expenses**, leaving search and settings unobstructed. Light and dark

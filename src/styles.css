@@ -114,8 +114,15 @@ input::placeholder { color: var(--cp-text-soft); }
 .entry-balance.lent { color: var(--cp-success); }
 .entry-balance.owed { color: var(--cp-owed); }
 .load-more { margin-top: 24px; }
-.bottom-nav { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: min(100%, 760px); display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--cp-border); background: var(--cp-surface); padding: 4px 8px max(6px, env(safe-area-inset-bottom)); z-index: 5; }
+.bottom-nav { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: min(100%, 760px); display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border-top: 1px solid var(--cp-border); background: var(--cp-surface); padding: 4px 8px max(6px, env(safe-area-inset-bottom)); z-index: 5; }
 .bottom-nav > button { display: flex; gap: 4px; flex-direction: column; align-items: center; justify-content: center; padding: 6px 4px; background: none; color: var(--cp-text-soft); font-size: 11px; min-width: 0; min-height: 52px; -webkit-tap-highlight-color: transparent; }
+.nav-badge { display: inline-block; margin-left: 4px; min-width: 16px; padding: 0 4px; border-radius: 8px; background: var(--cp-accent-text); color: var(--cp-surface); font-size: 10px; line-height: 16px; font-weight: 600; }
+.todo-group { margin-bottom: 20px; }
+.todo-list { list-style: none; margin: 0; padding: 0; }
+.todo-item { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--cp-border); min-height: 64px; }
+.todo-check { flex: 1; display: flex; flex-direction: row; align-items: center; gap: 10px; padding: 10px 0; min-width: 0; margin: 0; cursor: pointer; }
+.todo-check input { width: 22px; height: 22px; flex: none; margin: 0; }
+.todo-item.done .entry-description strong { text-decoration: line-through; color: var(--cp-text-soft); }
 .bottom-nav > button.active { color: var(--cp-accent-text); font-weight: 600; }
 .bottom-nav > button > svg { box-sizing: content-box; padding: 3px 14px; margin-block: -3px; border-radius: 20px; }
 .bottom-nav > button.active > svg { background: var(--cp-accent-soft); }

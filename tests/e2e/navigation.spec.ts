@@ -8,7 +8,7 @@ test.describe("touch navigation", () => {
     const nav = page.getByRole("navigation", { name: "Hauptnavigation" });
     for (const theme of ["light", "dark"]) {
       await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
-      for (const name of ["Suche", "Statistik", "Einstellungen", "Ausgaben", "Ausgaben"]) {
+      for (const name of ["To-dos", "Suche", "Statistik", "Einstellungen", "Ausgaben", "Ausgaben"]) {
         const button = nav.getByRole("button", { name, exact: true });
         for (const target of [button, button.locator("svg"), button.locator("span")]) {
           await expect(target).toHaveCSS("-webkit-tap-highlight-color", "rgba(0, 0, 0, 0)");
@@ -49,7 +49,7 @@ async function importExpenses(page: Page, count: number) {
 test("search owns import, filtering, pagination and editing without filtering Expenses", async ({ page }) => {
   await page.goto("/");
   const nav = page.getByRole("navigation", { name: "Hauptnavigation" });
-  await expect(nav.getByRole("button")).toHaveText(["Ausgaben", "Suche", "Statistik", "Einstellungen"]);
+  await expect(nav.getByRole("button")).toHaveText(["Ausgaben", "To-dos", "Suche", "Statistik", "Einstellungen"]);
   await expect(page.getByRole("heading", { name: "Noch keine Ausgaben" })).toBeVisible();
   await expect(page.getByRole("searchbox")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Import/ })).toHaveCount(0);
@@ -95,7 +95,7 @@ test("search owns import, filtering, pagination and editing without filtering Ex
   await expect(page.getByRole("button", { name: /Import/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Sicherung herunterladen", exact: true })).toBeVisible();
   await page.getByLabel("App-Sprache", { exact: true }).selectOption("en");
-  await expect(page.getByRole("navigation").getByRole("button")).toHaveText(["Expenses", "Search", "Statistics", "Settings"]);
+  await expect(page.getByRole("navigation").getByRole("button")).toHaveText(["Expenses", "To-dos", "Search", "Statistics", "Settings"]);
   await page.getByRole("button", { name: "Search", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Search", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Import", exact: true })).toBeVisible();

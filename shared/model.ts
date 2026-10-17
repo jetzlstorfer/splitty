@@ -20,6 +20,7 @@ export interface Entry {
   splitType?: SplitType;
   percentageA?: number;
   categoryMode?: "auto" | "manual";
+  insuranceSubmittedAt?: string;
 }
 
 export interface Mutation {
@@ -98,6 +99,10 @@ export function validateEntry(value: unknown): Entry {
   if (e.categoryMode !== undefined && e.categoryMode !== "auto" && e.categoryMode !== "manual") {
     throw new Error("Invalid expense fields.");
   }
+  if (e.insuranceSubmittedAt !== undefined && (typeof e.insuranceSubmittedAt !== "string"
+    || e.insuranceSubmittedAt.length > 40 || !Number.isFinite(Date.parse(e.insuranceSubmittedAt)))) {
+    throw new Error("Invalid expense fields.");
+  }
   if (e.percentageA !== undefined && (typeof e.percentageA !== "number" || !Number.isFinite(e.percentageA)
     || e.percentageA < 0 || e.percentageA > 100
     || Math.abs(e.percentageA * 100 - Math.round(e.percentageA * 100)) > 0.000001)) {
@@ -129,7 +134,8 @@ export function validateEntry(value: unknown): Entry {
     ...(e.importKey ? { importKey: e.importKey as string } : {}),
     ...(e.splitType && e.kind === "expense" ? { splitType: e.splitType as SplitType } : {}),
     ...(e.splitType === "percent" && e.kind === "expense" ? { percentageA: e.percentageA as number } : {}),
-    ...(e.categoryMode ? { categoryMode: e.categoryMode as "auto" | "manual" } : {})
+    ...(e.categoryMode ? { categoryMode: e.categoryMode as "auto" | "manual" } : {}),
+    ...(e.insuranceSubmittedAt ? { insuranceSubmittedAt: e.insuranceSubmittedAt as string } : {})
   };
 }
 

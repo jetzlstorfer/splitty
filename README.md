@@ -194,7 +194,11 @@ No receipt/blob storage, SQL database or Cosmos DB is needed for this first vers
   the app preserves both versions until you explicitly choose one.
 - Deletion is a versioned tombstone. Settlements are ledger changes, not another
   shared purchase. Amounts and balances use integer cents.
-- Sync runs after saves, on reconnect/foreground, and every minute while visible.
+- Sync runs after saves, on reconnect/foreground or window focus, and every minute
+  while visible. Saves during an active sync schedule another pass immediately
+  afterward, so checking off several to-dos does not leave later changes waiting
+  for the next periodic sync. Completed and reopened to-dos sync for the household,
+  including devices signed in with the same member token.
   There is no promise of background execution or push delivery while Android has
   suspended the app. Both devices converge when opened and connected.
 

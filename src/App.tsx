@@ -292,30 +292,38 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [syncStatus, setSyncStatus] = useState("Saved on this device");
   const [syncBusy, setSyncBusy] = useState(navigator.onLine);
-  const syncLock = useRef(false);
+  const syncLock = useRef<Promise<void> | null>(null);
+  const syncRequested = useRef(false);
   const [error, setError] = useState("");
   const [memberToken, setMemberToken] = useState("");
   const [signInBusy, setSignInBusy] = useState(false);
   const [update, setUpdate] = useState<(() => Promise<void>) | null>(null);
 
   const performSync = useCallback(() => {
-    if (syncLock.current || !navigator.onLine) return Promise.resolve();
-    syncLock.current = true;
-    return api<Identity>("me").then(async (me) => {
-      if ((me.member !== "a" && me.member !== "b") || !me.nameA || !me.nameB) throw new Error("Invalid sign-in response.");
-      setIdentity(me);
-      await updatePreferences({ member: me.member, nameA: me.nameA, nameB: me.nameB });
-      setSyncStatus("Syncing…");
-      await synchronize();
-      setSyncStatus(await db.conflicts.count() ? "Some edits need your attention" : await db.outbox.count() ? "Saved locally · changes waiting to sync" : "Up to date");
-    }).catch((e: unknown) => {
+    if (!navigator.onLine) return Promise.resolve();
+    syncRequested.current = true;
+    if (syncLock.current) return syncLock.current;
+    syncLock.current = (async () => {
+      do {
+        syncRequested.current = false;
+        const me = await api<Identity>("me");
+        if ((me.member !== "a" && me.member !== "b") || !me.nameA || !me.nameB) throw new Error("Invalid sign-in response.");
+        setIdentity(me);
+        await updatePreferences({ member: me.member, nameA: me.nameA, nameB: me.nameB });
+        setSyncStatus("Syncing…");
+        await synchronize();
+        setSyncStatus(await db.conflicts.count() ? "Some edits need your attention" : await db.outbox.count() ? "Saved locally · changes waiting to sync" : "Up to date");
+        // Saves during an in-flight pass need another pass, not a dropped request.
+      } while (syncRequested.current && navigator.onLine);
+    })().catch((e: unknown) => {
       if (e instanceof ApiError && e.status === 401) { setIdentity(null); setSyncStatus("Sign in to sync"); }
       else setSyncStatus(e instanceof Error ? e.message : "Sync failed; your changes remain on this device.");
-    }).finally(() => { syncLock.current = false; setSyncBusy(false); });
+    }).finally(() => { syncLock.current = null; setSyncBusy(false); });
+    return syncLock.current;
   }, []);
 
   const sync = useCallback(async () => {
-    if (syncLock.current || !navigator.onLine) return;
+    if (!navigator.onLine) return;
     setSyncBusy(true);
     await performSync();
   }, [performSync]);
@@ -327,12 +335,14 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     const failure = (event: Event) => setError(String((event as CustomEvent).detail));
     const available = (event: Event) => setUpdate(() => (event as CustomEvent<() => Promise<void>>).detail);
     window.addEventListener("online", connected); window.addEventListener("offline", disconnected);
+    window.addEventListener("focus", focus);
     document.addEventListener("visibilitychange", focus);
     window.addEventListener("splitty-error", failure); window.addEventListener("splitty-update", available);
     void performSync();
     const interval = window.setInterval(() => { if (document.visibilityState === "visible") void sync(); }, 60_000);
     return () => {
       window.removeEventListener("online", connected); window.removeEventListener("offline", disconnected);
+      window.removeEventListener("focus", focus);
       document.removeEventListener("visibilitychange", focus);
       window.removeEventListener("splitty-error", failure); window.removeEventListener("splitty-update", available);
       window.clearInterval(interval);

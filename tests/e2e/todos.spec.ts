@@ -62,3 +62,74 @@ test("doctor specialties map to Gesundheit and create insurance to-dos", async (
     await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
   }
 });
+
+test("the same member's devices sync completions saved during a slow sync and reopened to-dos", async ({ browser }) => {
+  const mobileContext = await browser.newContext({ viewport: { width: 393, height: 851 }, serviceWorkers: "block" });
+  const desktopContext = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: "block" });
+  const mobile = await mobileContext.newPage(), desktop = await desktopContext.newPage();
+  const descriptions = [`Apotheke ${crypto.randomUUID()}`, `Arzt ${crypto.randomUUID()}`];
+  let releasePull = () => {};
+  const heldPull = new Promise<void>((resolve) => { releasePull = resolve; });
+  let notifyPull = () => {};
+  const pullStarted = new Promise<void>((resolve) => { notifyPull = resolve; });
+  const todo = (page: Page, description: string) => page.getByRole("listitem").filter({ hasText: description }).getByRole("checkbox");
+  async function signIn(page: Page) {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Einstellungen", exact: true }).click();
+    await page.getByLabel("Mitglieds-Token").fill("A".repeat(43));
+    await page.getByRole("button", { name: "Anmelden", exact: true }).click();
+    await expect(page.getByRole("status")).toHaveText("Auf dem neuesten Stand");
+    await page.getByRole("button", { name: "Ausgaben", exact: true }).click();
+  }
+  try {
+    await signIn(mobile);
+    for (const description of descriptions) {
+      await add(mobile, description);
+      await expect(mobile.getByRole("status")).toHaveText("Auf dem neuesten Stand");
+    }
+    await signIn(desktop);
+    for (const page of [mobile, desktop]) {
+      await page.getByRole("navigation").getByRole("button", { name: "To-dos" }).click();
+      for (const description of descriptions) await expect(todo(page, description)).not.toBeChecked();
+    }
+
+    await mobile.clock.install();
+    let pulls = 0;
+    await mobile.route("**/api/sync?*", async (route) => {
+      if (++pulls !== 2) return route.continue();
+      const response = await route.fetch();
+      notifyPull();
+      await heldPull;
+      await route.fulfill({ response });
+    });
+    await mobile.getByRole("button", { name: "Geräte synchronisieren" }).click();
+    await pullStarted;
+    for (const description of descriptions) {
+      await todo(mobile, description).click();
+      await expect(todo(mobile, description)).toBeChecked();
+    }
+    // Let the save debounce fire while the final pull is still in flight.
+    await mobile.clock.runFor(1_000);
+    releasePull();
+    await expect(mobile.getByRole("status")).toHaveText("Auf dem neuesten Stand");
+
+    await desktop.evaluate(() => window.dispatchEvent(new Event("focus")));
+    for (const description of descriptions) await expect(todo(desktop, description)).toBeChecked();
+    await desktop.reload();
+    await desktop.getByRole("navigation").getByRole("button", { name: "To-dos" }).click();
+    for (const description of descriptions) await expect(todo(desktop, description)).toBeChecked();
+
+    await desktopContext.setOffline(true);
+    await todo(desktop, descriptions[0]).click();
+    await expect(todo(desktop, descriptions[0])).not.toBeChecked();
+    await desktopContext.setOffline(false);
+    await expect(desktop.getByRole("status")).toHaveText("Auf dem neuesten Stand");
+    await mobile.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await expect(todo(mobile, descriptions[0])).not.toBeChecked();
+    await expect(todo(mobile, descriptions[1])).toBeChecked();
+  } finally {
+    releasePull();
+    await mobileContext.close();
+    await desktopContext.close();
+  }
+});

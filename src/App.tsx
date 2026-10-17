@@ -11,7 +11,7 @@ import { api, ApiError, synchronize, type Identity } from "./sync";
 import { LanguageContext, useLocale } from "./i18n";
 import { categoryLabels, detectCategory, expenseCategory, normalizeText, storedCategory, type Category } from "./categories";
 import ExpenseIcon from "./ExpenseIcon";
-import Statistics from "./Statistics";
+import Statistics from "./StatisticsPage";
 import { insuranceTodos, type InsuranceTodo } from "./todos";
 
 const today = () => {

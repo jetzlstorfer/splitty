@@ -128,9 +128,9 @@ input::placeholder { color: var(--cp-text-soft); }
 .bottom-nav > button.active > svg { background: var(--cp-accent-soft); }
 @supports ((backdrop-filter: blur(32px)) or (-webkit-backdrop-filter: blur(32px))) {
   .topbar, .bottom-nav {
-    background: color-mix(in srgb, var(--cp-surface) 82%, transparent);
-    -webkit-backdrop-filter: blur(32px) saturate(140%);
-    backdrop-filter: blur(32px) saturate(140%);
+    background: color-mix(in srgb, var(--cp-surface) 35%, transparent);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    backdrop-filter: blur(16px) saturate(140%);
   }
 }
 .expense-action { position: fixed; bottom: calc(76px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); width: min(100%, 760px); padding: 0 16px; display: flex; justify-content: flex-end; pointer-events: none; z-index: 5; }

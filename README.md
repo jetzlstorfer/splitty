@@ -74,6 +74,18 @@ npm ci --prefix api
 npm run dev
 ```
 
+Both lockfiles omit registry tarball URLs while retaining pinned versions and
+integrity hashes. Installs use the registry configured for the environment rather
+than a Microsoft feed URL captured on another machine. The root and API `.npmrc`
+files preserve this behavior when updating dependencies.
+
+In environments requiring the approved Microsoft proxy, pass
+`--registry=https://packagefeedproxy.microsoft.io/npm/` to both `npm ci` commands
+(or set `npm_config_registry` for the job). Do not disable TLS or integrity checks.
+If installation fails with a network error, fix registry connectivity and rerun
+`npm ci` before running builds or tests; `ERR_MODULE_NOT_FOUND` can be a consequence
+of an incomplete install, but its missing-package message must be checked.
+
 Open `http://127.0.0.1:5173`. The frontend works on its own; until the API is running,
 sync is unavailable and entries remain on that browser. Service-worker/offline
 reload behavior is enabled in production builds, not the Vite development server.

@@ -38,16 +38,17 @@ function useLedger(): Snapshot | null {
   return value;
 }
 
-function Sheet({ title, children, close }: { title: string; children: ReactNode; close: () => void }) {
+function Sheet({ title, children, close, initialFocus }: { title: string; children: ReactNode; close: () => void; initialFocus?: string }) {
   const { t } = useLocale();
   const dialog = useRef<HTMLDialogElement>(null);
   const heading = useId();
   useLayoutEffect(() => {
     const element = dialog.current;
     element?.showModal();
+    if (initialFocus) element?.querySelector<HTMLElement>(initialFocus)?.focus();
     // Close before React removes the dialog so the browser can restore focus to its opener.
     return () => element?.close();
-  }, []);
+  }, [initialFocus]);
   return <dialog ref={dialog} onCancel={close} className="sheet" aria-labelledby={heading}>
     <div className="sheet-head"><button className="icon-button" onClick={close} aria-label={t("Close")}><X size={22} /></button><h2 id={heading}>{title}</h2><span /></div>
     {children}
@@ -149,9 +150,9 @@ function ExpenseForm({ entry, settlement, preferences: p, close, saved }: {
   }
 
   const other = p.member === "a" ? p.nameB : p.nameA;
-  return <Sheet title={t(entry ? "Edit entry" : settlement ? "Settle up" : "Add an expense")} close={close}>
+  return <Sheet title={t(entry ? "Edit entry" : settlement ? "Settle up" : "Add an expense")} close={close} initialFocus={!entry ? "#expense-description" : undefined}>
     <form onSubmit={submit} className="expense-form" lang={language}>
-      <div className="description-field"><label htmlFor="expense-description">{t("Description")}</label><div className="description-input"><ExpenseIcon category={category} size={24} /><input id="expense-description" autoFocus value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t(settlement ? "Payment" : "Enter a description")} required maxLength={500} /></div></div>
+      <div className="description-field"><label htmlFor="expense-description">{t("Description")}</label><div className="description-input"><ExpenseIcon category={category} size={24} /><input id="expense-description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t(settlement ? "Payment" : "Enter a description")} required maxLength={500} /></div></div>
       <label>{t("Amount in EUR")}<div className="amount-input"><span>€</span><input aria-label={t("Amount in EUR")} inputMode="decimal" value={amount} readOnly={imported} onChange={(e) => setAmount(e.target.value)} placeholder={language === "de" ? "0,00" : "0.00"} required /></div></label>
       {imported ? <p className="notice">{t("Imported balance: {amount} for {name}. The CSV does not reliably identify the original payer or split, so those amounts are preserved. Description and date can be edited.", { amount: money(entry.balanceA), name: p.nameA })}</p> : <>
         <div className="split-summary">

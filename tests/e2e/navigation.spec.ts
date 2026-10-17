@@ -17,8 +17,8 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     await expect(dialog).toHaveCSS("animation-name", motion ? "sheet-in" : "none");
     expect(await dialog.evaluate((element) => getComputedStyle(element, "::backdrop").animationName))
       .toBe(motion ? "fade-in" : "none");
-    await expect.poll(() => dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
-    await dialog.getByLabel("Description", { exact: true }).fill("Coffee together");
+    await expect(dialog.getByLabel("Description", { exact: true })).toBeFocused();
+    await page.keyboard.type("Coffee together");
     await dialog.getByRole("textbox", { name: "Amount in EUR" }).fill("12");
     const split = dialog.getByRole("button", { name: /Split equally/ });
     await split.click();
@@ -33,6 +33,13 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     await expect(page.locator(".expense-row")).toContainText("Coffee together");
     await expect(page.locator(".balance-amount")).toContainText("6.00");
 
+    await page.getByText("Coffee together", { exact: true }).click();
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeFocused();
+    await expect(dialog.getByLabel("Description", { exact: true })).not.toBeFocused();
+    await expect(dialog.getByLabel("Description", { exact: true })).toHaveValue("Coffee together");
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+
     await nav.getByRole("button", { name: "Statistics", exact: true }).click();
     await expect(page.locator(".statistics-total")).toContainText("12.00");
     await expect(page.locator(".statistics-bar").last()).toHaveCSS("animation-name", motion ? "bar-in" : "none");
@@ -46,6 +53,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     await expect(page.getByRole("button", { name: "Add expense", exact: true })).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(dialog).toBeVisible();
+    await expect(dialog.getByLabel("Description", { exact: true })).toBeFocused();
     await dialog.getByRole("button", { name: "Close", exact: true }).click();
     await expect(dialog).not.toBeVisible();
     await expect(page.getByRole("button", { name: "Add expense", exact: true })).toBeFocused();

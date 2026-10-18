@@ -5,6 +5,7 @@ export const german = {
   "You": "Du",
   "Your wife": "Deine Frau",
   "Edit entry": "Eintrag bearbeiten",
+  "Entry actions": "Eintragsaktionen",
   "Settle up": "Ausgleichen",
   "Add an expense": "Ausgabe hinzufügen",
   "Add expense": "Ausgabe hinzufügen",

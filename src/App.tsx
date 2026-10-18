@@ -11,6 +11,7 @@ import { api, ApiError, synchronize, type Identity } from "./sync";
 import { LanguageContext, useLocale } from "./i18n";
 import { categoryLabels, detectCategory, expenseCategory, normalizeText, storedCategory, type Category } from "./categories";
 import ExpenseIcon from "./ExpenseIcon";
+import SwipeableExpenseRow from "./SwipeableExpenseRow";
 import Statistics from "./StatisticsPage";
 import { insuranceTodos, type InsuranceTodo } from "./todos";
 
@@ -286,6 +287,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const { t, language, locale, number, money, message, person, payer } = useLocale();
   const [tab, setTab] = useState<"expenses" | "todos" | "search" | "statistics" | "settings">("expenses");
   const [form, setForm] = useState<"expense" | "settlement" | Entry | null>(null);
+  const [swipedEntry, setSwipedEntry] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [search, setSearch] = useState("");
   const [limit, setLimit] = useState(100);
@@ -359,6 +361,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const saved = () => { setSyncStatus("Saved on this device"); void sync(); };
 
   function navigate(next: typeof tab) {
+    setSwipedEntry(null);
     setTab(next);
     setLimit(100);
     window.scrollTo(0, 0);
@@ -472,12 +475,18 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
               const contribution = p.member === "a" ? entry.balanceA : -entry.balanceA;
               const category = expenseCategory(entry.description, entry.category, entry.kind, entry.categoryMode);
               const payment = category === "payment";
-              return <div key={entry.id}>{heading && <h3 className="month-heading">{month}</h3>}<button className="expense-row" onClick={() => setForm(entry)} disabled={conflictIds.has(entry.id)}>
+              return <div key={entry.id}>{heading && <h3 className="month-heading">{month}</h3>}<SwipeableExpenseRow
+                description={entry.description} disabled={conflictIds.has(entry.id)} open={swipedEntry === entry.id}
+                setOpen={(open) => setSwipedEntry(open ? entry.id : null)} edit={() => setForm(entry)}
+                remove={async () => {
+                  try { await queueEntries([{ ...entry, deleted: true }]); saved(); }
+                  catch (e) { setError(e instanceof Error ? e.message : "Could not delete this entry."); }
+                }}>
                 <span className="date-block"><small>{new Date(`${entry.date}T12:00:00`).toLocaleDateString(locale, { month: "short" })}</small>{Number(entry.date.slice(8))}</span>
                 <span className={`entry-icon ${payment ? "payment" : ""}`}><ExpenseIcon category={category} /></span>
                 <span className="entry-description"><strong>{entry.description}</strong><small>{entry.kind === "imported" ? t("{category} · imported", { category: t(categoryLabels[category]) }) : t("{name} paid {amount}", { name: payer(p, entry.paidBy!), amount: money(entry.amountCents) })}</small></span>
                 <span className={`entry-balance ${contribution < 0 ? "owed" : contribution > 0 ? "lent" : ""}`}><small>{t(contribution === 0 ? "no balance change" : payment ? "balance change" : contribution > 0 ? "you lent" : "you borrowed")}</small><strong>{money(Math.abs(contribution))}</strong></span>
-              </button></div>;
+              </SwipeableExpenseRow></div>;
             })}{shown.length > limit && <button className="secondary load-more" onClick={() => setLimit(limit + 100)}>{t("Show more ({count})", { count: number(shown.length - limit) })}</button>}</div>}
         </section>
       </> : <section className="settings-page"><header className="page-heading"><h1>{t("Settings")}</h1></header>

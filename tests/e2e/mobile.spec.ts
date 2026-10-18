@@ -129,6 +129,7 @@ test("touch swipes reveal actions without opening edit and cancel safely", async
     await session.send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
     const toggle = page.getByRole("button", { name: "Entry actions: Touch expense" });
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(page.locator(".expense-swipe-front")).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, 0)");
     await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
     for (let offset = 20; offset <= 140; offset += 20) {
       await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x - offset, y }] });

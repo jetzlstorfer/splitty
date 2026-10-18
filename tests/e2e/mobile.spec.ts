@@ -52,7 +52,7 @@ test("expense swipe actions edit, close, and ignore short or vertical gestures",
   const row = page.locator(".swipe-expense").filter({ hasText: "Swipe groceries" });
   const toggle = row.getByRole("button", { name: "Entry actions: Swipe groceries" });
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
-  await expect(row.getByRole("button", { name: "Delete entry: Swipe groceries" })).toHaveCount(0);
+  await expect(row.locator(".expense-swipe-actions")).toHaveAttribute("inert", "");
   await swipe(page, row.locator(".expense-row"), -25);
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByRole("dialog")).not.toBeVisible();
@@ -257,7 +257,7 @@ test("previews, reconciles and deduplicates a Splitwise import", async ({ page }
   await expect(page.locator(".balance-amount")).toContainText("31.54");
   await page.getByText("Updated dinner", { exact: true }).click();
   page.once("dialog", (confirmation) => confirmation.accept());
-  await page.getByRole("button", { name: "Delete entry" }).click();
+  await page.getByRole("button", { name: "Delete entry", exact: true }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await expect(page.locator(".balance-amount")).toContainText("10.00");
   dialog = await preview();

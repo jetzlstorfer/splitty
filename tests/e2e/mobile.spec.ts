@@ -1,4 +1,4 @@
-import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { expect, test, type BrowserContext, type Locator, type Page } from "@playwright/test";
 
 async function useEnglish(page: Page) {
   await page.goto("/");
@@ -35,6 +35,111 @@ async function offlineReady(page: Page) {
   await page.reload();
   await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
 }
+
+async function swipe(page: Page, row: Locator, dx: number, dy = 0) {
+  const box = (await row.boundingBox())!;
+  const x = dx < 0 ? box.x + box.width - 16 : Math.max(0, box.x) + 16;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + dx, y + dy, { steps: 12 });
+  await page.mouse.up();
+}
+
+test("expense swipe actions edit, close, and ignore short or vertical gestures", async ({ page }) => {
+  await addExpense(page, "Swipe groceries", "20");
+  await save(page);
+  const row = page.locator(".swipe-expense").filter({ hasText: "Swipe groceries" });
+  const toggle = row.getByRole("button", { name: "Entry actions: Swipe groceries" });
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(row.getByRole("button", { name: "Delete entry: Swipe groceries" })).toHaveCount(0);
+  await swipe(page, row.locator(".expense-row"), -25);
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  await swipe(page, row.locator(".expense-row"), -10, 50);
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  await swipe(page, row.locator(".expense-row"), -140);
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  await expect(row.getByRole("button", { name: "Edit entry: Swipe groceries" })).toBeInViewport();
+  await swipe(page, row.locator(".expense-row"), 140);
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await swipe(page, row.locator(".expense-row"), -140);
+  await row.getByRole("button", { name: "Edit entry: Swipe groceries" }).click();
+  const dialog = page.getByRole("dialog", { name: "Edit entry" });
+  await dialog.getByLabel("Description", { exact: true }).fill("Edited groceries");
+  await save(page);
+  await expect(page.getByText("Edited groceries", { exact: true })).toBeVisible();
+  await expect(page.locator(".balance-amount")).toContainText("10.00");
+});
+
+test("keyboard actions delete with confirmation offline and in search", async ({ page, context }) => {
+  await addExpense(page, "Keep this expense", "20");
+  await save(page);
+  await addExpense(page, "Delete this expense", "8");
+  await save(page);
+  const keepToggle = page.getByRole("button", { name: "Entry actions: Keep this expense" });
+  const deleteToggle = page.getByRole("button", { name: "Entry actions: Delete this expense" });
+  await keepToggle.click();
+  await deleteToggle.click();
+  await expect(keepToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(deleteToggle).toHaveAttribute("aria-expanded", "true");
+  await page.keyboard.press("Escape");
+  await expect(deleteToggle).toBeFocused();
+  await expect(deleteToggle).toHaveAttribute("aria-expanded", "false");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Edit entry: Delete this expense" })).toBeFocused();
+  await page.getByRole("heading", { name: /^Expenses/, level: 1 }).click();
+  await expect(deleteToggle).toHaveAttribute("aria-expanded", "false");
+
+  await offlineReady(page);
+  await context.setOffline(true);
+  await page.getByRole("button", { name: "Search", exact: true }).click();
+  await page.getByRole("searchbox", { name: "Search expenses" }).fill("Delete this expense");
+  await deleteToggle.click();
+  page.once("dialog", (confirmation) => confirmation.dismiss());
+  await page.getByRole("button", { name: "Delete entry: Delete this expense" }).click();
+  await expect(page.getByText("Delete this expense", { exact: true })).toBeVisible();
+  page.once("dialog", (confirmation) => confirmation.accept());
+  await page.getByRole("button", { name: "Delete entry: Delete this expense" }).click();
+  await expect(page.getByText("Delete this expense", { exact: true })).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByText("Delete this expense", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Keep this expense", { exact: true })).toBeVisible();
+  await expect(page.locator(".balance-amount")).toContainText("10.00");
+  await context.setOffline(false);
+});
+
+test("touch swipes reveal actions without opening edit and cancel safely", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 851 });
+  await addExpense(page, "Touch expense", "12");
+  await save(page);
+  const row = page.locator(".expense-row");
+  await expect(row).toHaveCSS("touch-action", "pan-y pinch-zoom");
+  const box = (await row.boundingBox())!;
+  const x = box.x + box.width - 16, y = box.y + box.height / 2;
+  const session = await page.context().newCDPSession(page);
+  try {
+    await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+    for (let offset = 20; offset <= 140; offset += 20) {
+      await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x - offset, y }] });
+    }
+    await session.send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+    const toggle = page.getByRole("button", { name: "Entry actions: Touch expense" });
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+    for (let offset = 20; offset <= 140; offset += 20) {
+      await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x - offset, y }] });
+    }
+    await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByRole("dialog")).not.toBeVisible();
+    await expect(page.getByRole("button", { name: "Delete entry: Touch expense" })).toBeInViewport();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  } finally { await session.detach(); }
+});
 
 test("mobile expense entry, custom splits, settlements and offline reload", async ({ page, context }, info) => {
   await page.goto("/");

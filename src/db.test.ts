@@ -1,11 +1,12 @@
 import "fake-indexeddb/auto";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { example } from "../tests/fixtures";
-import { SplittyDatabase, applyPage, applyResults, getPreferences, queueEntries, resolveConflict, updatePreferences } from "./db";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { VersionedRecord } from "../shared/model";
+import { example, exampleTodo } from "../tests/fixtures";
+import { SplittyDatabase, applyPage, applyResults, applyStorePage, expenseStore, getPreferences, queueEntries, resolveConflict, todoStore, updatePreferences, type SyncStore } from "./db";
 
 let database: SplittyDatabase;
 beforeEach(() => { database = new SplittyDatabase(crypto.randomUUID()); });
-afterEach(async () => { await database.delete(); });
+afterEach(async () => { vi.restoreAllMocks(); await database.delete(); });
 
 describe("offline ledger", () => {
   it("defaults existing devices to German without changing names or ledger data", async () => {
@@ -39,6 +40,30 @@ describe("offline ledger", () => {
     expect((await database.entries.get("test-entry"))?.description).toBe("Local edit");
     expect((await database.preferences.get("preferences"))?.cursor).toBe(7);
   });
+  it("rejects stale saves without overwriting pending insurance completion", async () => {
+    await queueEntries([example({ revision: 0 })], database);
+    const submitted = { ...example(), insuranceSubmittedAt: "2026-10-01T12:00:00.000Z" };
+    await queueEntries([submitted], database);
+    const current = await database.entries.get("test-entry");
+    const pending = await database.outbox.toArray();
+    await expect(queueEntries([
+      example({ id: "new-entry", revision: 0 }),
+      example({ description: "Stale form" })
+    ], database)).rejects.toThrow("This expense changed. Reopen it before saving.");
+    expect(await database.entries.get("test-entry")).toEqual(current);
+    expect(await database.entries.get("new-entry")).toBeUndefined();
+    expect(await database.outbox.toArray()).toEqual(pending);
+  });
+  it("does not resurrect a remote tombstone from a stale expense form", async () => {
+    await applyPage({ entries: [example({ deleted: true, revision: 2 })], cursor: 2, more: false }, database);
+    await expect(queueEntries([example({ description: "Stale form" })], database))
+      .rejects.toThrow("Reopen");
+    expect(await database.entries.get("test-entry")).toMatchObject({ deleted: true, revision: 2 });
+    expect(await database.outbox.count()).toBe(0);
+    database.close();
+    await database.open();
+    expect(await database.entries.get("test-entry")).toMatchObject({ deleted: true, revision: 2 });
+  });
   it("records conflicts and rebases an explicit keep-local decision", async () => {
     await queueEntries([example({ description: "Local" })], database);
     const pending = (await database.outbox.toArray())[0];
@@ -49,6 +74,63 @@ describe("offline ledger", () => {
     expect((await database.outbox.toArray())[0].expectedRevision).toBe(3);
     expect(await database.conflicts.count()).toBe(0);
   });
+
+  function pageTests<T extends VersionedRecord>(
+    name: string, createStore: (database: SplittyDatabase) => SyncStore<T>, record: (overrides?: Partial<T>) => T
+  ) {
+    describe(`${name} sync page application`, () => {
+      it("applies a 500-change history in one bulk write without scanning the outbox", async () => {
+        const store = createStore(database);
+        const put = vi.spyOn(store.entries, "put");
+        const get = vi.spyOn(store.entries, "get");
+        const bulkPut = vi.spyOn(store.entries, "bulkPut");
+        const scan = vi.spyOn(store.outbox, "toArray");
+        const entries = Array.from({ length: 500 }, (_, i) => ({
+          ...record(), revision: i + 1, deleted: i === 499
+        }));
+        await applyStorePage({ entries, cursor: 500, more: false }, store);
+        expect(await store.entries.toArray()).toEqual([entries[499]]);
+        expect(get).not.toHaveBeenCalled();
+        expect(put).not.toHaveBeenCalled();
+        expect(bulkPut).toHaveBeenCalledExactlyOnceWith([entries[499]]);
+        expect(scan).not.toHaveBeenCalled();
+        expect((await getPreferences(database))[store.cursorField]).toBe(500);
+      });
+      it("preserves pending work and the newest conflict when a page repeats a record", async () => {
+        const store = createStore(database);
+        const local = record();
+        await store.entries.put(local);
+        const mutation = { id: "pending", entry: local, expectedRevision: 0 };
+        await store.outbox.add(mutation);
+        await store.conflicts.put({ entryId: local.id, remote: null });
+        const remote = { ...local, revision: 5, deleted: true };
+        await applyStorePage({
+          entries: [{ ...local, revision: 2 }, remote, { ...local, revision: 3 }],
+          cursor: 10, more: false
+        }, store);
+        expect(await store.entries.get(local.id)).toEqual(local);
+        expect(await store.outbox.toArray()).toEqual([mutation]);
+        expect(await store.conflicts.get(local.id)).toEqual({ entryId: local.id, remote });
+        database.close();
+        await database.open();
+        expect(await store.entries.get(local.id)).toEqual(local);
+        expect(await store.conflicts.get(local.id)).toEqual({ entryId: local.id, remote });
+        expect((await getPreferences(database))[store.cursorField]).toBe(10);
+      });
+      it("does not write preferences or scan pending payloads on an unchanged poll", async () => {
+        const store = createStore(database);
+        await applyStorePage({ entries: [], cursor: 9, more: false }, store);
+        const put = vi.spyOn(database.preferences, "put");
+        const scan = vi.spyOn(store.outbox, "toArray");
+        await applyStorePage({ entries: [], cursor: 9, more: false }, store);
+        expect(put).not.toHaveBeenCalled();
+        expect(scan).not.toHaveBeenCalled();
+      });
+    });
+  }
+
+  pageTests("expense", expenseStore, example);
+  pageTests("manual to-do", todoStore, exampleTodo);
   it("honors an explicit keep-remote decision including deletion", async () => {
     await queueEntries([example()], database);
     const pending = (await database.outbox.toArray())[0];

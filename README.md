@@ -274,6 +274,12 @@ No receipt/blob storage, SQL database or Cosmos DB is needed for this first vers
 - Pulls page through an ordered durable change log, not client timestamps.
 - Pending local edits are never replaced by a pull. Stale writes become conflicts;
   the app preserves both versions until you explicitly choose one.
+- Expense and manual to-do forms reject saves if the record changed after the
+  form was opened. Reopen the form to use the latest version; a stale form cannot
+  overwrite insurance completion or resurrect a deletion already received locally.
+- Pull pages apply only the newest revision of each record in bulk, checking
+  pending changes through the outbox index without loading unrelated payloads.
+  Unchanged polls do not rewrite sync cursors.
 - Deletion is a versioned tombstone. Settlements are ledger changes, not another
   shared purchase. Amounts and balances use integer cents.
 - Manual to-dos use their own IndexedDB stores, outbox, cursor, and `/api/todo-sync`

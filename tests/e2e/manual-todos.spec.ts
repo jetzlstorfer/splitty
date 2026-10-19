@@ -49,6 +49,60 @@ async function remove(page: Page, title: string) {
   await expect(row(page, title)).toHaveCount(0);
 }
 
+test("todo and expense add buttons share their floating position, styling, and keyboard behavior", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+  const nav = page.getByRole("navigation");
+  const action = page.locator(".add-button");
+  const geometry = () => action.evaluate((element) => {
+    const rect = element.getBoundingClientRect(), style = getComputedStyle(element);
+    return { right: rect.right, bottom: rect.bottom, height: rect.height, background: style.backgroundColor, radius: style.borderRadius };
+  });
+  for (const [width, height] of [[320, 740], [393, 851], [851, 393], [1280, 900]]) {
+    await page.setViewportSize({ width, height });
+    for (const theme of ["light", "dark"]) {
+      await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
+      await nav.getByRole("button", { name: "Ausgaben", exact: true }).click();
+      await expect(action).toHaveAccessibleName("Ausgabe hinzufügen");
+      const expense = await geometry();
+      await todos(page);
+      await expect(action).toHaveAccessibleName("To-do hinzufügen");
+      expect(await geometry()).toEqual(expense);
+      await expect(page.locator(".todos-page .page-heading button")).toHaveCount(0);
+      expect(await page.locator("main").evaluate((element) => getComputedStyle(element).paddingBottom)).toBe("152px");
+      const navTop = await nav.evaluate((element) => element.getBoundingClientRect().top);
+      expect(expense.bottom).toBeLessThanOrEqual(navTop);
+    }
+  }
+  await action.focus();
+  await page.keyboard.press("Enter");
+  const dialog = page.getByRole("dialog", { name: "To-do hinzufügen" });
+  await expect(dialog.getByLabel("Titel", { exact: true })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(dialog).not.toBeVisible();
+  await expect(action).toBeFocused();
+  for (const tab of ["Suche", "Statistik", "Einstellungen"]) {
+    await nav.getByRole("button", { name: tab, exact: true }).click();
+    await expect(action).toHaveCount(0);
+  }
+});
+
+test("the floating todo button stays above navigation without covering the last item", async ({ page }) => {
+  await page.goto("/");
+  await todos(page);
+  for (let i = 0; i < 8; i++) await add(page, `Task ${i}`, "Shared household details");
+  for (const [width, height] of [[320, 740], [393, 851], [851, 393], [1280, 900]]) {
+    await page.setViewportSize({ width, height });
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    await expect(page.locator(".add-button")).toBeInViewport();
+    const lastRow = page.getByRole("listitem").last();
+    const rowBottom = await lastRow.evaluate((element) => element.getBoundingClientRect().bottom);
+    const actionTop = await page.locator(".expense-action").evaluate((element) => element.getBoundingClientRect().top);
+    expect(rowBottom).toBeLessThanOrEqual(actionTop);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+});
+
 test("manual todos persist with optional descriptions and leave expenses unchanged", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 740 });
   await page.goto("/");

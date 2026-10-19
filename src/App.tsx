@@ -289,19 +289,18 @@ function TodoForm({ todo, close, saved }: { todo?: Todo; close: () => void; save
   </Sheet>;
 }
 
-function TodoList({ todos, manualTodos, conflicts, resolve, openCount, status, blocked, open, toggle, add, edit, toggleManual }: {
+function TodoList({ todos, manualTodos, conflicts, resolve, openCount, status, blocked, open, toggle, edit, toggleManual }: {
   todos: HouseholdTodo[]; manualTodos: Todo[]; conflicts: Conflict<Todo>[];
   resolve: (id: string, keepLocal: boolean) => void;
   openCount: number; status: string; blocked: Set<string>;
   open: (entry: Entry) => void; toggle: (entry: Entry, submitted: boolean) => void;
-  add: () => void; edit: (todo: Todo) => void; toggleManual: (todo: Todo, done: boolean) => void;
+  edit: (todo: Todo) => void; toggleManual: (todo: Todo, done: boolean) => void;
 }) {
   const { t, number, money, locale } = useLocale();
   const manualBlocked = new Set(conflicts.map((conflict) => conflict.entryId));
   const version = (todo: Todo | null | undefined) => !todo ? t("Not present") : todo.deleted ? t("Deleted")
     : `${todo.title}${todo.description ? `\n${todo.description}` : ""}\n${t(todo.done ? "Done" : "Open to-dos")}`;
-  return <section className="todos-page"><header className="page-heading todo-heading"><h1>{t("To-dos")}<span className="entry-count">{number(openCount)}</span></h1>
-    <button className="text-button" onClick={add}><Plus size={18} />{t("Add to-do")}</button></header>
+  return <section className="todos-page"><header className="page-heading"><h1>{t("To-dos")}<span className="entry-count">{number(openCount)}</span></h1></header>
     <p className="sync-status" role="status">{status}</p>
     {!!conflicts.length && <section className="conflict-panel" aria-label={t("Conflicting to-do edits")}><h3>{t("Conflicting to-do edits")}</h3>
       <p>{t("These to-dos changed on another device. Choose which version to keep.")}</p>
@@ -510,13 +509,13 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     <header className="topbar"><a className="wordmark" href="/" aria-label={t("Splitty home")}><img className="brand-mark" src="/icon.svg" width="32" height="32" alt="" />Splitty</a>
       <button className={`sync-pill ${online ? "" : "offline"}`} onClick={() => void sync()} disabled={syncBusy} aria-label={t("Synchronize devices")}>{online ? <Cloud size={16} /> : <CloudOff size={16} />}<span>{syncBusy ? t("Syncing") : ledger.pending ? t("{count} pending", { count: number(ledger.pending) }) : t(online ? "Sync" : "Offline")}</span></button>
     </header>
-    <main className={tab === "expenses" ? "with-expense-action" : undefined}>
+    <main className={tab === "expenses" || tab === "todos" ? "with-expense-action" : undefined}>
       {error && <div className="banner error" role="alert">{message(error)}<button className="icon-button" aria-label={t("Dismiss error")} onClick={() => setError("")}><X size={18} /></button></div>}
       {update && <div className="banner">{t("An app update is ready. Your saved entries will be kept.")}<button onClick={() => void update().catch((e: Error) => setError(e.message))} className="text-button">{t("Update")}</button></div>}
       {tab === "todos" ? <TodoList todos={todos} openCount={openTodos} status={message(syncStatus)} blocked={conflictIds} open={setForm}
         manualTodos={ledger.todos} conflicts={ledger.todoConflicts}
         resolve={(id, keepLocal) => void resolveStoreConflict(id, keepLocal, todoStore()).then(saved).catch((e: Error) => setError(e.message))}
-        add={() => setTodoForm("new")} edit={setTodoForm}
+        edit={setTodoForm}
         toggleManual={(todo, done) => void queueTodos([{ ...todo, done }]).then(saved).catch((e: Error) => setError(e.message))}
         toggle={(entry, submitted) => void markSubmitted(entry, submitted).then(saved).catch((e: Error) => setError(e.message))} /> : tab === "statistics" ? <Statistics entries={ledger.entries} preferences={p} /> : tab !== "settings" ? <>
         {tab === "expenses" ? <>
@@ -584,7 +583,12 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
         <section className="settings-card"><h2><Download size={20} />{t("Backups")}</h2><button className="secondary" onClick={backup}><Download size={17} />{t("Download a backup")}</button><FilePicker label={t("Restore missing entries from a backup")} accept=".json,application/json" choose={(file) => void restore(file)} /><p className="muted">{t("Backups include expenses and manual to-dos. Offline data lives in this browser; sync or back up before clearing site data or changing devices.")}</p></section>
       </section>}
     </main>
-    {tab === "expenses" && <div className="expense-action"><button className="add-button" aria-label={t("Add expense")} onClick={() => setForm("expense")}><Plus size={23} /><span>{t("Add expense")}</span></button></div>}
+    {(tab === "expenses" || tab === "todos") && <div className="expense-action">
+      <button className="add-button" aria-label={t(tab === "todos" ? "Add to-do" : "Add expense")}
+        onClick={() => { if (tab === "todos") setTodoForm("new"); else setForm("expense"); }}>
+        <Plus size={23} /><span>{t(tab === "todos" ? "Add to-do" : "Add expense")}</span>
+      </button>
+    </div>}
     <nav className="bottom-nav" aria-label={t("Main navigation")}>
       <button className={tab === "expenses" ? "active" : ""} aria-current={tab === "expenses" ? "page" : undefined} onClick={() => navigate("expenses")}><Receipt size={22} /><span>{t("Expenses")}</span></button>
       <button className={tab === "todos" ? "active" : ""} aria-current={tab === "todos" ? "page" : undefined} onClick={() => navigate("todos")}><ClipboardCheck size={22} /><span>{t("To-dos")}{!!openTodos && <span className="nav-badge" aria-hidden="true">{number(openTodos)}</span>}</span></button>

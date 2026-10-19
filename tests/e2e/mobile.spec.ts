@@ -54,6 +54,84 @@ async function swipe(page: Page, row: Locator, dx: number, dy = 0) {
   await page.mouse.up();
 }
 
+test("expense description and search match the rounded todo field border and focus ring", async ({ page }, info) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const fieldStyle = (field: Locator) => field.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      borders: [style.borderTop, style.borderRight, style.borderBottom, style.borderLeft],
+      radius: style.borderRadius, outline: style.outlineStyle === "none" ? "none" : style.outline,
+      offset: style.outlineOffset, shadow: style.boxShadow
+    };
+  });
+  for (const width of [320, 393, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const theme of ["light", "dark"]) {
+      await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
+      await page.getByRole("navigation").getByRole("button", { name: "To-dos" }).click();
+      await page.getByRole("button", { name: "Add to-do", exact: true }).click();
+      const title = page.getByLabel("Title", { exact: true });
+      await expect(title).toBeFocused();
+      await expect(title).toHaveCSS("border-radius", "6px");
+      await expect(title).toHaveCSS("outline-width", "3px");
+      const focused = await fieldStyle(title);
+      await page.keyboard.press("Tab");
+      const unfocused = await fieldStyle(title);
+      await page.keyboard.press("Escape");
+
+      await page.getByRole("navigation").getByRole("button", { name: "Expenses", exact: true }).click();
+      await page.getByRole("button", { name: "Add expense", exact: true }).click();
+      const description = page.getByLabel("Description", { exact: true });
+      const field = page.locator(".description-input");
+      await expect(description).toBeFocused();
+      expect(await fieldStyle(field)).toEqual(focused);
+      await expect(description).toHaveCSS("outline-style", "none");
+      await expect(description).toHaveCSS("border-width", "0px");
+      await description.fill("Coffee");
+      await expect(description).toHaveValue("Coffee");
+      const icon = field.getByRole("img", { name: "Coffee", exact: true });
+      await expect(icon).toBeVisible();
+      const fieldBox = (await field.boundingBox())!, iconBox = (await icon.boundingBox())!;
+      expect(iconBox.x).toBeGreaterThan(fieldBox.x);
+      expect(iconBox.x + iconBox.width).toBeLessThan(fieldBox.x + fieldBox.width);
+      await page.keyboard.press("Tab");
+      await expect(page.getByRole("textbox", { name: "Amount in EUR" })).toBeFocused();
+      expect(await fieldStyle(field)).toEqual(unfocused);
+      await page.keyboard.press("Shift+Tab");
+      await expect(description).toBeFocused();
+      expect(await fieldStyle(field)).toEqual(focused);
+      expect(await page.getByRole("dialog").evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+      if (width === 393) await page.screenshot({ path: info.outputPath(`expense-input-${theme}.png`) });
+      await page.getByText("Description", { exact: true }).click();
+      await expect(description).toBeFocused();
+      expect(await fieldStyle(field)).toEqual(focused);
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("button", { name: "Add expense", exact: true })).toBeFocused();
+
+      await page.getByRole("navigation").getByRole("button", { name: "Search", exact: true }).click();
+      const search = page.getByRole("searchbox", { name: "Search expenses" });
+      const searchField = page.locator(".search");
+      expect(await fieldStyle(searchField)).toEqual(unfocused);
+      await page.getByRole("button", { name: "Import", exact: true }).focus();
+      await page.keyboard.press("Tab");
+      await expect(search).toBeFocused();
+      expect(await fieldStyle(searchField)).toEqual(focused);
+      await expect(search).toHaveCSS("outline-style", "none");
+      await expect(search).toHaveCSS("border-width", "0px");
+      await expect(searchField.locator("svg")).toBeVisible();
+      await search.fill("Coffee");
+      await expect(page.getByRole("heading", { name: "No matching expenses" })).toBeVisible();
+      await page.keyboard.press("Tab");
+      expect(await fieldStyle(searchField)).toEqual(unfocused);
+      await search.click();
+      expect(await fieldStyle(searchField)).toEqual(focused);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      if (width === 393) await page.screenshot({ path: info.outputPath(`search-input-${theme}.png`) });
+      await search.clear();
+    }
+  }
+});
+
 test("expense swipe actions edit, close, and ignore short or vertical gestures", async ({ page }) => {
   await addExpense(page, "Swipe groceries", "20");
   await save(page);

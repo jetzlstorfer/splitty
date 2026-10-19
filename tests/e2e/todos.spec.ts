@@ -21,6 +21,8 @@ test("doctor and pharmacy expenses create insurance to-dos that can be checked o
   await nav.getByRole("button", { name: "To-dos" }).click();
   await expect(page.getByRole("heading", { name: /^To-dos/, level: 1 })).toContainText("2");
   const open = page.getByRole("region", { name: "Offene To-dos" });
+  await expect(open.getByRole("heading")).toHaveCount(0);
+  await expect(open.locator(".section-title")).toHaveCount(0);
   await expect(open.getByRole("listitem")).toHaveCount(2);
   await expect(open.getByRole("listitem").first()).toContainText("Bei Versicherung einreichen");
   await expect(open).toContainText("Ausgabe: Apotheke");
@@ -29,6 +31,8 @@ test("doctor and pharmacy expenses create insurance to-dos that can be checked o
 
   await open.getByRole("listitem").filter({ hasText: "Apotheke" }).getByRole("checkbox").click();
   const done = page.getByRole("region", { name: "Erledigt" });
+  await expect(done.getByRole("heading", { level: 2 })).toHaveText("Erledigt1");
+  await expect(page.getByRole("heading", { name: /^To-dos/, level: 1 })).toContainText("1");
   await expect(done.getByRole("checkbox")).toBeChecked();
   await expect(done).toContainText("Ausgabe: Apotheke");
   await expect(open.getByRole("listitem")).toHaveCount(1);

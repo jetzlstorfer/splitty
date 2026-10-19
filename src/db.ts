@@ -63,6 +63,7 @@ export async function queueEntries(entries: Entry[], database = db): Promise<voi
       if (await database.conflicts.get(input.id)) throw new Error("Resolve this expense's sync conflict before editing it.");
       const previous = await database.entries.get(input.id);
       if (input.importKey && previous && input.revision === 0) continue;
+      if (previous && input.revision !== previous.revision) throw new Error("This expense changed. Reopen it before saving.");
       const revision = previous?.revision ?? 0;
       const entry = validateEntry({ ...input, revision: revision + 1, updatedAt: new Date().toISOString() });
       await database.entries.put(entry);
@@ -112,21 +113,36 @@ export async function applyStorePage<T extends VersionedRecord>(page: SyncPage<T
   if (!Number.isSafeInteger(page.cursor) || page.cursor < 0 || !Array.isArray(page.entries) || typeof page.more !== "boolean") {
     throw new Error("The server returned an invalid sync response.");
   }
-  const entries = page.entries.map(store.validate);
+  const latest = new Map<string, T>();
+  for (const input of page.entries) {
+    const entry = store.validate(input);
+    if (entry.revision >= (latest.get(entry.id)?.revision ?? -1)) latest.set(entry.id, entry);
+  }
+  const entries = [...latest.values()];
   await database.transaction("rw", store.entries, store.outbox, database.preferences, store.conflicts, async () => {
-    const pending = new Set((await store.outbox.toArray()).map((m) => m.entry.id));
-    for (const entry of entries) {
-      const current = await store.entries.get(entry.id);
-      if (!pending.has(entry.id) && (!current || entry.revision >= current.revision)) await store.entries.put(entry);
-      if (pending.has(entry.id)) {
-        const conflict = await store.conflicts.get(entry.id);
-        if (conflict && entry.revision > (conflict.remote?.revision ?? 0)) {
-          await store.conflicts.put({ entryId: entry.id, remote: entry });
+    if (entries.length) {
+      const ids = entries.map((entry) => entry.id);
+      const pending = new Set(await store.outbox.where("entry.id").anyOf(ids).keys());
+      const current = await store.entries.bulkGet(ids);
+      const conflicts = pending.size ? await store.conflicts.bulkGet(ids) : [];
+      const updates: T[] = [], conflictUpdates: Conflict<T>[] = [];
+      for (const [index, entry] of entries.entries()) {
+        if (!pending.has(entry.id)) {
+          if (!current[index] || entry.revision >= current[index].revision) updates.push(entry);
+        } else {
+          const conflict = conflicts[index];
+          if (conflict && entry.revision > (conflict.remote?.revision ?? 0)) {
+            conflictUpdates.push({ entryId: entry.id, remote: entry });
+          }
         }
       }
+      if (updates.length) await store.entries.bulkPut(updates);
+      if (conflictUpdates.length) await store.conflicts.bulkPut(conflictUpdates);
     }
     const preferences = await getPreferences(database);
-    await database.preferences.put({ ...preferences, [store.cursorField]: Math.max(preferences[store.cursorField] ?? 0, page.cursor) });
+    if (page.cursor > (preferences[store.cursorField] ?? 0)) {
+      await database.preferences.put({ ...preferences, [store.cursorField]: page.cursor });
+    }
   });
 }
 

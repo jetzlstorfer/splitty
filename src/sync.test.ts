@@ -2,7 +2,7 @@ import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mutation } from "../shared/model";
 import type { Todo } from "../shared/todo";
-import { exampleTodo } from "../tests/fixtures";
+import { example, exampleTodo } from "../tests/fixtures";
 import { db, getPreferences, queueTodos } from "./db";
 import { synchronize } from "./sync";
 
@@ -62,5 +62,35 @@ describe("todo synchronization", () => {
       Response.json(init.method === "POST" ? [] : { entries: [], cursor: 0, more: false })));
     await expect(synchronize()).rejects.toThrow("invalid acknowledgement");
     expect(await db.todoOutbox.count()).toBe(1);
+  });
+});
+
+describe("paginated synchronization", () => {
+  it.each(["sync", "todo-sync"] as const)("persists the final tombstone across pages of %s", async (path) => {
+    const entry = path === "sync" ? example() : exampleTodo();
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => {
+      expect(init.method).toBe("GET");
+      if (!url.startsWith(`/api/${path}?`)) return Response.json({ entries: [], cursor: 0, more: false });
+      requests.push(url);
+      const since = new URL(url, "http://localhost").searchParams.get("since");
+      if (since === "0") return Response.json({
+        entries: [entry, { ...entry, revision: 2 }], cursor: 2, more: true
+      });
+      if (since === "2") return Response.json({
+        entries: [{ ...entry, revision: 3, deleted: true }], cursor: 3, more: false
+      });
+      return Response.json({ entries: [], cursor: 3, more: false });
+    }));
+    await synchronize();
+    expect(requests).toEqual([`/api/${path}?since=0`, `/api/${path}?since=2`, `/api/${path}?since=3`]);
+    const records = path === "sync" ? db.entries : db.todos;
+    const tombstone = { ...entry, revision: 3, deleted: true };
+    expect(await records.get(entry.id)).toEqual(tombstone);
+    expect(await getPreferences()).toMatchObject(path === "sync" ? { cursor: 3, todoCursor: 0 } : { cursor: 0, todoCursor: 3 });
+    db.close();
+    await db.open();
+    expect(await records.get(entry.id)).toEqual(tombstone);
+    expect(await db.outbox.count() + await db.todoOutbox.count()).toBe(0);
   });
 });

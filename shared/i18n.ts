@@ -111,6 +111,7 @@ export const german = {
   "Enter a description of at most 2000 characters.": "Gib eine Beschreibung mit höchstens 2000 Zeichen ein.",
   "Resolve this to-do's sync conflict before editing it.": "Löse zuerst den Synchronisierungskonflikt dieses To-dos.",
   "This to-do changed. Reopen it before saving.": "Dieses To-do wurde geändert. Öffne es erneut, bevor du speicherst.",
+  "This expense changed. Reopen it before saving.": "Diese Ausgabe wurde geändert. Öffne sie erneut, bevor du speicherst.",
   "The server returned a different entry's conflict.": "Der Server hat einen Konflikt für einen anderen Eintrag gesendet.",
   "The server acknowledged a different entry.": "Der Server hat einen anderen Eintrag bestätigt.",
   "Submit to insurance": "Bei Versicherung einreichen",

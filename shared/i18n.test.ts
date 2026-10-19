@@ -24,7 +24,7 @@ describe("German and English translations", () => {
     expect(localizeMessage("Your member token was rotated. Sign in again.", "en")).toBe("Your member token was rotated. Sign in again.");
   });
   it("covers static errors exposed by the model, storage and API", () => {
-    for (const file of ["shared\\model.ts", "src\\db.ts", "src\\sync.ts", "src\\importer.ts", "api\\src\\handler.ts", "api\\src\\config.ts", "api\\src\\auth.ts"]) {
+    for (const file of ["shared\\model.ts", "shared\\todo.ts", "src\\db.ts", "src\\sync.ts", "src\\backup.ts", "src\\importer.ts", "api\\src\\handler.ts", "api\\src\\config.ts", "api\\src\\auth.ts"]) {
       const source = readFileSync(file.replaceAll("\\", process.platform === "win32" ? "\\" : "/"), "utf8");
       const matches = source.matchAll(/throw new (?:Error|HttpError|ApiError)\((?:\d+, )?"([^"]+)"/g);
       for (const match of matches) {

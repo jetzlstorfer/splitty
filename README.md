@@ -23,7 +23,15 @@ account; reusable member tokens enable shared history across your devices.
 - A **To-dos** tab with a "Bei Versicherung einreichen" (submit to insurance) item
   for every doctor (Arzt) or pharmacy (Apotheke) expense. The submitted state is
   stored on the expense itself, so it syncs across devices for the whole household.
-- JSON backups and restoration of missing entries without overwriting local history.
+- Manual household to-dos alongside the automatic insurance items. Use **To-dos >
+  Add to-do** to enter a required title (up to 200 characters) and optional plain-text
+  description (up to 2,000 characters). Either member can edit, complete, reopen,
+  or delete them; changes save offline and sync using the same household sign-in.
+  Manual to-dos never affect expenses, balances, search, or statistics.
+- JSON backups of expenses and manual to-dos, and restoration of missing records
+  without overwriting local history or resurrecting locally deleted items.
+  New backups use `splitty-v2`; the app also restores older `splitty-v1` expense-only
+  backups. Update older app installations before restoring a new-format backup.
 - Azure Functions/Table Storage sync, reusable member tokens, two-person
   access control, and explicit conflict resolution.
 
@@ -259,6 +267,11 @@ No receipt/blob storage, SQL database or Cosmos DB is needed for this first vers
   the app preserves both versions until you explicitly choose one.
 - Deletion is a versioned tombstone. Settlements are ledger changes, not another
   shared purchase. Amounts and balances use integer cents.
+- Manual to-dos use their own IndexedDB stores, outbox, cursor, and `/api/todo-sync`
+  change stream. The existing Azure table and household access control are reused;
+  separate row-key prefixes keep the expense stream compatible with older clients.
+  Conflicting manual edits are shown on **To-dos**, with both versions and an
+  explicit choice of which to keep. Automatic insurance items remain expense-backed.
 - Sync runs after saves, on reconnect/foreground or window focus, and every minute
   while visible. Saves during an active sync schedule another pass immediately
   afterward, so checking off several to-dos does not leave later changes waiting

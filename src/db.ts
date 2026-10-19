@@ -1,6 +1,7 @@
-import Dexie, { type EntityTable } from "dexie";
-import { validateEntry, type Entry, type Member, type Mutation, type MutationResult, type SyncPage } from "../shared/model";
+import Dexie, { type EntityTable, type Table } from "dexie";
+import { validateEntry, type Entry, type Member, type Mutation, type MutationResult, type SyncPage, type VersionedRecord } from "../shared/model";
 import type { Language } from "../shared/i18n";
+import { validateTodo, type Todo } from "../shared/todo";
 
 export interface Preferences {
   id: "preferences";
@@ -8,19 +9,23 @@ export interface Preferences {
   nameA: string;
   nameB: string;
   cursor: number;
+  todoCursor?: number;
   language?: Language;
 }
 
-export interface Conflict {
+export interface Conflict<T = Entry> {
   entryId: string;
-  remote: Entry | null;
+  remote: T | null;
 }
 
 export class SplittyDatabase extends Dexie {
-  entries!: EntityTable<Entry, "id">;
-  outbox!: EntityTable<Mutation, "id">;
+  entries!: Table<Entry, string>;
+  outbox!: Table<Mutation, string>;
   preferences!: EntityTable<Preferences, "id">;
-  conflicts!: EntityTable<Conflict, "entryId">;
+  conflicts!: Table<Conflict, string>;
+  todos!: Table<Todo, string>;
+  todoOutbox!: Table<Mutation<Todo>, string>;
+  todoConflicts!: Table<Conflict<Todo>, string>;
 
   constructor(name = "splitty") {
     super(name);
@@ -30,6 +35,11 @@ export class SplittyDatabase extends Dexie {
       preferences: "id",
       conflicts: "entryId"
     });
+    this.version(2).stores({
+      todos: "id, createdAt",
+      todoOutbox: "id, entry.id",
+      todoConflicts: "entryId"
+    });
   }
 }
 
@@ -38,10 +48,10 @@ export const db = new SplittyDatabase();
 export async function getPreferences(database = db): Promise<Preferences> {
   const preferences: Preferences = await database.preferences.get("preferences")
     ?? { id: "preferences", member: "a", nameA: "You", nameB: "Your wife", cursor: 0 };
-  return { ...preferences, language: preferences.language === "en" ? "en" : "de" };
+  return { ...preferences, todoCursor: preferences.todoCursor ?? 0, language: preferences.language === "en" ? "en" : "de" };
 }
 
-export async function updatePreferences(changes: Partial<Omit<Preferences, "id" | "cursor">>, database = db): Promise<void> {
+export async function updatePreferences(changes: Partial<Omit<Preferences, "id" | "cursor" | "todoCursor">>, database = db): Promise<void> {
   await database.transaction("rw", database.preferences, async () => {
     await database.preferences.put({ ...await getPreferences(database), ...changes });
   });
@@ -64,67 +74,106 @@ export async function queueEntries(entries: Entry[], database = db): Promise<voi
   });
 }
 
-export async function applyPage(page: SyncPage, database = db): Promise<void> {
+export async function queueTodos(todos: Todo[], database = db): Promise<void> {
+  await database.transaction("rw", database.todos, database.todoOutbox, database.todoConflicts, async () => {
+    for (const input of todos) {
+      if (await database.todoConflicts.get(input.id)) throw new Error("Resolve this to-do's sync conflict before editing it.");
+      const previous = await database.todos.get(input.id);
+      if (previous && input.revision !== previous.revision) throw new Error("This to-do changed. Reopen it before saving.");
+      const revision = previous?.revision ?? 0;
+      const entry = validateTodo({ ...input, revision: revision + 1, updatedAt: new Date().toISOString() });
+      await database.todos.put(entry);
+      await database.todoOutbox.add({ id: crypto.randomUUID(), entry, expectedRevision: revision });
+    }
+  });
+}
+
+export interface SyncStore<T extends VersionedRecord> {
+  database: SplittyDatabase;
+  entries: Table<T, string, T>;
+  outbox: Table<Mutation<T>, string, Mutation<T>>;
+  conflicts: Table<Conflict<T>, string, Conflict<T>>;
+  validate: (value: unknown) => T;
+  cursorField: "cursor" | "todoCursor";
+}
+
+export const expenseStore = (database = db): SyncStore<Entry> => ({
+  database, entries: database.entries, outbox: database.outbox, conflicts: database.conflicts,
+  validate: validateEntry, cursorField: "cursor"
+});
+
+export const todoStore = (database = db): SyncStore<Todo> => ({
+  database, entries: database.todos, outbox: database.todoOutbox, conflicts: database.todoConflicts,
+  validate: validateTodo, cursorField: "todoCursor"
+});
+
+export async function applyStorePage<T extends VersionedRecord>(page: SyncPage<T>, store: SyncStore<T>): Promise<void> {
+  const { database } = store;
   if (!Number.isSafeInteger(page.cursor) || page.cursor < 0 || !Array.isArray(page.entries) || typeof page.more !== "boolean") {
     throw new Error("The server returned an invalid sync response.");
   }
-  const entries = page.entries.map(validateEntry);
-  await database.transaction("rw", database.entries, database.outbox, database.preferences, database.conflicts, async () => {
-    const pending = new Set((await database.outbox.toArray()).map((m) => m.entry.id));
+  const entries = page.entries.map(store.validate);
+  await database.transaction("rw", store.entries, store.outbox, database.preferences, store.conflicts, async () => {
+    const pending = new Set((await store.outbox.toArray()).map((m) => m.entry.id));
     for (const entry of entries) {
-      const current = await database.entries.get(entry.id);
-      if (!pending.has(entry.id) && (!current || entry.revision >= current.revision)) await database.entries.put(entry);
+      const current = await store.entries.get(entry.id);
+      if (!pending.has(entry.id) && (!current || entry.revision >= current.revision)) await store.entries.put(entry);
       if (pending.has(entry.id)) {
-        const conflict = await database.conflicts.get(entry.id);
+        const conflict = await store.conflicts.get(entry.id);
         if (conflict && entry.revision > (conflict.remote?.revision ?? 0)) {
-          await database.conflicts.put({ entryId: entry.id, remote: entry });
+          await store.conflicts.put({ entryId: entry.id, remote: entry });
         }
       }
     }
     const preferences = await getPreferences(database);
-    await database.preferences.put({ ...preferences, cursor: Math.max(preferences.cursor, page.cursor) });
+    await database.preferences.put({ ...preferences, [store.cursorField]: Math.max(preferences[store.cursorField] ?? 0, page.cursor) });
   });
 }
 
-export async function applyResults(results: MutationResult[], database = db): Promise<void> {
-  await database.transaction("rw", database.entries, database.outbox, database.conflicts, async () => {
+export async function applyStoreResults<T extends VersionedRecord>(results: MutationResult<T>[], store: SyncStore<T>): Promise<void> {
+  await store.database.transaction("rw", store.entries, store.outbox, store.conflicts, async () => {
     for (const result of results) {
-      const mutation = await database.outbox.get(result.id);
+      const mutation = await store.outbox.get(result.id);
       if (!mutation) continue;
       if (result.status === "conflict") {
-        const remote = result.entry ? validateEntry(result.entry) : null;
-        if (remote && remote.id !== mutation.entry.id) throw new Error("The server returned a different expense's conflict.");
-        const existing = await database.conflicts.get(mutation.entry.id);
+        const remote = result.entry ? store.validate(result.entry) : null;
+        if (remote && remote.id !== mutation.entry.id) throw new Error("The server returned a different entry's conflict.");
+        const existing = await store.conflicts.get(mutation.entry.id);
         if (!existing || (remote?.revision ?? 0) >= (existing.remote?.revision ?? 0)) {
-          await database.conflicts.put({ entryId: mutation.entry.id, remote });
+          await store.conflicts.put({ entryId: mutation.entry.id, remote });
         }
         continue;
       }
-      const entry = validateEntry(result.entry);
-      if (entry.id !== mutation.entry.id) throw new Error("The server acknowledged a different expense.");
-      await database.outbox.delete(result.id);
-      const remaining = await database.outbox.where("entry.id").equals(entry.id).count();
-      const current = await database.entries.get(entry.id);
-      if (!remaining && (!current || current.revision <= entry.revision)) await database.entries.put(entry);
+      const entry = store.validate(result.entry);
+      if (entry.id !== mutation.entry.id) throw new Error("The server acknowledged a different entry.");
+      await store.outbox.delete(result.id);
+      const remaining = await store.outbox.where("entry.id").equals(entry.id).count();
+      const current = await store.entries.get(entry.id);
+      if (!remaining && (!current || current.revision <= entry.revision)) await store.entries.put(entry);
     }
   });
 }
 
-export async function resolveConflict(entryId: string, keepLocal: boolean, database = db): Promise<void> {
-  await database.transaction("rw", database.entries, database.outbox, database.conflicts, async () => {
-    const conflict = await database.conflicts.get(entryId);
-    const local = await database.entries.get(entryId);
+export async function resolveStoreConflict<T extends VersionedRecord>(entryId: string, keepLocal: boolean, store: SyncStore<T>): Promise<void> {
+  await store.database.transaction("rw", store.entries, store.outbox, store.conflicts, async () => {
+    const conflict = await store.conflicts.get(entryId);
+    const local = await store.entries.get(entryId);
     if (!conflict || !local) throw new Error("This conflict is no longer available.");
-    await database.outbox.where("entry.id").equals(entryId).delete();
-    await database.conflicts.delete(entryId);
+    await store.outbox.where("entry.id").equals(entryId).delete();
+    await store.conflicts.delete(entryId);
     if (!keepLocal) {
-      if (conflict.remote) await database.entries.put(conflict.remote);
-      else await database.entries.delete(entryId);
+      if (conflict.remote) await store.entries.put(conflict.remote);
+      else await store.entries.delete(entryId);
     } else {
       const revision = conflict.remote?.revision ?? 0;
       const entry = { ...local, revision: revision + 1, updatedAt: new Date().toISOString() };
-      await database.entries.put(entry);
-      await database.outbox.add({ id: crypto.randomUUID(), entry, expectedRevision: revision });
+      await store.entries.put(entry);
+      await store.outbox.add({ id: crypto.randomUUID(), entry, expectedRevision: revision });
     }
   });
 }
+
+export const applyPage = (page: SyncPage, database = db) => applyStorePage(page, expenseStore(database));
+export const applyResults = (results: MutationResult[], database = db) => applyStoreResults(results, expenseStore(database));
+export const resolveConflict = (entryId: string, keepLocal: boolean, database = db) =>
+  resolveStoreConflict(entryId, keepLocal, expenseStore(database));

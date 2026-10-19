@@ -54,14 +54,14 @@ html[data-theme="dark"] {
 * { box-sizing: border-box; }
 html { scroll-padding-top: calc(72px + env(safe-area-inset-top)); }
 body { margin: 0; background: var(--cp-bg); color: var(--cp-text); font-family: "Segoe UI", Aptos, Calibri, -apple-system, BlinkMacSystemFont, sans-serif; -webkit-tap-highlight-color: var(--cp-accent-soft); }
-button, input, select { font: inherit; }
-button, a, input, select { touch-action: manipulation; }
+button, input, select, textarea { font: inherit; }
+button, a, input, select, textarea { touch-action: manipulation; }
 button { cursor: pointer; }
 button:disabled { opacity: .55; cursor: default; }
-button, input, select { border-radius: 6px; }
+button, input, select, textarea { border-radius: 6px; }
 button { border: 0; }
 a { color: var(--cp-link); }
-button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--cp-accent); outline-offset: 3px; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid var(--cp-accent); outline-offset: 3px; }
 button { color: inherit; }
 h1, h2, h3, p { margin-top: 0; }
 p { line-height: 1.55; }
@@ -127,11 +127,15 @@ input::placeholder { color: var(--cp-text-soft); }
 .bottom-nav > button { display: flex; gap: 4px; flex-direction: column; align-items: center; justify-content: center; padding: 6px 4px; background: none; color: var(--cp-text-soft); font-size: 11px; min-width: 0; min-height: 52px; -webkit-tap-highlight-color: transparent; }
 .nav-badge { display: inline-block; margin-left: 4px; min-width: 16px; padding: 0 4px; border-radius: 8px; background: var(--cp-accent-text); color: var(--cp-surface); font-size: 10px; line-height: 16px; font-weight: 600; }
 .todo-group { margin-bottom: 20px; }
+.todo-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .todo-list { list-style: none; margin: 0; padding: 0; }
 .todo-item { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--cp-border); min-height: 64px; }
 .todo-check { flex: 1; display: flex; flex-direction: row; align-items: center; gap: 10px; padding: 10px 0; min-width: 0; margin: 0; cursor: pointer; }
 .todo-check input { width: 22px; height: 22px; flex: none; margin: 0; accent-color: var(--cp-accent); }
 .todo-item.done .entry-description strong { text-decoration: line-through; color: var(--cp-text-soft); }
+.manual-todo .entry-description strong { white-space: normal; overflow-wrap: anywhere; }
+.manual-todo .entry-description small { white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.todo-version { white-space: pre-wrap; overflow-wrap: anywhere; }
 .bottom-nav > button.active { color: var(--cp-accent-text); font-weight: 600; }
 .bottom-nav > button > svg { box-sizing: content-box; padding: 3px 14px; margin-block: -3px; border-radius: 20px; }
 .bottom-nav > button.active > svg { background: var(--cp-accent-soft); }
@@ -172,7 +176,8 @@ input::placeholder { color: var(--cp-text-soft); }
 .file-picker:has(input:disabled) { opacity: .55; }
 .description-input > input { border: 0; padding-left: 0; font-size: 20px; border-radius: 0; }
 label { display: flex; flex-direction: column; gap: 8px; font-size: 12px; color: var(--cp-text-muted); font-weight: 500; }
-input, select { width: 100%; min-width: 0; padding: 13px 12px; border: 1px solid var(--cp-border); background: var(--cp-surface); color: var(--cp-text); min-height: 48px; font-size: 16px; }
+input, select, textarea { width: 100%; min-width: 0; padding: 13px 12px; border: 1px solid var(--cp-border); background: var(--cp-surface); color: var(--cp-text); min-height: 48px; font-size: 16px; }
+textarea { resize: vertical; }
 form > label, .panel-content > label { margin-bottom: 20px; }
 .amount-input { display: flex; align-items: center; border-bottom: 1px solid var(--cp-border-strong); }
 .amount-input > span { font-size: 32px; color: var(--cp-text-soft); padding: 0 12px; }

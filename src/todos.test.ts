@@ -1,9 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { example } from "../tests/fixtures";
+import { example, exampleTodo } from "../tests/fixtures";
 import { validateEntry } from "../shared/model";
-import { insuranceTodos, needsInsuranceSubmission } from "./todos";
+import { householdTodos, insuranceTodos, needsInsuranceSubmission } from "./todos";
 
 describe("insurance todos", () => {
+  it("combines manual and automatic todos without changing or duplicating expenses", () => {
+    const expenses = [example({ description: "Apotheke", id: "shared-id" })];
+    const manual = [
+      exampleTodo({ id: "shared-id", title: "My todo" }),
+      exampleTodo({ id: "done", done: true }),
+      exampleTodo({ id: "deleted", deleted: true })
+    ];
+    const combined = householdTodos(expenses, manual);
+    expect(combined.map((todo) => [todo.kind, todo.done])).toEqual([["manual", false], ["insurance", false], ["manual", true]]);
+    expect(expenses).toEqual([example({ description: "Apotheke", id: "shared-id" })]);
+    expect(insuranceTodos(expenses)).toHaveLength(1);
+  });
   it("creates todos only for doctor and pharmacy expenses", () => {
     expect(needsInsuranceSubmission(example({ description: "Apotheke" }))).toBe(true);
     expect(needsInsuranceSubmission(example({ description: "Arzt Dr. Huber" }))).toBe(true);

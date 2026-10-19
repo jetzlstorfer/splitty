@@ -1,0 +1,238 @@
+import { readFile } from "node:fs/promises";
+import { expect, test, type Page } from "@playwright/test";
+
+const row = (page: Page, title: string) => page.getByRole("listitem").filter({ has: page.getByText(title, { exact: true }) });
+const todos = (page: Page) => page.getByRole("navigation").getByRole("button", { name: "To-dos" }).click();
+const upToDate = (page: Page) => expect(page.getByRole("status")).toHaveText("Auf dem neuesten Stand");
+
+async function signIn(page: Page, member: "A" | "B") {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Einstellungen", exact: true }).click();
+  await page.getByLabel("Mitglieds-Token").fill(member.repeat(43));
+  await page.getByRole("button", { name: "Anmelden", exact: true }).click();
+  await upToDate(page);
+  await todos(page);
+}
+
+async function add(page: Page, title: string, description = "") {
+  await page.getByRole("button", { name: "To-do hinzufügen", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "To-do hinzufügen" });
+  await dialog.getByLabel("Titel", { exact: true }).fill(title);
+  await dialog.getByLabel("Beschreibung (optional)").fill(description);
+  await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+}
+
+async function edit(page: Page, title: string, next: string, description: string) {
+  await page.getByRole("button", { name: `To-do bearbeiten: ${title}`, exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "To-do bearbeiten" });
+  await dialog.getByLabel("Titel", { exact: true }).fill(next);
+  await dialog.getByLabel("Beschreibung (optional)").fill(description);
+  await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+}
+
+async function sync(page: Page) {
+  await page.getByRole("button", { name: "Geräte synchronisieren" }).click();
+  await upToDate(page);
+}
+
+async function toggle(page: Page, title: string, done: boolean) {
+  await row(page, title).getByRole("checkbox").click();
+  await expect(row(page, title).getByRole("checkbox")).toBeChecked({ checked: done });
+}
+
+async function remove(page: Page, title: string) {
+  await page.getByRole("button", { name: `To-do bearbeiten: ${title}`, exact: true }).click();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "To-do löschen", exact: true }).click();
+  await expect(row(page, title)).toHaveCount(0);
+}
+
+test("manual todos persist with optional descriptions and leave expenses unchanged", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 740 });
+  await page.goto("/");
+  await todos(page);
+  await add(page, "Call dentist");
+  await add(page, "Buy supplies", "Milk\nCoffee");
+  await expect(row(page, "Buy supplies")).toContainText("Milk\nCoffee");
+  await expect(page.getByRole("heading", { name: /^To-dos/, level: 1 })).toContainText("2");
+  await toggle(page, "Call dentist", true);
+  await page.reload();
+  await todos(page);
+  await expect(row(page, "Call dentist").getByRole("checkbox")).toBeChecked();
+  await expect(page.getByRole("heading", { name: /^To-dos/, level: 1 })).toContainText("1");
+  await edit(page, "Buy supplies", "Buy supplies", "");
+  await expect(row(page, "Buy supplies").locator("small")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "To-do hinzufügen", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "To-do hinzufügen" });
+  await dialog.getByLabel("Titel", { exact: true }).fill(" ");
+  await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
+  await expect(dialog.getByRole("alert")).toContainText("höchstens 200 Zeichen");
+  await expect(dialog.getByLabel("Titel", { exact: true })).toHaveAttribute("maxlength", "200");
+  await expect(dialog.getByLabel("Beschreibung (optional)")).toHaveAttribute("maxlength", "2000");
+  await dialog.getByLabel("Titel", { exact: true }).fill("a".repeat(200));
+  await dialog.getByLabel("Beschreibung (optional)").fill("b".repeat(2000));
+  await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(row(page, "a".repeat(200))).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+  await page.getByRole("button", { name: "Ausgaben", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Noch keine Ausgaben" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Haushaltssaldo" })).toContainText("Alles ausgeglichen");
+  await page.getByRole("button", { name: "Einstellungen", exact: true }).click();
+  await page.getByLabel("App-Sprache").selectOption("en");
+  await todos(page);
+  await page.getByRole("button", { name: "Add to-do", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Add to-do" }).getByLabel("Description (optional)")).toBeVisible();
+});
+
+test("both household members share offline creation, edits, completion, reopening, and deletion", async ({ browser }) => {
+  const aContext = await browser.newContext({ serviceWorkers: "block" });
+  const bContext = await browser.newContext({ serviceWorkers: "block" });
+  const a = await aContext.newPage(), b = await bContext.newPage();
+  const title = `Household ${crypto.randomUUID()}`, edited = `${title} edited`;
+  try {
+    await signIn(a, "A");
+    await signIn(b, "B");
+    await aContext.setOffline(true);
+    await add(a, title, "Created offline");
+    await expect(row(a, title)).toContainText("Created offline");
+    await aContext.setOffline(false);
+    await upToDate(a);
+    await sync(b);
+    await expect(row(b, title)).toContainText("Created offline");
+    await edit(b, title, edited, "Updated by the other member");
+    await upToDate(b);
+    await sync(a);
+    await expect(row(a, edited)).toContainText("Updated by the other member");
+    await toggle(b, edited, true);
+    await upToDate(b);
+    await sync(a);
+    await expect(row(a, edited).getByRole("checkbox")).toBeChecked();
+    await aContext.setOffline(true);
+    await toggle(a, edited, false);
+    await aContext.setOffline(false);
+    await upToDate(a);
+    await sync(b);
+    await expect(row(b, edited).getByRole("checkbox")).not.toBeChecked();
+    await remove(b, edited);
+    await upToDate(b);
+    await sync(a);
+    await expect(row(a, edited)).toHaveCount(0);
+    await a.reload();
+    await todos(a);
+    await expect(row(a, edited)).toHaveCount(0);
+  } finally {
+    await aContext.close();
+    await bContext.close();
+  }
+});
+
+test("todo conflicts show both versions and allow keeping local edits or remote deletions", async ({ browser }) => {
+  const aContext = await browser.newContext({ serviceWorkers: "block" });
+  const bContext = await browser.newContext({ serviceWorkers: "block" });
+  const a = await aContext.newPage(), b = await bContext.newPage();
+  const title = `Conflict ${crypto.randomUUID()}`;
+  try {
+    await signIn(a, "A");
+    await add(a, title, "Original");
+    await upToDate(a);
+    await signIn(b, "B");
+    await aContext.setOffline(true);
+    await edit(a, title, title, "Local details");
+    await edit(b, title, title, "Remote details");
+    await upToDate(b);
+    await aContext.setOffline(false);
+    const conflict = a.getByRole("region", { name: "Widersprüchliche To-do-Änderungen" });
+    await expect(conflict).toContainText("Local details");
+    await expect(conflict).toContainText("Remote details");
+    await expect(row(a, title).getByRole("checkbox")).toBeDisabled();
+    await conflict.getByRole("button", { name: "Diese Version behalten" }).click();
+    await upToDate(a);
+    await sync(b);
+    await expect(row(b, title)).toContainText("Local details");
+
+    await aContext.setOffline(true);
+    await edit(a, title, title, "Another local edit");
+    await remove(b, title);
+    await upToDate(b);
+    await aContext.setOffline(false);
+    await expect(conflict).toContainText("Another local edit");
+    await expect(conflict).toContainText("Gelöscht");
+    await conflict.getByRole("button", { name: "Andere Version behalten" }).click();
+    await upToDate(a);
+    await expect(row(a, title)).toHaveCount(0);
+    await expect(conflict).not.toBeVisible();
+  } finally {
+    await aContext.close();
+    await bContext.close();
+  }
+});
+
+test("manual completions saved during a slow sync are sent in the next pass", async ({ browser }) => {
+  const aContext = await browser.newContext({ serviceWorkers: "block" });
+  const bContext = await browser.newContext({ serviceWorkers: "block" });
+  const a = await aContext.newPage(), b = await bContext.newPage();
+  const titles = [`Slow ${crypto.randomUUID()}`, `Slow ${crypto.randomUUID()}`];
+  let release = () => {};
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  let started = () => {};
+  const pullStarted = new Promise<void>((resolve) => { started = resolve; });
+  try {
+    await signIn(a, "A");
+    for (const title of titles) { await add(a, title); await upToDate(a); }
+    await signIn(b, "B");
+    await a.clock.install();
+    let pulls = 0;
+    await a.route("**/api/todo-sync?*", async (route) => {
+      if (++pulls !== 2) return route.continue();
+      const response = await route.fetch();
+      started();
+      await held;
+      await route.fulfill({ response });
+    });
+    await a.getByRole("button", { name: "Geräte synchronisieren" }).click();
+    await pullStarted;
+    for (const title of titles) await toggle(a, title, true);
+    await a.clock.runFor(1_000);
+    release();
+    await upToDate(a);
+    await sync(b);
+    for (const title of titles) await expect(row(b, title).getByRole("checkbox")).toBeChecked();
+  } finally {
+    release();
+    await aContext.close();
+    await bContext.close();
+  }
+});
+
+test("backups round-trip manual todos including descriptions and completion", async ({ page, browser }) => {
+  await page.goto("/");
+  await todos(page);
+  await add(page, "Backup task", "Details to preserve");
+  await toggle(page, "Backup task", true);
+  await page.getByRole("button", { name: "Einstellungen", exact: true }).click();
+  const downloaded = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Sicherung herunterladen" }).click();
+  const download = await downloaded;
+  const contents = await readFile((await download.path())!, "utf8");
+  expect(JSON.parse(contents)).toMatchObject({
+    format: "splitty-v2", todos: [{ title: "Backup task", description: "Details to preserve", done: true }]
+  });
+  const context = await browser.newContext();
+  try {
+    const restored = await context.newPage();
+    await restored.goto("/");
+    await restored.getByRole("button", { name: "Einstellungen", exact: true }).click();
+    restored.once("dialog", (dialog) => dialog.accept());
+    await restored.getByLabel("Fehlende Einträge aus einer Sicherung wiederherstellen").setInputFiles({
+      name: "backup.json", mimeType: "application/json", buffer: Buffer.from(contents)
+    });
+    await todos(restored);
+    await expect(row(restored, "Backup task")).toContainText("Details to preserve");
+    await expect(row(restored, "Backup task").getByRole("checkbox")).toBeChecked();
+  } finally { await context.close(); }
+});

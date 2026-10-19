@@ -2,8 +2,14 @@ export type Member = "a" | "b";
 export type EntryKind = "expense" | "settlement" | "imported";
 export type SplitType = "equal" | "exact" | "percent" | "all-a" | "all-b";
 
-export interface Entry {
+export interface VersionedRecord {
   id: string;
+  revision: number;
+  updatedAt: string;
+  deleted: boolean;
+}
+
+export interface Entry extends VersionedRecord {
   kind: EntryKind;
   description: string;
   date: string;
@@ -13,9 +19,6 @@ export interface Entry {
   paidBy: Member | null;
   shareA: number | null;
   balanceA: number;
-  revision: number;
-  updatedAt: string;
-  deleted: boolean;
   importKey?: string;
   splitType?: SplitType;
   percentageA?: number;
@@ -23,18 +26,18 @@ export interface Entry {
   insuranceSubmittedAt?: string;
 }
 
-export interface Mutation {
+export interface Mutation<T = Entry> {
   id: string;
-  entry: Entry;
+  entry: T;
   expectedRevision: number;
 }
 
-export type MutationResult =
-  | { id: string; status: "ok"; entry: Entry }
-  | { id: string; status: "conflict"; entry: Entry | null };
+export type MutationResult<T = Entry> =
+  | { id: string; status: "ok"; entry: T }
+  | { id: string; status: "conflict"; entry: T | null };
 
-export interface SyncPage {
-  entries: Entry[];
+export interface SyncPage<T = Entry> {
+  entries: T[];
   cursor: number;
   more: boolean;
 }
@@ -140,13 +143,17 @@ export function validateEntry(value: unknown): Entry {
 }
 
 export function validateMutation(value: unknown): Mutation {
+  return validateChange(value, validateEntry);
+}
+
+export function validateChange<T extends VersionedRecord>(value: unknown, validate: (value: unknown) => T): Mutation<T> {
   if (!value || typeof value !== "object") throw new Error("Invalid change.");
   const m = value as Record<string, unknown>;
   if (typeof m.id !== "string" || !identifier.test(m.id)
     || typeof m.expectedRevision !== "number" || !Number.isSafeInteger(m.expectedRevision) || m.expectedRevision < 0) {
     throw new Error("Invalid change identifier or version.");
   }
-  const entry = validateEntry(m.entry);
+  const entry = validate(m.entry);
   if (entry.revision !== m.expectedRevision + 1) throw new Error("Invalid change version.");
   return { id: m.id, expectedRevision: m.expectedRevision, entry };
 }

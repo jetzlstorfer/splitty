@@ -91,6 +91,7 @@ export const german = {
   "Search expenses": "Ausgaben suchen",
   "Search": "Suche",
   "To-dos": "To-dos",
+  "To-do actions": "To-do-Aktionen",
   "Add to-do": "To-do hinzufügen",
   "Edit to-do": "To-do bearbeiten",
   "Edit": "Bearbeiten",

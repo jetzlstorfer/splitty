@@ -24,6 +24,7 @@ async function add(page: Page, title: string, description = "") {
 }
 
 async function edit(page: Page, title: string, next: string, description: string) {
+  await page.getByRole("button", { name: `To-do-Aktionen: ${title}`, exact: true }).click();
   await page.getByRole("button", { name: `To-do bearbeiten: ${title}`, exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "To-do bearbeiten" });
   await dialog.getByLabel("Titel", { exact: true }).fill(next);
@@ -43,6 +44,7 @@ async function toggle(page: Page, title: string, done: boolean) {
 }
 
 async function remove(page: Page, title: string) {
+  await page.getByRole("button", { name: `To-do-Aktionen: ${title}`, exact: true }).click();
   await page.getByRole("button", { name: `To-do bearbeiten: ${title}`, exact: true }).click();
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "To-do löschen", exact: true }).click();
@@ -204,6 +206,7 @@ test("todo conflicts show both versions and allow keeping local edits or remote 
     await expect(conflict).toContainText("Local details");
     await expect(conflict).toContainText("Remote details");
     await expect(row(a, title).getByRole("checkbox")).toBeDisabled();
+    await expect(row(a, title).getByRole("button", { name: `To-do-Aktionen: ${title}` })).toBeDisabled();
     await conflict.getByRole("button", { name: "Diese Version behalten" }).click();
     await upToDate(a);
     await sync(b);

@@ -13,7 +13,7 @@ import { api, ApiError, synchronize, type Identity } from "./sync";
 import { LanguageContext, useLocale } from "./i18n";
 import { categoryLabels, detectCategory, expenseCategory, normalizeText, storedCategory, type Category } from "./categories";
 import ExpenseIcon from "./ExpenseIcon";
-import SwipeableExpenseRow from "./SwipeableExpenseRow";
+import SwipeableRow from "./SwipeableRow";
 import Statistics from "./StatisticsPage";
 import { householdTodos, type HouseholdTodo } from "./todos";
 
@@ -281,14 +281,16 @@ function TodoForm({ todo, close, saved }: { todo?: Todo; close: () => void; save
   </Sheet>;
 }
 
-function TodoList({ todos, manualTodos, conflicts, resolve, openCount, status, blocked, open, toggle, edit, toggleManual }: {
+function TodoList({ todos, manualTodos, conflicts, resolve, openCount, status, blocked, open, toggle, edit, toggleManual, remove, onError }: {
   todos: HouseholdTodo[]; manualTodos: Todo[]; conflicts: Conflict<Todo>[];
   resolve: (id: string, keepLocal: boolean) => void;
   openCount: number; status: string; blocked: Set<string>;
   open: (entry: Entry) => void; toggle: (entry: Entry, submitted: boolean) => void;
   edit: (todo: Todo) => void; toggleManual: (todo: Todo, done: boolean) => void;
+  remove: (item: HouseholdTodo) => Promise<void>; onError: (error: unknown) => void;
 }) {
   const { t, number, money, locale } = useLocale();
+  const [swipedTodo, setSwipedTodo] = useState<string | null>(null);
   const manualBlocked = new Set(conflicts.map((conflict) => conflict.entryId));
   const version = (todo: Todo | null | undefined) => !todo ? t("Not present") : todo.deleted ? t("Deleted")
     : `${todo.title}${todo.description ? `\n${todo.description}` : ""}\n${t(todo.done ? "Done" : "Open to-dos")}`;
@@ -311,12 +313,17 @@ function TodoList({ todos, manualTodos, conflicts, resolve, openCount, status, b
           <ul className="todo-list">{group.map((item) => {
             if (item.kind === "manual") {
               const { todo } = item;
-              return <li key={`manual-${todo.id}`} className={`todo-item manual-todo ${done ? "done" : ""}`}>
+              const id = `manual-${todo.id}`;
+              return <li key={id} className={`todo-item manual-todo ${done ? "done" : ""}`}>
+                <SwipeableRow description={todo.title} disabled={manualBlocked.has(todo.id)} open={swipedTodo === id}
+                  setOpen={(open) => setSwipedTodo(open ? id : null)} edit={() => edit(todo)} remove={() => remove(item)} onError={onError}
+                  actionsLabel={t("To-do actions")} editLabel={t("Edit to-do")} deleteLabel={t("Delete to-do")}
+                  deleteConfirmation={t("Delete this to-do for everyone in your household? This will sync when you are online.")}>
                 <label className="todo-check"><input type="checkbox" checked={done} disabled={manualBlocked.has(todo.id)} onChange={(event) => toggleManual(todo, event.target.checked)} />
                   <span className="entry-icon"><ClipboardCheck size={20} /></span>
                   <span className="entry-description"><strong>{todo.title}</strong>{todo.description && <small>{todo.description}</small>}</span>
                 </label>
-                <button className="text-button" disabled={manualBlocked.has(todo.id)} onClick={() => edit(todo)} aria-label={`${t("Edit to-do")}: ${todo.title}`}>{t("Edit")}</button>
+                </SwipeableRow>
               </li>;
             }
             const { entry } = item;
@@ -325,12 +332,17 @@ function TodoList({ todos, manualTodos, conflicts, resolve, openCount, status, b
               description: entry.description, amount: money(entry.amountCents),
               date: new Date(`${entry.date}T12:00:00`).toLocaleDateString(locale, { day: "numeric", month: "short", year: "numeric" })
             });
-            return <li key={`insurance-${entry.id}`} className={`todo-item ${done ? "done" : ""}`}>
+            const id = `insurance-${entry.id}`;
+            return <li key={id} className={`todo-item ${done ? "done" : ""}`}>
+              <SwipeableRow description={entry.description} disabled={blocked.has(entry.id)} open={swipedTodo === id}
+                setOpen={(open) => setSwipedTodo(open ? id : null)} edit={() => open(entry)} remove={() => remove(item)} onError={onError}
+                actionsLabel={t("To-do actions")} editLabel={t("Open expense")} deleteLabel={t("Delete entry")}
+                deleteConfirmation={t("Delete this entry for both of you? This will sync when you are online.")}>
               <label className="todo-check"><input type="checkbox" checked={done} disabled={blocked.has(entry.id)} onChange={(event) => toggle(entry, event.target.checked)} />
                 <span className="entry-icon"><ExpenseIcon category={category} /></span>
                 <span className="entry-description"><strong>{t("Submit to insurance")}</strong><small>{details}</small></span>
               </label>
-              <button className="text-button" disabled={blocked.has(entry.id)} onClick={() => open(entry)} aria-label={`${t("Open expense")}: ${entry.description}`}>{t("Open expense")}</button>
+              </SwipeableRow>
             </li>;
           })}</ul>
         </section>;
@@ -508,6 +520,12 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
         manualTodos={ledger.todos} conflicts={ledger.todoConflicts}
         resolve={(id, keepLocal) => void resolveStoreConflict(id, keepLocal, todoStore()).then(saved).catch((e: Error) => setError(e.message))}
         edit={setTodoForm}
+        remove={async (item) => {
+          if (item.kind === "manual") await queueTodos([{ ...item.todo, deleted: true }]);
+          else await queueEntries([{ ...item.entry, deleted: true }]);
+          saved();
+        }}
+        onError={(e) => setError(e instanceof Error ? e.message : "Could not save this to-do.")}
         toggleManual={(todo, done) => void queueTodos([{ ...todo, done }]).then(saved).catch((e: Error) => setError(e.message))}
         toggle={(entry, submitted) => void markSubmitted(entry, submitted).then(saved).catch((e: Error) => setError(e.message))} /> : tab === "statistics" ? <Statistics entries={ledger.entries} preferences={p} /> : tab !== "settings" ? <>
         {tab === "expenses" ? <>
@@ -544,18 +562,22 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
               const contribution = p.member === "a" ? entry.balanceA : -entry.balanceA;
               const category = expenseCategory(entry.description, entry.category, entry.kind, entry.categoryMode);
               const payment = category === "payment";
-              return <div key={entry.id}>{heading && <h3 className="month-heading">{month}</h3>}<SwipeableExpenseRow
+              return <div key={entry.id}>{heading && <h3 className="month-heading">{month}</h3>}<SwipeableRow
                 description={entry.description} disabled={conflictIds.has(entry.id)} open={swipedEntry === entry.id}
                 setOpen={(open) => setSwipedEntry(open ? entry.id : null)} edit={() => setForm(entry)}
+                actionsLabel={t("Entry actions")} editLabel={t("Edit entry")} deleteLabel={t("Delete entry")}
+                deleteConfirmation={t("Delete this entry for both of you? This will sync when you are online.")}
+                onError={(e) => setError(e instanceof Error ? e.message : "Could not delete this entry.")}
                 remove={async () => {
-                  try { await queueEntries([{ ...entry, deleted: true }]); saved(); }
-                  catch (e) { setError(e instanceof Error ? e.message : "Could not delete this entry."); }
+                  await queueEntries([{ ...entry, deleted: true }]); saved();
                 }}>
+                <button className="expense-row" disabled={conflictIds.has(entry.id)} onClick={() => setForm(entry)}>
                 <span className="date-block"><small>{new Date(`${entry.date}T12:00:00`).toLocaleDateString(locale, { month: "short" })}</small>{Number(entry.date.slice(8))}</span>
                 <span className={`entry-icon ${payment ? "payment" : ""}`}><ExpenseIcon category={category} /></span>
                 <span className="entry-description"><strong>{entry.description}</strong><small>{entry.kind === "imported" ? t("{category} · imported", { category: t(categoryLabels[category]) }) : t("{name} paid {amount}", { name: payer(p, entry.paidBy!), amount: money(entry.amountCents) })}</small></span>
                 <span className={`entry-balance ${contribution < 0 ? "owed" : contribution > 0 ? "lent" : ""}`}><small>{t(contribution === 0 ? "no balance change" : payment ? "balance change" : contribution > 0 ? "you lent" : "you borrowed")}</small><strong>{money(Math.abs(contribution))}</strong></span>
-              </SwipeableExpenseRow></div>;
+                </button>
+              </SwipeableRow></div>;
             })}{shown.length > limit && <button className="secondary load-more" onClick={() => setLimit(limit + 100)}>{t("Show more ({count})", { count: number(shown.length - limit) })}</button>}</div>}
         </section>
       </> : <section className="settings-page"><header className="page-heading"><h1>{t("Settings")}</h1></header>

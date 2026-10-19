@@ -24,6 +24,8 @@ account; reusable member tokens enable shared history across your devices.
   for every doctor (Arzt) or pharmacy (Apotheke) expense. The submitted state is
   stored on the expense itself, so it syncs across devices for the whole household.
 - JSON backups and restoration of missing entries without overwriting local history.
+- Optional on-device receipt OCR for German/English photos, with reviewed expense
+  suggestions and a separately downloaded offline scanner.
 - Azure Functions/Table Storage sync, reusable member tokens, two-person
   access control, and explicit conflict resolution.
 
@@ -80,6 +82,54 @@ Detection improvements apply immediately to existing automatic expenses and
 general/unknown imports, including synced history, without rewriting stored data.
 Explicit manual and recognized imported categories remain unchanged; an imported
 `Sport` category is recognized in either interface language.
+
+### Local receipt scanning
+
+In a **new expense**, choose **Beleg scannen (optional) / Scan receipt (optional)**,
+then **Scanner herunterladen / Download scanner**. The optional download is about
+16 MB, hosted with Splitty rather than a third-party OCR service. It includes the
+Tesseract.js WebAssembly runtime and German/English language data. Manual entry
+does not download these assets and does not depend on the scanner.
+
+Take a photo with the Android camera picker or choose a JPEG, PNG, or WebP image
+under 20 MB. Use a sharp, upright photo cropped around the receipt. Processing
+runs locally in a cancellable worker; keep the app open while scanning. Large
+photos are resized before recognition. Speed and accuracy depend on the phone,
+receipt layout, print quality, and lighting; this is best-effort autofill, not
+reliable financial document understanding.
+
+Review the suggested merchant, date, total, currency, and any warnings. **Use
+suggestions** copies identified fields into the editable expense form; fields
+without a suggestion keep their existing value. Payer and split are unchanged.
+Review/correct the form and explicitly **Save** it. Scanning, retrying, cancelling,
+closing the form, or applying suggestions never creates an expense on its own.
+Low-confidence text and ambiguous totals/dates are left for manual entry.
+Recognized text is available for inspection while the form is open.
+
+The ledger remains EUR-only. A detected foreign or mixed currency never fills
+the amount; enter a converted EUR amount manually. If no currency is recognized,
+confirm that the receipt is in EUR before applying its total. No exchange rates
+or automatic currency conversion are provided.
+
+After the scanner download and app service-worker activation, scanning works
+offline, including after an offline reload. The OCR assets use a separate cache
+and are excluded from the normal app-shell download. Clearing or evicting browser
+storage requires another download. Offline behavior requires a production build;
+the Vite development server is for online development. If downloading or scanning
+fails, an error is shown and manual entry remains available.
+
+Splitty never uploads or persists receipt photos or OCR text, and provides no
+receipt-image sharing or retrieval endpoint. The camera/gallery may retain its
+own original photo outside Splitty. Only the confirmed expense fields enter the
+existing household sync and backups. There is no cloud OCR fallback, OCR API key,
+per-scan OCR charge, or added receipt storage; normal static hosting/download
+costs still apply. Use a trusted device with a screen lock, as with the ledger.
+
+The build serves the pinned OCR packages under `receipt-ocr-v1`, including their
+runtime license notices. When updating the runtime or language packages, bump
+the asset/cache version in `src\receiptAssets.ts`, the service-worker route in
+`vite.config.ts`, and the fallback exclusion in `public\staticwebapp.config.json`
+together so cached assets cannot mix incompatible versions.
 
 ## Run locally
 
@@ -357,9 +407,12 @@ export (including 15 payments). Ordinary tests use synthetic data. CI runs the
 synthetic checks, production builds, storage-backed integration tests, and mobile
 browser checks including offline reloads and two-device synchronization. Browser
 tests use a fresh synthetic household and launch/stop their own frontend/API.
+Receipt browser checks use generated, non-personal receipt images and the real
+local OCR engine. They cover editable suggestions, currency safeguards, retries,
+cancellation, download failures, and scanning again after an offline reload.
 
 Dependabot checks frontend and API npm dependencies and GitHub Actions weekly.
 Its configuration is in [.github/dependabot.yml](.github/dependabot.yml).
 
-Receipt scanning/OCR is deferred; multiple currencies, multi-person groups, push
+Multiple currencies, multi-person groups, push
 notifications and recurring-expense automation are outside the initial scope.

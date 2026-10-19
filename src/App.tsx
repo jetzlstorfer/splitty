@@ -4,8 +4,10 @@ import {
   BarChart3, Check, ChevronDown, ClipboardCheck, Cloud, CloudOff,
   Download, Languages, Plus, Receipt, RefreshCw, Search, Settings, Trash2, Upload, Users, X
 } from "lucide-react";
-import { calculateShareA, expenseBalance, parseMoney, validateEntry, type Entry, type Member, type SplitType } from "../shared/model";
-import { db, queueEntries, resolveConflict, updatePreferences, getPreferences, type Conflict, type Preferences } from "./db";
+import { calculateShareA, expenseBalance, parseMoney, type Entry, type Member, type SplitType } from "../shared/model";
+import { MAX_TODO_TITLE, MAX_TODO_DESCRIPTION, type Todo } from "../shared/todo";
+import { db, queueEntries, queueTodos, resolveConflict, resolveStoreConflict, todoStore, updatePreferences, getPreferences, type Conflict, type Preferences } from "./db";
+import { missingBackupRecords, readBackup, restoreBackup } from "./backup";
 import { previewImport, readCsv, type ImportPreview } from "./importer";
 import { api, ApiError, synchronize, type Identity } from "./sync";
 import { LanguageContext, useLocale } from "./i18n";
@@ -13,21 +15,25 @@ import { categoryLabels, detectCategory, expenseCategory, normalizeText, storedC
 import ExpenseIcon from "./ExpenseIcon";
 import SwipeableExpenseRow from "./SwipeableExpenseRow";
 import Statistics from "./StatisticsPage";
-import { insuranceTodos, type InsuranceTodo } from "./todos";
+import { householdTodos, type HouseholdTodo } from "./todos";
 
 const today = () => {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 };
 
-interface Snapshot { entries: Entry[]; pending: number; preferences: Preferences; conflicts: Conflict[] }
+interface Snapshot {
+  entries: Entry[]; todos: Todo[]; pending: number; preferences: Preferences;
+  conflicts: Conflict[]; todoConflicts: Conflict<Todo>[];
+}
 
 function useLedger(): Snapshot | null {
   const [value, setValue] = useState<Snapshot | null>(null);
   useEffect(() => {
     const subscription = liveQuery(async () => ({
-      entries: await db.entries.toArray(), pending: await db.outbox.count(),
-      preferences: await getPreferences(), conflicts: await db.conflicts.toArray()
+      entries: await db.entries.toArray(), todos: await db.todos.toArray(),
+      pending: await db.outbox.count() + await db.todoOutbox.count(),
+      preferences: await getPreferences(), conflicts: await db.conflicts.toArray(), todoConflicts: await db.todoConflicts.toArray()
     })).subscribe({
       next: setValue,
       error: (error: unknown) => window.dispatchEvent(new CustomEvent("splitty-error", {
@@ -242,25 +248,85 @@ function ImportForm({ preferences: p, close, saved }: { preferences: Preferences
   </div></Sheet>;
 }
 
-function TodoList({ todos, openCount, status, blocked, open, toggle }: {
-  todos: InsuranceTodo[]; openCount: number; status: string; blocked: Set<string>;
+function TodoForm({ todo, close, saved }: { todo?: Todo; close: () => void; saved: () => void }) {
+  const { t, message, language } = useLocale();
+  const [title, setTitle] = useState(todo?.title ?? "");
+  const [description, setDescription] = useState(todo?.description ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function save(deleted = false) {
+    setBusy(true); setError("");
+    try {
+      const timestamp = new Date().toISOString();
+      await queueTodos([deleted && todo ? { ...todo, deleted: true } : {
+        id: todo?.id ?? crypto.randomUUID(), title, description, done: todo?.done ?? false,
+        createdAt: todo?.createdAt ?? timestamp, updatedAt: timestamp, revision: todo?.revision ?? 0, deleted: false
+      }]);
+      saved(); close();
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not save this to-do."); }
+    finally { setBusy(false); }
+  }
+
+  return <Sheet title={t(todo ? "Edit to-do" : "Add to-do")} close={close} initialFocus={!todo ? "#todo-title" : undefined}>
+    <form className="panel-content" lang={language} onSubmit={(event) => { event.preventDefault(); void save(); }}>
+      <label htmlFor="todo-title">{t("Title")}<input id="todo-title" required maxLength={MAX_TODO_TITLE} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+      <label>{t("Description (optional)")}<textarea rows={4} maxLength={MAX_TODO_DESCRIPTION} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
+      {error && <p className="error" role="alert">{message(error)}</p>}
+      <button className="primary" disabled={busy}>{t(busy ? "Saving…" : "Save")}</button>
+      {todo && <button type="button" className="danger-link" disabled={busy} onClick={() => {
+        if (window.confirm(t("Delete this to-do for everyone in your household? This will sync when you are online."))) void save(true);
+      }}><Trash2 size={16} />{t("Delete to-do")}</button>}
+    </form>
+  </Sheet>;
+}
+
+function TodoList({ todos, manualTodos, conflicts, resolve, openCount, status, blocked, open, toggle, add, edit, toggleManual }: {
+  todos: HouseholdTodo[]; manualTodos: Todo[]; conflicts: Conflict<Todo>[];
+  resolve: (id: string, keepLocal: boolean) => void;
+  openCount: number; status: string; blocked: Set<string>;
   open: (entry: Entry) => void; toggle: (entry: Entry, submitted: boolean) => void;
+  add: () => void; edit: (todo: Todo) => void; toggleManual: (todo: Todo, done: boolean) => void;
 }) {
   const { t, number, money, locale } = useLocale();
-  return <section className="todos-page"><header className="page-heading"><h1>{t("To-dos")}<span className="entry-count">{number(openCount)}</span></h1></header>
+  const manualBlocked = new Set(conflicts.map((conflict) => conflict.entryId));
+  const version = (todo: Todo | null | undefined) => !todo ? t("Not present") : todo.deleted ? t("Deleted")
+    : `${todo.title}${todo.description ? `\n${todo.description}` : ""}\n${t(todo.done ? "Done" : "Open to-dos")}`;
+  return <section className="todos-page"><header className="page-heading todo-heading"><h1>{t("To-dos")}<span className="entry-count">{number(openCount)}</span></h1>
+    <button className="text-button" onClick={add}><Plus size={18} />{t("Add to-do")}</button></header>
     <p className="sync-status" role="status">{status}</p>
-    {!todos.length ? <div className="empty-state"><h2>{t("No to-dos")}</h2><p>{t("Doctor and pharmacy expenses appear here so you can submit them to your insurance.")}</p></div> :
+    {!!conflicts.length && <section className="conflict-panel" aria-label={t("Conflicting to-do edits")}><h3>{t("Conflicting to-do edits")}</h3>
+      <p>{t("These to-dos changed on another device. Choose which version to keep.")}</p>
+      {conflicts.map((conflict) => <div key={conflict.entryId}>
+        <p className="todo-version"><strong>{t("This device")}</strong>{"\n"}{version(manualTodos.find((todo) => todo.id === conflict.entryId))}</p>
+        <p className="todo-version"><strong>{t("Other device")}</strong>{"\n"}{version(conflict.remote)}</p>
+        <div className="button-row"><button className="secondary" onClick={() => resolve(conflict.entryId, false)}>{t("Keep other device")}</button>
+          <button className="secondary" onClick={() => resolve(conflict.entryId, true)}>{t("Keep this device")}</button></div>
+      </div>)}
+    </section>}
+    {!todos.length ? <div className="empty-state"><h2>{t("No to-dos")}</h2><p>{t("Add your own to-dos here. Doctor and pharmacy expenses also appear automatically for insurance submission.")}</p></div> :
       [false, true].map((done) => {
         const group = todos.filter((todo) => todo.done === done);
         return !!group.length && <section key={String(done)} className="todo-group" aria-label={t(done ? "Done" : "Open to-dos")}>
           <div className="section-title"><h2>{t(done ? "Done" : "Open to-dos")}<span>{number(group.length)}</span></h2></div>
-          <ul className="todo-list">{group.map(({ entry }) => {
+          <ul className="todo-list">{group.map((item) => {
+            if (item.kind === "manual") {
+              const { todo } = item;
+              return <li key={`manual-${todo.id}`} className={`todo-item manual-todo ${done ? "done" : ""}`}>
+                <label className="todo-check"><input type="checkbox" checked={done} disabled={manualBlocked.has(todo.id)} onChange={(event) => toggleManual(todo, event.target.checked)} />
+                  <span className="entry-icon"><ClipboardCheck size={20} /></span>
+                  <span className="entry-description"><strong>{todo.title}</strong>{todo.description && <small>{todo.description}</small>}</span>
+                </label>
+                <button className="text-button" disabled={manualBlocked.has(todo.id)} onClick={() => edit(todo)} aria-label={`${t("Edit to-do")}: ${todo.title}`}>{t("Edit")}</button>
+              </li>;
+            }
+            const { entry } = item;
             const category = expenseCategory(entry.description, entry.category, entry.kind, entry.categoryMode);
             const details = t("Expense: {description} · {date} · {amount}", {
               description: entry.description, amount: money(entry.amountCents),
               date: new Date(`${entry.date}T12:00:00`).toLocaleDateString(locale, { day: "numeric", month: "short", year: "numeric" })
             });
-            return <li key={entry.id} className={`todo-item ${done ? "done" : ""}`}>
+            return <li key={`insurance-${entry.id}`} className={`todo-item ${done ? "done" : ""}`}>
               <label className="todo-check"><input type="checkbox" checked={done} disabled={blocked.has(entry.id)} onChange={(event) => toggle(entry, event.target.checked)} />
                 <span className="entry-icon"><ExpenseIcon category={category} /></span>
                 <span className="entry-description"><strong>{t("Submit to insurance")}</strong><small>{details}</small></span>
@@ -287,6 +353,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const { t, language, locale, number, money, message, person, payer } = useLocale();
   const [tab, setTab] = useState<"expenses" | "todos" | "search" | "statistics" | "settings">("expenses");
   const [form, setForm] = useState<"expense" | "settlement" | Entry | null>(null);
+  const [todoForm, setTodoForm] = useState<"new" | Todo | null>(null);
   const [swipedEntry, setSwipedEntry] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [search, setSearch] = useState("");
@@ -315,7 +382,8 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
         await updatePreferences({ member: me.member, nameA: me.nameA, nameB: me.nameB });
         setSyncStatus("Syncing…");
         await synchronize();
-        setSyncStatus(await db.conflicts.count() ? "Some edits need your attention" : await db.outbox.count() ? "Saved locally · changes waiting to sync" : "Up to date");
+        setSyncStatus(await db.conflicts.count() + await db.todoConflicts.count() ? "Some edits need your attention"
+          : await db.outbox.count() + await db.todoOutbox.count() ? "Saved locally · changes waiting to sync" : "Up to date");
         // Saves during an in-flight pass need another pass, not a dropped request.
       } while (syncRequested.current && navigator.onLine);
     })().catch((e: unknown) => {
@@ -385,7 +453,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
 
   function backup() {
     if (!ledger) return;
-    const blob = new Blob([JSON.stringify({ format: "splitty-v1", exportedAt: new Date().toISOString(), preferences: ledger.preferences, entries: ledger.entries }, null, 2)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify({ format: "splitty-v2", exportedAt: new Date().toISOString(), preferences: ledger.preferences, entries: ledger.entries, todos: ledger.todos }, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob), anchor = document.createElement("a");
     anchor.href = url; anchor.download = `splitty-backup-${today()}.json`; anchor.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -395,13 +463,11 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     if (!file) return;
     try {
       if (file.size > 20_000_000) throw new Error("Choose a backup smaller than 20 MB.");
-      const data = JSON.parse(await file.text()) as { format?: unknown; entries?: unknown };
-      if (data.format !== "splitty-v1" || !Array.isArray(data.entries)) throw new Error("Choose a Splitty JSON backup.");
-      const entries = data.entries.map(validateEntry);
-      const existing = new Set(await db.entries.toCollection().primaryKeys());
-      const fresh = entries.filter((entry) => !existing.has(entry.id));
-      if (!window.confirm(t("Restore {count} missing entries? Existing entries will not be overwritten. Keep the same person A/B mapping as the original device.", { count: number(fresh.length) }))) return;
-      await queueEntries(fresh);
+      const data = readBackup(JSON.parse(await file.text()));
+      const missing = await missingBackupRecords(data);
+      if (!window.confirm(t("Restore {entries} missing entries and {todos} missing to-dos? Existing data will not be overwritten. Keep the same person A/B mapping as the original device.",
+        { entries: number(missing.entries.length), todos: number(missing.todos.length) }))) return;
+      await restoreBackup(data);
       saved();
     } catch (e) { setError(e instanceof Error ? e.message : "Could not restore the backup."); }
   }
@@ -417,7 +483,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const shown = active.filter((entry) => !query || normalizeText(`${entry.description} ${entry.category} ${t(categoryLabels[expenseCategory(entry.description, entry.category, entry.kind, entry.categoryMode)])} ${entry.date}`).includes(query))
     .sort((a, b) => b.date.localeCompare(a.date) || b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
   const conflictIds = new Set(ledger.conflicts.map((conflict) => conflict.entryId));
-  const todos = insuranceTodos(active);
+  const todos = householdTodos(active, ledger.todos);
   const openTodos = todos.filter((todo) => !todo.done).length;
   const markSubmitted = (entry: Entry, submitted: boolean) => {
     const { insuranceSubmittedAt: _previous, ...rest } = entry;
@@ -426,12 +492,12 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
 
   return <div className="app-shell" onInvalidCapture={(event) => {
     const input = event.target;
-    if (input instanceof HTMLInputElement || input instanceof HTMLSelectElement) {
+    if (input instanceof HTMLInputElement || input instanceof HTMLSelectElement || input instanceof HTMLTextAreaElement) {
       input.setCustomValidity(input.validity.valueMissing ? t("Please fill out this field.")
         : input instanceof HTMLInputElement && input.type === "date" ? t("Enter a valid date.") : "");
     }
   }} onInputCapture={(event) => {
-    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) event.target.setCustomValidity("");
+    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement || event.target instanceof HTMLTextAreaElement) event.target.setCustomValidity("");
   }}>
     <header className="topbar"><a className="wordmark" href="/" aria-label={t("Splitty home")}><img className="brand-mark" src="/icon.svg" width="32" height="32" alt="" />Splitty</a>
       <button className={`sync-pill ${online ? "" : "offline"}`} onClick={() => void sync()} disabled={syncBusy} aria-label={t("Synchronize devices")}>{online ? <Cloud size={16} /> : <CloudOff size={16} />}<span>{syncBusy ? t("Syncing") : ledger.pending ? t("{count} pending", { count: number(ledger.pending) }) : t(online ? "Sync" : "Offline")}</span></button>
@@ -440,6 +506,10 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
       {error && <div className="banner error" role="alert">{message(error)}<button className="icon-button" aria-label={t("Dismiss error")} onClick={() => setError("")}><X size={18} /></button></div>}
       {update && <div className="banner">{t("An app update is ready. Your saved entries will be kept.")}<button onClick={() => void update().catch((e: Error) => setError(e.message))} className="text-button">{t("Update")}</button></div>}
       {tab === "todos" ? <TodoList todos={todos} openCount={openTodos} status={message(syncStatus)} blocked={conflictIds} open={setForm}
+        manualTodos={ledger.todos} conflicts={ledger.todoConflicts}
+        resolve={(id, keepLocal) => void resolveStoreConflict(id, keepLocal, todoStore()).then(saved).catch((e: Error) => setError(e.message))}
+        add={() => setTodoForm("new")} edit={setTodoForm}
+        toggleManual={(todo, done) => void queueTodos([{ ...todo, done }]).then(saved).catch((e: Error) => setError(e.message))}
         toggle={(entry, submitted) => void markSubmitted(entry, submitted).then(saved).catch((e: Error) => setError(e.message))} /> : tab === "statistics" ? <Statistics entries={ledger.entries} preferences={p} /> : tab !== "settings" ? <>
         {tab === "expenses" ? <>
           <header className="page-heading">
@@ -503,7 +573,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
           {!identity && <label>{t("This device belongs to")}<select value={p.member} onChange={(e) => void updatePreferences({ member: e.target.value as Member }).catch((err: Error) => setError(err.message))}><option value="a">{p.nameA}</option><option value="b">{p.nameB}</option></select></label>}
           <p className="muted">{t("EUR and an equal split are always the default. Signed-in names come from your household configuration.")}</p>
         </section>
-        <section className="settings-card"><h2><Download size={20} />{t("Backups")}</h2><button className="secondary" onClick={backup}><Download size={17} />{t("Download a backup")}</button><FilePicker label={t("Restore missing entries from a backup")} accept=".json,application/json" choose={(file) => void restore(file)} /><p className="muted">{t("Offline data lives in this browser. Clearing site data removes unsynced entries. Keep backups, and sync before changing devices.")}</p></section>
+        <section className="settings-card"><h2><Download size={20} />{t("Backups")}</h2><button className="secondary" onClick={backup}><Download size={17} />{t("Download a backup")}</button><FilePicker label={t("Restore missing entries from a backup")} accept=".json,application/json" choose={(file) => void restore(file)} /><p className="muted">{t("Backups include expenses and manual to-dos. Offline data lives in this browser; sync or back up before clearing site data or changing devices.")}</p></section>
       </section>}
     </main>
     {tab === "expenses" && <div className="expense-action"><button className="add-button" aria-label={t("Add expense")} onClick={() => setForm("expense")}><Plus size={23} /><span>{t("Add expense")}</span></button></div>}
@@ -515,6 +585,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
       <button className={tab === "settings" ? "active" : ""} aria-current={tab === "settings" ? "page" : undefined} onClick={() => navigate("settings")}><Settings size={22} /><span>{t("Settings")}</span></button>
     </nav>
     {form && <ExpenseForm entry={typeof form === "object" ? form : undefined} settlement={form === "settlement" || (typeof form === "object" && form.kind === "settlement")} preferences={p} close={() => setForm(null)} saved={saved} />}
+    {todoForm && <TodoForm todo={todoForm === "new" ? undefined : todoForm} close={() => setTodoForm(null)} saved={saved} />}
     {importing && <ImportForm preferences={p} close={() => setImporting(false)} saved={saved} />}
   </div>;
 }

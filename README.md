@@ -49,7 +49,11 @@ Search and Splitwise import live on **Suche / Search**; search filters never hid
 entries on the main expense page. **Ausgaben / Expenses** and **To-dos** use the
 same bottom-right floating add button, above the navigation, with space below the
 list so it does not cover the last item. Search, statistics, and settings have no
-floating add button. Light and dark
+floating add button. Expense and to-do rows share horizontal swipe actions and a
+keyboard-accessible three-dot menu. Manual to-dos offer edit/delete actions;
+insurance reminders offer actions for their linked expense, with confirmation
+before deleting that expense. Hovering either list highlights the entire row,
+including its three-dot menu. Light and dark
 themes share the same visual language. The original app icon is a heart containing
 a euro symbol, used consistently in the app, favicon, and Android install icons.
 

@@ -41,6 +41,7 @@ test("doctor and pharmacy expenses create insurance to-dos that can be checked o
   await nav.getByRole("button", { name: "To-dos" }).click();
   await expect(page.getByRole("region", { name: "Erledigt" })).toContainText("Apotheke");
 
+  await page.getByRole("button", { name: "To-do-Aktionen: Apotheke" }).click();
   await page.getByRole("button", { name: "Ausgabe öffnen: Apotheke" }).click();
   const dialog = page.getByRole("dialog", { name: "Eintrag bearbeiten" });
   await dialog.getByLabel("Beschreibung", { exact: true }).fill("Apotheke Rezept");
@@ -59,6 +60,7 @@ test("doctor specialties map to Gesundheit and create insurance to-dos", async (
   await expect(open.getByRole("listitem")).toHaveCount(3);
   for (const description of ["Augenarzt", "Zahnarzt", "Zahnärztin"]) {
     await expect(open).toContainText(`Ausgabe: ${description}`);
+    await page.getByRole("button", { name: `To-do-Aktionen: ${description}`, exact: true }).click();
     await page.getByRole("button", { name: `Ausgabe öffnen: ${description}`, exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Eintrag bearbeiten" });
     await expect(dialog.getByLabel("Kategorie", { exact: true })).toHaveValue("auto");

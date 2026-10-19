@@ -307,7 +307,7 @@ function TodoList({ todos, manualTodos, conflicts, resolve, openCount, status, b
       [false, true].map((done) => {
         const group = todos.filter((todo) => todo.done === done);
         return !!group.length && <section key={String(done)} className="todo-group" aria-label={t(done ? "Done" : "Open to-dos")}>
-          <div className="section-title"><h2>{t(done ? "Done" : "Open to-dos")}<span>{number(group.length)}</span></h2></div>
+          {done && <div className="section-title"><h2>{t("Done")}<span>{number(group.length)}</span></h2></div>}
           <ul className="todo-list">{group.map((item) => {
             if (item.kind === "manual") {
               const { todo } = item;

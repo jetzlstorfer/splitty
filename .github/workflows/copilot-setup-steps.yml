@@ -2,11 +2,24 @@ name: Copilot Setup Steps
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     paths:
       - .github/workflows/copilot-setup-steps.yml
+      - package.json
+      - package-lock.json
+      - .npmrc
+      - api/package.json
+      - api/package-lock.json
+      - api/.npmrc
   pull_request:
     paths:
       - .github/workflows/copilot-setup-steps.yml
+      - package.json
+      - package-lock.json
+      - .npmrc
+      - api/package.json
+      - api/package-lock.json
+      - api/.npmrc
 jobs:
   copilot-setup-steps:
     runs-on: ubuntu-latest
@@ -22,23 +35,5 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             api/package-lock.json
-      - name: Configure approved npm proxy
-        run: |
-          echo "npm_config_registry=https://packagefeedproxy.microsoft.io/npm/" >> "$GITHUB_ENV"
-          echo "npm_config_strict_ssl=true" >> "$GITHUB_ENV"
-      - name: Check approved proxy connectivity
-        shell: bash
-        run: |
-          echo "npm registry: $(npm config get registry)"
-          if ! timeout 15s getent ahosts packagefeedproxy.microsoft.io; then
-            echo "::error::DNS lookup for packagefeedproxy.microsoft.io failed or timed out. Fix the runner's DNS/network access to the approved proxy before retrying; setup cannot repair infrastructure."
-            exit 1
-          fi
-          if ! npm ping --fetch-retries=1 --fetch-timeout=15000 --fetch-retry-mintimeout=1000 --fetch-retry-maxtimeout=2000; then
-            echo "::error::DNS resolved, but the npm HTTPS registry check failed. Inspect the npm error above for connectivity, TLS, authentication, or service errors. Check approved proxy access and trusted CA configuration; do not disable TLS or switch feeds."
-            exit 1
-          fi
-      - name: Install frontend dependencies
-        run: npm ci
-      - name: Install API dependencies
-        run: npm ci --prefix api
+      - name: Check registry and install frontend and API dependencies
+        run: npm run setup:approved

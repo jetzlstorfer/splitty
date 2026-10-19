@@ -346,6 +346,22 @@ References: [Static Web Apps](https://learn.microsoft.com/azure/static-web-apps/
 [Table Storage](https://learn.microsoft.com/azure/storage/tables/table-storage-overview),
 [Storage concurrency](https://learn.microsoft.com/azure/storage/common/storage-concurrency),
 
+## Agent workflows
+
+Repository-wide coding rules are in
+[Copilot instructions](.github/copilot-instructions.md). Two focused skills provide
+repeatable validation workflows:
+
+- [Browser validation](.github/skills/browser-validation/SKILL.md): production PWA
+  setup, safe port/process handling, focused Playwright checks, touch and keyboard
+  interactions, responsive layouts, and cleanup.
+- [Offline-sync validation](.github/skills/offline-sync-validation/SKILL.md): local
+  persistence, outboxes, conflicts, deletion tombstones, and two-device convergence.
+
+Agents supporting repository skills can load them when these tasks arise; they
+can also be invoked as `/browser-validation` and `/offline-sync-validation` in
+clients that expose skills as slash commands.
+
 ## Checks
 
 ```powershell

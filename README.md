@@ -90,6 +90,29 @@ If installation fails with a network error, fix registry connectivity and rerun
 `npm ci` before running builds or tests; `ERR_MODULE_NOT_FOUND` can be a consequence
 of an incomplete install, but its missing-package message must be checked.
 
+Copilot's `.github/workflows/copilot-setup-steps.yml` installs both projects through
+the approved proxy before the agent starts. It reports the selected registry,
+checks DNS, and uses `npm ping` to check HTTPS access with bounded retries before
+installing. TLS certificate verification stays enabled and lockfiles are unchanged.
+The setup takes effect for agent sessions once merged into the default branch;
+it can also be tested manually from the Actions tab.
+
+For subsequent npm commands in agent sessions, set the variable
+`npm_config_registry=https://packagefeedproxy.microsoft.io/npm/` in the repository's
+**Settings → Environments → copilot** environment. The workflow configures its own
+steps explicitly; normal Check and Deploy workflows keep their existing registry
+selection.
+
+If setup reports `ENOTFOUND` or a DNS lookup failure, the environment administrator
+must restore DNS/network access to `packagefeedproxy.microsoft.io`. For HTTPS
+failures, inspect the npm error and check outbound access, proxy availability,
+and trusted certificates. If access is blocked only during agent execution,
+check the Copilot firewall allowlist for the approved registry host. A setup
+workflow cannot fix unavailable DNS or network infrastructure: do not substitute
+an unapproved registry or disable TLS/integrity checks. Copilot may still start
+after setup fails, with dependencies missing; restore connectivity and rerun both
+installs before validation.
+
 Open `http://127.0.0.1:5173`. The frontend works on its own; until the API is running,
 sync is unavailable and entries remain on that browser. Service-worker/offline
 reload behavior is enabled in production builds, not the Vite development server.

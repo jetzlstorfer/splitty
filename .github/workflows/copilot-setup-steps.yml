@@ -1,0 +1,39 @@
+name: Copilot Setup Steps
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+      - package.json
+      - package-lock.json
+      - .npmrc
+      - api/package.json
+      - api/package-lock.json
+      - api/.npmrc
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+      - package.json
+      - package-lock.json
+      - .npmrc
+      - api/package.json
+      - api/package-lock.json
+      - api/.npmrc
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            api/package-lock.json
+      - name: Check registry and install frontend and API dependencies
+        run: npm run setup:approved

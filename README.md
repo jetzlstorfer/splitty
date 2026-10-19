@@ -104,12 +104,64 @@ integrity hashes. Installs use the registry configured for the environment rathe
 than a Microsoft feed URL captured on another machine. The root and API `.npmrc`
 files preserve this behavior when updating dependencies.
 
-In environments requiring the approved Microsoft proxy, pass
-`--registry=https://packagefeedproxy.microsoft.io/npm/` to both `npm ci` commands
-(or set `npm_config_registry` for the job). Do not disable TLS or integrity checks.
-If installation fails with a network error, fix registry connectivity and rerun
-`npm ci` before running builds or tests; `ERR_MODULE_NOT_FOUND` can be a consequence
-of an incomplete install, but its missing-package message must be checked.
+### Approved Microsoft npm registry
+
+When the approved Microsoft proxy is required, run this from the repository root
+instead of the two `npm ci` commands:
+
+```powershell
+npm run setup:approved
+```
+
+This dependency-free setup command works in local Windows, macOS, and Linux
+terminals, Copilot agent sessions, and GitHub Actions. It selects
+`https://packagefeedproxy.microsoft.io/npm/` and enables TLS certificate verification
+for every nested npm command, without changing your saved npm configuration or
+the lockfiles. It prints the registry, requests TypeScript package metadata with
+bounded retries/timeouts, then installs the frontend and API dependencies in order.
+Any failure stops setup and preserves npm's diagnostic output. The proxy returns
+404 for `npm ping`'s `/-/ping` endpoint, so that endpoint is not a usable health check.
+`npm run setup:dependencies` runs the same steps against your current registry.
+
+Copilot's `.github/workflows/copilot-setup-steps.yml` invokes `npm run setup:approved`
+before cloud-agent sessions once merged into the default branch. The same workflow
+runs in GitHub Actions when its setup or dependency configuration changes, and can
+be run manually from the Actions tab after merging. Other workflows can opt in by
+using `run: npm run setup:approved` after checkout and Node.js setup. Normal Check
+and Deploy workflows keep their existing registry selection. Local Copilot
+App/CLI sessions do not run the cloud setup workflow; use the command above there.
+
+The registry selection lasts for the setup command and its child processes only.
+For subsequent npm commands in cloud-agent sessions, configure
+`npm_config_registry=https://packagefeedproxy.microsoft.io/npm/` and
+`npm_config_strict_ssl=true` under the repository's
+**Settings → Secrets and variables → Agents → Variables**.
+GitHub has migrated the old `copilot` environment variables to
+[Agents secrets and variables](https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/customize-cloud-agent/configure-secrets-and-variables).
+For other Actions steps, set those variables in the workflow's `env`. Locally, set
+them for the current terminal session (PowerShell example):
+
+```powershell
+$env:npm_config_registry = "https://packagefeedproxy.microsoft.io/npm/"
+$env:npm_config_strict_ssl = "true"
+```
+
+If setup reports `ENOTFOUND` or a DNS lookup failure, the environment administrator
+must restore DNS/network access to `packagefeedproxy.microsoft.io`. For HTTPS
+failures, inspect the npm error and check outbound access, proxy availability,
+and trusted certificates. If access is blocked only during agent execution,
+check the Copilot firewall allowlist for the approved registry host. A setup
+workflow cannot fix unavailable DNS or network infrastructure: do not substitute
+an unapproved registry or disable TLS/integrity checks. Copilot may still start
+after setup fails, with dependencies missing; restore connectivity and rerun both
+installs with `npm run setup:approved` before validation. `ERR_MODULE_NOT_FOUND`
+can be a consequence of an incomplete install, but check which package is missing.
+For intermittent `ECONNRESET` errors during package downloads, retry with fewer
+concurrent connections: `npm --maxsockets=5 run setup:approved`. Windows `EBUSY` or
+`EPERM` errors instead indicate local file access problems; close processes using
+the affected dependency files before retrying.
+
+### Start the app
 
 Open `http://127.0.0.1:5173`. The frontend works on its own; until the API is running,
 sync is unavailable and entries remain on that browser. Service-worker/offline

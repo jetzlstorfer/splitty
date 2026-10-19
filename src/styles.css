@@ -93,7 +93,7 @@ p { line-height: 1.55; }
 .topbar { position: sticky; top: 0; z-index: 5; padding: max(env(safe-area-inset-top), 4px) 16px 4px; display: flex; justify-content: space-between; align-items: center; min-height: 56px; background: var(--cp-surface); border-bottom: 1px solid var(--cp-border); }
 .wordmark { color: var(--cp-text); text-decoration: none; display: flex; align-items: center; font-size: 22px; font-weight: 650; letter-spacing: -.6px; }
 .brand-mark { width: 32px; height: 32px; margin-right: 10px; border-radius: 8px; }
-.brand-mark.is-syncing { box-shadow: 0 0 0 4px var(--cp-highlight); }
+.brand-mark.is-syncing, .brand-mark.is-saving { box-shadow: 0 0 0 4px var(--cp-highlight); }
 .sync-pill { display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 8px; background: none; font-size: 12px; color: var(--cp-text-muted); }
 main { padding: 0 16px calc(88px + env(safe-area-inset-bottom)); }
 main.with-expense-action { padding-bottom: calc(152px + env(safe-area-inset-bottom)); }
@@ -349,7 +349,8 @@ form > label, .panel-content > label { margin-bottom: 20px; }
   .entry-balance small { font-size: 10px; }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .brand-mark.is-syncing { animation: sync-heartbeat 1.8s ease-in-out infinite; }
+  .brand-mark.is-syncing, .brand-mark.is-saving { animation: sync-heartbeat 1.8s ease-in-out; }
+  .brand-mark.is-syncing { animation-iteration-count: infinite; }
   button { transition: background-color .18s ease, color .18s ease, border-color .18s ease, box-shadow .18s ease, opacity .18s ease; }
   .entry-icon, .bottom-nav > button > svg { transition: background-color .18s ease, color .18s ease; }
   .amount-input { transition: border-color .18s ease; }

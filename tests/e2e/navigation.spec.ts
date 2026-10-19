@@ -152,6 +152,84 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
   });
 }
 
+for (const reducedMotion of ["no-preference", "reduce"] as const) {
+  test(`new local expenses and todos pulse the logo once with motion: ${reducedMotion}`, async ({ page, context }) => {
+    await page.emulateMedia({ reducedMotion });
+    await page.goto("/");
+    const nav = page.getByRole("navigation");
+    await nav.getByRole("button", { name: "Einstellungen", exact: true }).click();
+    await page.getByLabel("App-Sprache", { exact: true }).selectOption("en");
+    await nav.getByRole("button", { name: "Expenses", exact: true }).click();
+    await context.setOffline(true);
+    const icon = page.locator(".topbar .brand-mark");
+    await expect(page.locator(".sync-pill")).toHaveAttribute("aria-busy", "false");
+    await expect(icon).not.toHaveClass(/is-saving|is-syncing/);
+    const dialog = page.getByRole("dialog");
+    const save = async () => {
+      await dialog.getByRole("button", { name: "Save", exact: true }).click();
+      await expect(dialog).not.toBeVisible();
+    };
+    const expectPulse = async () => {
+      await expect(icon).toHaveClass(/is-saving/);
+      await expect(icon).toHaveCSS("animation-name", reducedMotion === "reduce" ? "none" : "sync-heartbeat");
+      await expect(icon).toHaveCSS("animation-iteration-count", "1");
+      await expect(icon).not.toHaveCSS("box-shadow", "none");
+      await expect(page.locator(".sync-pill")).toHaveAttribute("aria-busy", "false");
+      await expect(icon).not.toHaveClass(/is-saving/, { timeout: 3500 });
+      await expect(icon).toHaveCSS("animation-name", "none");
+      await expect(icon).toHaveCSS("box-shadow", "none");
+    };
+
+    await page.getByRole("button", { name: "Add expense", exact: true }).click();
+    await dialog.getByLabel("Description", { exact: true }).fill("Coffee pulse");
+    await dialog.getByRole("textbox", { name: "Amount in EUR" }).fill("12.345");
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(dialog.getByRole("alert")).toBeVisible();
+    await expect(icon).not.toHaveClass(/is-saving/);
+    await dialog.getByRole("textbox", { name: "Amount in EUR" }).fill("12");
+    await save();
+    await expect(page.locator(".expense-row")).toContainText("Coffee pulse");
+    await expectPulse();
+
+    await page.getByText("Coffee pulse", { exact: true }).click();
+    await dialog.getByLabel("Description", { exact: true }).fill("Coffee edited");
+    await save();
+    await expect(icon).not.toHaveClass(/is-saving/);
+    await page.getByRole("button", { name: "Settle up", exact: true }).click();
+    await dialog.getByRole("textbox", { name: "Amount in EUR" }).fill("6");
+    await dialog.getByLabel("Paid by", { exact: true }).selectOption("b");
+    await save();
+    await expect(icon).not.toHaveClass(/is-saving/);
+
+    await nav.getByRole("button", { name: "To-dos", exact: true }).click();
+    await page.getByRole("button", { name: "Add to-do", exact: true }).click();
+    await dialog.getByLabel("Title", { exact: true }).fill(" ");
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(dialog.getByRole("alert")).toBeVisible();
+    await expect(icon).not.toHaveClass(/is-saving/);
+    await dialog.getByLabel("Title", { exact: true }).fill("Call dentist");
+    await save();
+    await expect(page.getByRole("listitem")).toContainText("Call dentist");
+    await expectPulse();
+
+    await page.getByRole("button", { name: "To-do actions: Call dentist", exact: true }).click();
+    await page.getByRole("button", { name: "Edit to-do: Call dentist", exact: true }).click();
+    await dialog.getByLabel("Title", { exact: true }).fill("Call dentist edited");
+    await save();
+    await expect(icon).not.toHaveClass(/is-saving/);
+    await page.getByRole("checkbox").click();
+    await expect(page.getByRole("checkbox")).toBeChecked();
+    await expect(icon).not.toHaveClass(/is-saving/);
+    await page.getByRole("button", { name: "To-do actions: Call dentist edited", exact: true }).click();
+    await page.getByRole("button", { name: "Edit to-do: Call dentist edited", exact: true }).click();
+    page.once("dialog", (confirmation) => confirmation.accept());
+    await dialog.getByRole("button", { name: "Delete to-do", exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+    await expect(page.getByRole("listitem")).toHaveCount(0);
+    await expect(icon).not.toHaveClass(/is-saving/);
+  });
+}
+
 test.describe("touch navigation", () => {
   test.use({ hasTouch: true });
 

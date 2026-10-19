@@ -387,6 +387,13 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const [signInBusy, setSignInBusy] = useState(false);
   const [update, setUpdate] = useState<(() => Promise<void>) | null>(null);
   const [saveFeedback, setSaveFeedback] = useState<{ entry: Entry; settled: boolean } | null>(null);
+  const [logoPulse, setLogoPulse] = useState({ sequence: 0, active: false });
+
+  useEffect(() => {
+    if (!logoPulse.active) return;
+    const timeout = window.setTimeout(() => setLogoPulse((current) => ({ ...current, active: false })), 1800);
+    return () => window.clearTimeout(timeout);
+  }, [logoPulse.active, logoPulse.sequence]);
 
   useEffect(() => {
     if (!saveFeedback) return;
@@ -452,6 +459,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   }, [ledger?.pending, sync]);
 
   const saved = () => { setSaveFeedback(null); setSyncStatus("Saved on this device"); void sync(); };
+  const pulseLogo = () => setLogoPulse((current) => ({ sequence: current.sequence + 1, active: true }));
 
   function navigate(next: typeof tab) {
     setSwipedEntry(null);
@@ -514,6 +522,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const expenseSaved = (entry?: Entry) => {
     saved();
     if (!entry) { setSaveFeedback(null); return; }
+    if (form === "expense" && entry.kind === "expense") pulseLogo();
     // The live query may already contain this save, so reconstruct the previous balance from the form.
     const remaining = active.filter((item) => item.id !== entry.id).reduce((sum, item) => sum + item.balanceA, 0);
     const previous = typeof form === "object" && form ? form.balanceA : 0;
@@ -536,7 +545,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   }} onInputCapture={(event) => {
     if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement || event.target instanceof HTMLTextAreaElement) event.target.setCustomValidity("");
   }}>
-    <header className="topbar"><a className="wordmark" href="/" aria-label={t("Splitty home")}><img className={`brand-mark ${syncBusy ? "is-syncing" : ""}`} src="/icon.svg" width="32" height="32" alt="" />Splitty</a>
+    <header className="topbar"><a className="wordmark" href="/" aria-label={t("Splitty home")}><img key={logoPulse.sequence} className={`brand-mark ${syncBusy ? "is-syncing" : logoPulse.active ? "is-saving" : ""}`} src="/icon.svg" width="32" height="32" alt="" />Splitty</a>
       <button className={`sync-pill ${online ? "" : "offline"}`} onClick={() => void sync()} disabled={syncBusy} aria-busy={syncBusy} aria-label={t("Synchronize devices")}>{online ? <Cloud size={16} /> : <CloudOff size={16} />}<span>{syncBusy ? t("Syncing") : ledger.pending ? t("{count} pending", { count: number(ledger.pending) }) : t(online ? "Sync" : "Offline")}</span></button>
     </header>
     <main className={tab === "expenses" || tab === "todos" ? "with-expense-action" : undefined}>
@@ -648,7 +657,10 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
       {saveFeedback && <div className="save-feedback" key={saveFeedback.entry.updatedAt}><Check size={18} aria-hidden="true" /><span>{t(saveFeedback.entry.kind === "settlement" ? "Payment saved on this device" : "Expense saved on this device")}</span></div>}
     </div>
     {form && <ExpenseForm entry={typeof form === "object" ? form : undefined} settlement={form === "settlement" || (typeof form === "object" && form.kind === "settlement")} preferences={p} close={() => setForm(null)} saved={expenseSaved} />}
-    {todoForm && <TodoForm todo={todoForm === "new" ? undefined : todoForm} close={() => setTodoForm(null)} saved={saved} />}
+    {todoForm && <TodoForm todo={todoForm === "new" ? undefined : todoForm} close={() => setTodoForm(null)} saved={() => {
+      if (todoForm === "new") pulseLogo();
+      saved();
+    }} />}
     {importing && <ImportForm preferences={p} close={() => setImporting(false)} saved={saved} />}
   </div>;
 }

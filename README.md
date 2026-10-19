@@ -61,6 +61,9 @@ a euro symbol, used consistently in the app, favicon, and Android install icons.
 While synchronization is running, the header heart logo gives a gentle double
 pulse with a teal halo. It returns to rest when sync finishes, fails, or the
 device goes offline; reduced-motion mode uses a static halo instead.
+Successfully creating an expense or manual to-do also plays one heartbeat,
+including offline. Edits, deletions, and failed saves do not trigger it.
+Active synchronization takes precedence and keeps the heartbeat repeating.
 The expense description, search, and to-do title fields share a rounded border
 and teal focus ring; expense and search icons sit inside that border.
 Category icons use a shared, theme-aware pastel palette in expense entry, the

@@ -46,6 +46,10 @@ Detection runs entirely on the device and recognizes both German and English,
 regardless of the selected interface language. It ignores case and handles umlauts
 and common transliterations. Terms match whole words or phrases, so `spar` does
 not match `spare parts` and `uni` does not match `university`.
+Common German compounds (such as `Stromrechnung`, `Kindergartenbeitrag` and
+`Tierarztrechnung`) are recognized explicitly rather than guessing from arbitrary
+substrings. Specific phrases such as `car insurance`, `Handy kaufen` and
+`Amazon Prime` take precedence over generic words.
 
 | Category | Examples |
 | --- | --- |
@@ -55,11 +59,16 @@ not match `spare parts` and `uni` does not match `university`.
 | Hairdresser / Friseur | Friseur, Frisör, hairdresser, haircut, barber |
 | Pharmacy / Apotheke | Apotheke, Medikamente, pharmacy, medication |
 | Restaurant / Essen | Essen, Mittagessen, Abendessen, Gasthaus, restaurant, dinner |
+| Sport / Sport | Hallenbad, Freibad, Schwimmkurs, Fitnessstudio, Skipass, Kletterhalle, gym, swimming pool |
 
 Additional categories cover restaurants, coffee, transport, parking, cars, home,
 utilities, phone/internet, shopping, health, pets, entertainment, travel, gifts,
 insurance, and education. Unknown descriptions use a general receipt icon.
 `Gasrechnung` and `gas bill` mean utilities, not car fuel.
+German/Austrian retailers, public transport passes, household bills, childcare,
+medical visits and leisure activities are also covered. Ambiguous descriptions
+such as `Ticket`, `Eintritt` or `Mitgliedsbeitrag` remain General unless a more
+specific term or a manual category is provided.
 
 Automatic categories update when a description changes. Manual selections stay
 fixed, including an explicit General selection. Imported expenses retain their
@@ -67,6 +76,10 @@ original category and accounting data; icons use a recognized source category fi
 or infer one from the description for general/unknown source categories.
 Payments always use the payment icon. Changing language does not translate or
 rewrite personal expense descriptions, names, imported data, or import IDs.
+Detection improvements apply immediately to existing automatic expenses and
+general/unknown imports, including synced history, without rewriting stored data.
+Explicit manual and recognized imported categories remain unchanged; an imported
+`Sport` category is recognized in either interface language.
 
 ## Run locally
 

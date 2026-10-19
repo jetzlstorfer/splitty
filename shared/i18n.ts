@@ -190,6 +190,7 @@ export const german = {
   "Gifts": "Geschenke",
   "Insurance": "Versicherung",
   "Education": "Bildung",
+  "Sport": "Sport",
   "Enter an amount with at most two decimal places.": "Gib einen Betrag mit höchstens zwei Nachkommastellen ein.",
   "This amount is too large.": "Dieser Betrag ist zu groß.",
   "Enter an amount greater than zero.": "Gib einen Betrag größer als null ein.",

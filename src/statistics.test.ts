@@ -168,6 +168,26 @@ describe("expense statistics", () => {
     expect(entries).toEqual([second, first]);
   });
 
+  it("groups pool visits and imported Sport without changing stored entries or totals", () => {
+    const entries = [
+      entry({ description: "Hallenbad", categoryMode: "auto", amountCents: 100 }),
+      entry({ description: "Freibad", category: "entertainment", categoryMode: "auto", amountCents: 200 }),
+      imported({ description: "Eintritt", category: "Sport", amountCents: 300 }),
+      imported({ description: "Schwimmkurs", category: "Allgemein", amountCents: 400 }),
+      entry({ description: "Hallenbad", categoryMode: "manual", amountCents: 50 }),
+      imported({ description: "Freibad", category: "Freizeit", amountCents: 25 })
+    ].map((item) => Object.freeze(item));
+    const original = structuredClone(entries);
+    const result = summarizeStatistics(entries, null, "2025-01");
+    expect(result.categories).toEqual([
+      { category: "sports", total: 1000 },
+      { category: "general", total: 50 },
+      { category: "entertainment", total: 25 }
+    ]);
+    expect(result).toMatchObject({ total: 1075, count: 6 });
+    expect(entries).toEqual(original);
+  });
+
   it("selects the greatest signed amount for refund-only data", () => {
     const smallerRefund = imported({ id: "smaller", amountCents: -100 });
     const result = summarizeStatistics([

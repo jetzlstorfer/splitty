@@ -6,11 +6,18 @@
     <script>
       (() => {
         const param = new URLSearchParams(window.location.search).get("scoutTheme");
-        const theme = param === "light" || param === "dark"
-          ? param
-          : window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-        document.documentElement.setAttribute("data-theme", theme);
-        document.querySelector('meta[name="theme-color"]').content = theme === "dark" ? "#1c2524" : "#ffffff";
+        const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
+        const updateTheme = () => {
+          const theme = param === "light" || param === "dark"
+            ? param
+            : systemTheme.matches ? "dark" : "light";
+          document.documentElement.setAttribute("data-theme", theme);
+          document.querySelector('meta[name="theme-color"]').content = theme === "dark" ? "#1c2524" : "#ffffff";
+        };
+        updateTheme();
+        if (param !== "light" && param !== "dark") {
+          systemTheme.addEventListener("change", updateTheme);
+        }
       })();
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />

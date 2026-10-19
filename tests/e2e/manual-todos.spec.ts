@@ -51,6 +51,72 @@ async function remove(page: Page, title: string) {
   await expect(row(page, title)).toHaveCount(0);
 }
 
+for (const reducedMotion of ["no-preference", "reduce"] as const) {
+  test(`no open todos invites you to enjoy your day with motion: ${reducedMotion}`, async ({ page }, info) => {
+    await page.emulateMedia({ reducedMotion });
+    await page.goto("/");
+    await todos(page);
+    const clear = page.locator(".todo-clear-state");
+    await expect(clear.getByRole("heading", { level: 2 })).toHaveText("Alles erledigt!");
+    await expect(clear).toContainText("Nichts mehr zu erledigen. Genieß deinen Tag.");
+    await expect(clear.locator(".todo-clear-hint")).toBeVisible();
+    await expect(clear).toHaveCSS("animation-name", reducedMotion === "reduce" ? "none" : "fade-in");
+
+    await add(page, "Call dentist");
+    await expect(clear).toHaveCount(0);
+    await page.getByRole("navigation").getByRole("button", { name: "Ausgaben", exact: true }).click();
+    await page.getByRole("button", { name: "Ausgabe hinzufügen", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("Beschreibung", { exact: true }).fill("Apotheke");
+    await dialog.getByRole("textbox", { name: "Betrag in EUR" }).fill("20");
+    await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+    await todos(page);
+    await expect(page.locator(".entry-count")).toHaveText("2");
+    await row(page, "Call dentist").getByRole("checkbox").focus();
+    await page.keyboard.press("Space");
+    await expect(row(page, "Call dentist").getByRole("checkbox")).toBeChecked();
+    await expect(page.locator(".entry-count")).toHaveText("1");
+    await expect(clear).toHaveCount(0);
+    await page.getByRole("listitem").filter({ hasText: "Apotheke" }).getByRole("checkbox").click();
+    await expect(page.getByRole("listitem").filter({ hasText: "Apotheke" }).getByRole("checkbox")).toBeChecked();
+    await expect(clear).toBeVisible();
+    await expect(clear.locator(".todo-clear-hint")).toHaveCount(0);
+    await expect(page.locator(".entry-count")).toHaveText("0");
+    await expect(page.getByRole("region", { name: "Erledigt", exact: true }).getByRole("listitem")).toHaveCount(2);
+    await expect(page.getByRole("region", { name: "Offene To-dos", exact: true })).toHaveCount(0);
+    await expect(clear.locator("..")).toHaveAttribute("aria-live", "polite");
+
+    for (const width of [320, 393, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      for (const theme of ["light", "dark"]) {
+        await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
+        await expect(clear).toBeVisible();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        const message = (await clear.boundingBox())!;
+        const done = (await page.getByRole("region", { name: "Erledigt", exact: true }).boundingBox())!;
+        expect(done.y).toBeGreaterThanOrEqual(message.y + message.height);
+        if (width === 393) await page.screenshot({ path: info.outputPath(`todos-clear-${theme}.png`) });
+      }
+    }
+
+    await page.getByRole("navigation").getByRole("button", { name: "Einstellungen", exact: true }).click();
+    await page.getByLabel("App-Sprache", { exact: true }).selectOption("en");
+    await todos(page);
+    await expect(clear.getByRole("heading", { level: 2 })).toHaveText("All caught up!");
+    await expect(clear).toContainText("Nothing left to chase. Enjoy your day.");
+    await row(page, "Call dentist").getByRole("checkbox").focus();
+    await page.keyboard.press("Space");
+    await expect(clear).toHaveCount(0);
+    await toggle(page, "Call dentist", true);
+    await expect(clear).toBeVisible();
+    await page.reload();
+    await todos(page);
+    await expect(clear).toContainText("Nothing left to chase. Enjoy your day.");
+    await expect(page.getByRole("region", { name: "Done", exact: true }).getByRole("checkbox")).toHaveCount(2);
+  });
+}
+
 test("todo and expense add buttons share their floating position, styling, and keyboard behavior", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type 
 import { liveQuery } from "dexie";
 import {
   BarChart3, Check, ChevronDown, ClipboardCheck, Cloud, CloudOff,
-  Download, Languages, Plus, Receipt, RefreshCw, Search, Settings, Trash2, Upload, Users, X
+  Download, Languages, Plus, Receipt, RefreshCw, Search, Settings, Sparkles, Sun, Trash2, Upload, Users, X
 } from "lucide-react";
 import { calculateShareA, expenseBalance, parseMoney, type Entry, type Member, type SplitType } from "../shared/model";
 import { MAX_TODO_TITLE, MAX_TODO_DESCRIPTION, type Todo } from "../shared/todo";
@@ -75,7 +75,7 @@ function FilePicker({ label, accept, disabled, choose }: { label: string; accept
 }
 
 function ExpenseForm({ entry, settlement, preferences: p, close, saved }: {
-  entry?: Entry; settlement: boolean; preferences: Preferences; close: () => void; saved: () => void;
+  entry?: Entry; settlement: boolean; preferences: Preferences; close: () => void; saved: (entry?: Entry) => void;
 }) {
   const { t, message, money, payer, language } = useLocale();
   const imported = entry?.kind === "imported";
@@ -143,7 +143,7 @@ function ExpenseForm({ entry, settlement, preferences: p, close, saved }: {
         };
       }
       await queueEntries([value]);
-      saved(); close();
+      saved(value); close();
     } catch (e) { setError(e instanceof Error ? e.message : "Could not save this expense."); }
     finally { setBusy(false); }
   }
@@ -159,7 +159,7 @@ function ExpenseForm({ entry, settlement, preferences: p, close, saved }: {
   const other = p.member === "a" ? p.nameB : p.nameA;
   return <Sheet title={t(entry ? "Edit entry" : settlement ? "Settle up" : "Add an expense")} close={close} initialFocus={!entry ? "#expense-description" : undefined}>
     <form onSubmit={submit} className="expense-form" lang={language}>
-      <div className="description-field"><label htmlFor="expense-description">{t("Description")}</label><div className="description-input"><ExpenseIcon category={category} size={24} /><input id="expense-description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t(settlement ? "Payment" : "Enter a description")} required maxLength={500} /></div></div>
+      <div className="description-field"><label htmlFor="expense-description">{t("Description")}</label><div className="description-input" data-category={category}><ExpenseIcon category={category} size={24} /><input id="expense-description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t(settlement ? "Payment" : "Enter a description")} required maxLength={500} /></div></div>
       <label>{t("Amount in EUR")}<div className="amount-input"><span>€</span><input aria-label={t("Amount in EUR")} inputMode="decimal" value={amount} readOnly={imported} onChange={(e) => setAmount(e.target.value)} placeholder={language === "de" ? "0,00" : "0.00"} required /></div></label>
       {imported ? <p className="notice">{t("Imported balance: {amount} for {name}. The CSV does not reliably identify the original payer or split, so those amounts are preserved. Description and date can be edited.", { amount: money(entry.balanceA), name: p.nameA })}</p> : <>
         <div className="split-summary">
@@ -305,8 +305,15 @@ function TodoList({ todos, manualTodos, conflicts, resolve, openCount, status, b
           <button className="secondary" onClick={() => resolve(conflict.entryId, true)}>{t("Keep this device")}</button></div>
       </div>)}
     </section>}
-    {!todos.length ? <div className="empty-state"><h2>{t("No to-dos")}</h2><p>{t("Add your own to-dos here. Doctor and pharmacy expenses also appear automatically for insurance submission.")}</p></div> :
-      [false, true].map((done) => {
+    <div aria-live="polite" aria-atomic="true">
+      {openCount === 0 && <div className="empty-state todo-clear-state">
+        <span className="todo-clear-icon" aria-hidden="true"><Sun size={30} /></span>
+        <h2>{t("All caught up!")}</h2>
+        <p>{t("Nothing left to chase. Enjoy your day.")}</p>
+        {!todos.length && <p className="todo-clear-hint">{t("Add your own to-dos here. Doctor and pharmacy expenses also appear automatically for insurance submission.")}</p>}
+      </div>}
+    </div>
+    {[false, true].map((done) => {
         const group = todos.filter((todo) => todo.done === done);
         return !!group.length && <section key={String(done)} className="todo-group" aria-label={t(done ? "Done" : "Open to-dos")}>
           {done && <div className="section-title"><h2>{t("Done")}<span>{number(group.length)}</span></h2></div>}
@@ -339,7 +346,7 @@ function TodoList({ todos, manualTodos, conflicts, resolve, openCount, status, b
                 actionsLabel={t("To-do actions")} editLabel={t("Open expense")} deleteLabel={t("Delete entry")}
                 deleteConfirmation={t("Delete this entry for both of you? This will sync when you are online.")}>
               <label className="todo-check"><input type="checkbox" checked={done} disabled={blocked.has(entry.id)} onChange={(event) => toggle(entry, event.target.checked)} />
-                <span className="entry-icon"><ExpenseIcon category={category} /></span>
+                <span className="entry-icon" data-category={category}><ExpenseIcon category={category} /></span>
                 <span className="entry-description"><strong>{t("Submit to insurance")}</strong><small>{details}</small></span>
               </label>
               </SwipeableRow>
@@ -379,6 +386,13 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const [memberToken, setMemberToken] = useState("");
   const [signInBusy, setSignInBusy] = useState(false);
   const [update, setUpdate] = useState<(() => Promise<void>) | null>(null);
+  const [saveFeedback, setSaveFeedback] = useState<{ entry: Entry; settled: boolean } | null>(null);
+
+  useEffect(() => {
+    if (!saveFeedback) return;
+    const timeout = window.setTimeout(() => setSaveFeedback(null), 4500);
+    return () => window.clearTimeout(timeout);
+  }, [saveFeedback]);
 
   const performSync = useCallback(() => {
     if (!navigator.onLine) return Promise.resolve();
@@ -437,10 +451,11 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     return () => window.clearTimeout(timeout);
   }, [ledger?.pending, sync]);
 
-  const saved = () => { setSyncStatus("Saved on this device"); void sync(); };
+  const saved = () => { setSaveFeedback(null); setSyncStatus("Saved on this device"); void sync(); };
 
   function navigate(next: typeof tab) {
     setSwipedEntry(null);
+    setSaveFeedback(null);
     setTab(next);
     setLimit(100);
     window.scrollTo(0, 0);
@@ -496,6 +511,17 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const conflictIds = new Set(ledger.conflicts.map((conflict) => conflict.entryId));
   const todos = householdTodos(active, ledger.todos);
   const openTodos = todos.filter((todo) => !todo.done).length;
+  const expenseSaved = (entry?: Entry) => {
+    saved();
+    if (!entry) { setSaveFeedback(null); return; }
+    // The live query may already contain this save, so reconstruct the previous balance from the form.
+    const remaining = active.filter((item) => item.id !== entry.id).reduce((sum, item) => sum + item.balanceA, 0);
+    const previous = typeof form === "object" && form ? form.balanceA : 0;
+    setSaveFeedback({
+      entry,
+      settled: entry.kind === "settlement" && remaining + previous !== 0 && remaining + entry.balanceA === 0
+    });
+  };
   const markSubmitted = (entry: Entry, submitted: boolean) => {
     const { insuranceSubmittedAt: _previous, ...rest } = entry;
     return queueEntries([submitted ? { ...rest, insuranceSubmittedAt: new Date().toISOString() } : rest]);
@@ -533,10 +559,17 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
             <h1>{t("Expenses")}<span className="entry-count">{number(active.length)}</span></h1>
             <p className="household-members">{p.nameA} & {p.nameB}</p>
           </header>
-          <section className="balance-card" aria-label={t("Household balance")}>
+          <section className={`balance-card ${balance === 0 ? "is-settled" : ""}`} aria-label={t("Household balance")}>
             <div className="balance-summary">
-              <p>{balance === 0 ? t("You are all settled up") : balance < 0 && other === t("Your wife") ? t("You owe your wife") : t(balance > 0 ? "{name} owes you" : "You owe {name}", { name: other })}</p>
+              {balance === 0 ? <div className="settled-heading">
+                <span className={`settled-mark ${saveFeedback?.settled ? "celebrate" : ""}`} aria-hidden="true">
+                  <img src="/icon.svg" width="28" height="28" alt="" />
+                  {saveFeedback?.settled && <Sparkles className="settled-sparkles" size={18} />}
+                </span>
+                <p>{t("You are all settled up")}</p>
+              </div> : <p>{balance < 0 && other === t("Your wife") ? t("You owe your wife") : t(balance > 0 ? "{name} owes you" : "You owe {name}", { name: other })}</p>}
               <div className={`balance-amount ${balance < 0 ? "owed" : balance === 0 ? "settled" : ""}`}>{money(Math.abs(balance))}</div>
+              {balance === 0 && <small className="settled-note">{t("All square. Nicely done.")}</small>}
             </div>
             <button className="settle-button" onClick={() => setForm("settlement")}>{t("Settle up")}</button>
           </section>
@@ -572,8 +605,9 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
                   await queueEntries([{ ...entry, deleted: true }]); saved();
                 }}>
                 <button className="expense-row" disabled={conflictIds.has(entry.id)} onClick={() => setForm(entry)}>
+                {saveFeedback?.entry.id === entry.id && <span key={saveFeedback.entry.updatedAt} className="saved-row-glow" aria-hidden="true" />}
                 <span className="date-block"><small>{new Date(`${entry.date}T12:00:00`).toLocaleDateString(locale, { month: "short" })}</small>{Number(entry.date.slice(8))}</span>
-                <span className={`entry-icon ${payment ? "payment" : ""}`}><ExpenseIcon category={category} /></span>
+                <span className={`entry-icon ${payment ? "payment" : ""}`} data-category={category}><ExpenseIcon category={category} /></span>
                 <span className="entry-description"><strong>{entry.description}</strong><small>{entry.kind === "imported" ? t("{category} · imported", { category: t(categoryLabels[category]) }) : t("{name} paid {amount}", { name: payer(p, entry.paidBy!), amount: money(entry.amountCents) })}</small></span>
                 <span className={`entry-balance ${contribution < 0 ? "owed" : contribution > 0 ? "lent" : ""}`}><small>{t(contribution === 0 ? "no balance change" : payment ? "balance change" : contribution > 0 ? "you lent" : "you borrowed")}</small><strong>{money(Math.abs(contribution))}</strong></span>
                 </button>
@@ -610,7 +644,10 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
       <button className={tab === "statistics" ? "active" : ""} aria-current={tab === "statistics" ? "page" : undefined} onClick={() => navigate("statistics")}><BarChart3 size={22} /><span>{t("Statistics")}</span></button>
       <button className={tab === "settings" ? "active" : ""} aria-current={tab === "settings" ? "page" : undefined} onClick={() => navigate("settings")}><Settings size={22} /><span>{t("Settings")}</span></button>
     </nav>
-    {form && <ExpenseForm entry={typeof form === "object" ? form : undefined} settlement={form === "settlement" || (typeof form === "object" && form.kind === "settlement")} preferences={p} close={() => setForm(null)} saved={saved} />}
+    <div aria-live="polite" aria-atomic="true">
+      {saveFeedback && <div className="save-feedback" key={saveFeedback.entry.updatedAt}><Check size={18} aria-hidden="true" /><span>{t(saveFeedback.entry.kind === "settlement" ? "Payment saved on this device" : "Expense saved on this device")}</span></div>}
+    </div>
+    {form && <ExpenseForm entry={typeof form === "object" ? form : undefined} settlement={form === "settlement" || (typeof form === "object" && form.kind === "settlement")} preferences={p} close={() => setForm(null)} saved={expenseSaved} />}
     {todoForm && <TodoForm todo={todoForm === "new" ? undefined : todoForm} close={() => setTodoForm(null)} saved={saved} />}
     {importing && <ImportForm preferences={p} close={() => setImporting(false)} saved={saved} />}
   </div>;

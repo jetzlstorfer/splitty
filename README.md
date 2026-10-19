@@ -31,6 +31,8 @@ account; reusable member tokens enable shared history across your devices.
   description (up to 2,000 characters). Either member can edit, complete, reopen,
   or delete them; changes save offline and sync using the same household sign-in.
   Manual to-dos never affect expenses, balances, search, or statistics.
+  When no manual or insurance to-dos remain open, a friendly "All caught up!"
+  card invites you to enjoy your day; completed items stay visible below it.
 - JSON backups of expenses and manual to-dos, and restoration of missing records
   without overwriting local history or resurrecting locally deleted items.
   New backups use `splitty-v2`; the app also restores older `splitty-v1` expense-only
@@ -58,6 +60,13 @@ themes share the same visual language. The original app icon is a heart containi
 a euro symbol, used consistently in the app, favicon, and Android install icons.
 The expense description, search, and to-do title fields share a rounded border
 and teal focus ring; expense and search icons sit inside that border.
+Category icons use a shared, theme-aware pastel palette in expense entry, the
+ledger, insurance reminders, and statistics. Saving an expense or payment shows
+a brief local-save confirmation and highlights its row; this does not imply that
+the change has synced. The zero-balance card includes the heart logo and a warm
+message, with a one-time sparkle only when a locally saved payment brings a
+nonzero balance to zero. These effects respect reduced-motion preferences and
+never delay saving or navigation.
 
 ### Expense categories
 

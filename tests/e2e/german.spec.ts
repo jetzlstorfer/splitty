@@ -25,7 +25,9 @@ test("German is the default and category icons update while typing, saving and e
     ["Uni", "Lebensmittel"], ["Unimarkt", "Lebensmittel"], ["Tanken", "Tanken"],
     ["Putzfrau", "Reinigung"], ["Friseur", "Friseur"], ["Apotheke", "Apotheke"],
     ["groceries", "Lebensmittel"], ["gas", "Tanken"], ["cleaning lady", "Reinigung"],
-    ["hairdresser", "Friseur"], ["pharmacy", "Apotheke"], ["Essen", "Essen"]
+    ["hairdresser", "Friseur"], ["pharmacy", "Apotheke"], ["Essen", "Essen"],
+    ["Hallenbad", "Sport"], ["Freibad", "Sport"], ["Schwimmkurs", "Sport"],
+    ["Stromrechnung", "Energie & Nebenkosten"], ["Klimaticket", "Öffis & Taxi"]
   ]) {
     await dialog.getByLabel("Beschreibung", { exact: true }).fill(term);
     await expect(dialog.getByRole("img", { name: category, exact: true })).toBeVisible();
@@ -60,6 +62,29 @@ test("German is the default and category icons update while typing, saving and e
   await expect(row).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("german-expense-icons.png") });
+});
+
+test("Sport is selectable, persists and appears in German and English search and statistics", async ({ page }) => {
+  await page.goto("/");
+  const dialog = await addGerman(page, "Hallenbad");
+  await expect(dialog.getByRole("img", { name: "Sport", exact: true })).toBeVisible();
+  await dialog.getByLabel("Kategorie", { exact: true }).selectOption("sports");
+  await dialog.getByLabel("Beschreibung", { exact: true }).fill("Vereinsbeitrag");
+  await saveGerman(page);
+  await page.reload();
+  await expect(page.locator(".expense-row").getByRole("img", { name: "Sport", exact: true })).toBeVisible();
+  await page.getByText("Vereinsbeitrag", { exact: true }).click();
+  await expect(page.getByLabel("Kategorie", { exact: true })).toHaveValue("sports");
+  await page.getByRole("button", { name: "Schließen", exact: true }).click();
+  await page.getByRole("button", { name: "Suche", exact: true }).click();
+  await page.getByLabel("Ausgaben suchen", { exact: true }).fill("Sport");
+  await expect(page.getByText("Vereinsbeitrag", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Statistik", exact: true }).click();
+  await expect(page.locator(".statistics-categories li").filter({ hasText: "Sport" })).toBeVisible();
+  await page.getByRole("button", { name: "Einstellungen", exact: true }).click();
+  await page.getByLabel("App-Sprache", { exact: true }).selectOption("en");
+  await page.getByRole("button", { name: "Expenses", exact: true }).click();
+  await expect(page.locator(".expense-row").getByRole("img", { name: "Sport", exact: true })).toBeVisible();
 });
 
 test("language persists offline and does not change expenses or manual categories", async ({ page, context }, info) => {

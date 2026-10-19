@@ -83,7 +83,7 @@ export default function StatisticsPage({ entries, preferences }: { entries: Entr
         <div className="statistics-card-heading"><h2>{t("By category")}</h2><span>{t("Where it went")}</span></div>
         <ul className="statistics-categories">
           {stats.categories.map(({ category, total }) => <li key={category}>
-            <span className="statistics-category-icon"><ExpenseIcon category={category} size={20} /></span>
+            <span className="statistics-category-icon" data-category={category}><ExpenseIcon category={category} size={20} /></span>
             <div className="statistics-category-detail">
               <div className="statistics-row-label"><span>{t(categoryLabels[category])}</span><strong>{money(total)}</strong></div>
               <div className="statistics-meter" aria-hidden="true"><span className={total < 0 ? "refund" : ""} style={{ width: `${Math.abs(total) / maxCategory * 100}%` }} /></div>

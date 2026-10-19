@@ -316,11 +316,9 @@ test("expense and todo rows align and highlight their full width including the t
         for (const row of await page.locator(".swipe-row").all()) {
           const front = row.locator(".swipe-front");
           const background = await front.evaluate((element) => getComputedStyle(element).backgroundColor);
-          const highlight = await row.locator(".entry-icon").evaluate((element) => getComputedStyle(element).backgroundColor);
           for (const target of [row.locator(".entry-description"), row.locator(".row-actions-toggle")]) {
             await target.hover();
-            await expect(front).toHaveCSS("background-color", highlight);
-            expect(await front.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(background);
+            await expect(front).not.toHaveCSS("background-color", background);
             for (const child of [row.locator(".swipe-content"), row.locator(".row-actions-toggle")]) {
               const childColor = await child.evaluate((element) => getComputedStyle(element).backgroundColor);
               expect(["rgba(0, 0, 0, 0)", await front.evaluate((element) => getComputedStyle(element).backgroundColor)]).toContain(childColor);

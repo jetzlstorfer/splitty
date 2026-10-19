@@ -27,6 +27,12 @@ describe("insurance todos", () => {
     const entry = example({ description, categoryMode: "auto" });
     expect(insuranceTodos([entry])).toEqual([{ entry, done: false }]);
   });
+  it.each(["Impfung", "MMR Impfung", "Kontaktlinsen"])("includes historical health expenses recognized as %s without creating manual todos", (description) => {
+    const entry = example({ description, date: "2023-06-18", categoryMode: "auto" });
+    expect(householdTodos([entry], [])).toEqual([{ kind: "insurance", entry, done: false }]);
+    const submitted = { ...entry, insuranceSubmittedAt: "2024-05-02T10:00:00.000Z" };
+    expect(householdTodos([submitted], [])).toEqual([{ kind: "insurance", entry: submitted, done: true }]);
+  });
   it("respects stored health categories, overrides, and excluded expenses", () => {
     expect(needsInsuranceSubmission(example({ description: "Kontrolle", category: "Gesundheit", kind: "imported" }))).toBe(true);
     expect(needsInsuranceSubmission(example({ description: "Augenarzt" }))).toBe(true);

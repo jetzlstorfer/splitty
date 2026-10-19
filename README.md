@@ -21,8 +21,11 @@ account; reusable member tokens enable shared history across your devices.
 - Reviewed German/English Splitwise CSV import for two-person EUR groups, with
   cent-exact accounting, duplicate prevention and final-balance reconciliation.
 - A **To-dos** tab with a "Bei Versicherung einreichen" (submit to insurance) item
-  for every doctor (Arzt) or pharmacy (Apotheke) expense. The submitted state is
-  stored on the expense itself, so it syncs across devices for the whole household.
+  for every Health or Pharmacy expense, including doctor visits, vaccinations,
+  and contact lenses. Category-detection improvements also apply to older expenses,
+  so an update can reveal additional insurance reminders without creating expenses
+  or manual to-dos. The submitted state is stored on the expense itself, so it
+  syncs across devices for the whole household.
 - Manual household to-dos alongside the automatic insurance items. Use **To-dos >
   Add to-do** to enter a required title (up to 200 characters) and optional plain-text
   description (up to 2,000 characters). Either member can edit, complete, reopen,
@@ -43,8 +46,10 @@ indicators, and a compact balance summary and ledger. The bottom navigation is
 **Ausgaben / Expenses**, **To-dos**, **Suche / Search**, **Statistik / Statistics**,
 **Einstellungen / Settings**.
 Search and Splitwise import live on **Suche / Search**; search filters never hide
-entries on the main expense page. The floating add-expense button appears only on
-**Ausgaben / Expenses**, leaving search and settings unobstructed. Light and dark
+entries on the main expense page. **Ausgaben / Expenses** and **To-dos** use the
+same bottom-right floating add button, above the navigation, with space below the
+list so it does not cover the last item. Search, statistics, and settings have no
+floating add button. Light and dark
 themes share the same visual language. The original app icon is a heart containing
 a euro symbol, used consistently in the app, favicon, and Android install icons.
 

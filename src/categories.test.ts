@@ -80,7 +80,7 @@ describe("bilingual expense category detection", () => {
     ["Handy kaufen", "shopping"], ["Neues Handy", "shopping"], ["Auto Versicherung", "insurance"],
     ["car insurance", "insurance"], ["health insurance", "insurance"], ["car rental", "travel"],
     ["Amazon Prime", "entertainment"], ["Eis essen", "restaurant"],
-    ["H&M / birthday gift", "gifts"], ["OMV gas bill", "utilities"]
+    ["H&M / birthday gift", "gifts"], ["C&A / christmas gift", "gifts"], ["OMV gas bill", "utilities"]
   ])("prefers a specific phrase over a generic keyword: %s", (description, category) => {
     expect(detectCategory(description)).toBe(category);
   });

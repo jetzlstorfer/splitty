@@ -196,10 +196,10 @@ for (const [category, terms] of [
   for (const term of terms) aliases.set(normalizeText(term), category);
 }
 
-// Prefer specific phrases (e.g. "car insurance") over their individual words.
+// Prefer specific phrases over individual words and short retailer names (e.g. "H&M").
 const detectionRules = normalizedRules.flatMap(([category, terms]) =>
   terms.map((term) => ({ category, term, words: term.split(" ").length })))
-  .sort((a, b) => b.words - a.words);
+  .sort((a, b) => b.words - a.words || (a.words > 1 ? b.term.length - a.term.length : 0));
 
 export function storedCategory(value: string): Category | undefined {
   return aliases.get(normalizeText(value));

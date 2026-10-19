@@ -29,7 +29,6 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.64.0",
-    "@rolldown/plugin-babel": "^0.1.8",
     "@types/node": "^22.10.0",
     "@types/papaparse": "^5.3.16",
     "@types/react": "^19.0.0",

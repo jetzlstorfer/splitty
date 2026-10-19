@@ -90,10 +90,9 @@ h1 { font-size: 24px; line-height: 1.25; font-weight: 650; letter-spacing: -.6px
 .section-title h2 span { font-size: 12px; margin-left: 8px; color: var(--cp-text-soft); font-weight: 400; }
 .text-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; background: none; color: var(--cp-accent-text); font-size: 13px; font-weight: 500; min-height: 44px; padding: 8px 4px; }
 .search-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-block: 12px; }
-.search { display: flex; flex-direction: row; align-items: center; gap: 10px; background: var(--cp-surface-soft); border-radius: 6px; padding: 0 12px; color: var(--cp-text-soft); }
+.search { display: flex; flex-direction: row; align-items: center; gap: 10px; background: var(--cp-surface-soft); border: 1px solid var(--cp-border); border-radius: 6px; padding: 0 12px; color: var(--cp-text-soft); }
 .search > svg { flex-shrink: 0; }
 .search input { border: 0; background: none; padding: 10px 0; min-height: 48px; font-size: 16px; }
-.search input:focus-visible { outline-offset: 0; }
 .search-hint { margin: 8px 0 0; color: var(--cp-text-soft); font-size: 12px; }
 input::placeholder { color: var(--cp-text-soft); }
 .empty-state { text-align: center; padding: 32px 12px; border-top: 1px solid var(--cp-border); }
@@ -160,7 +159,7 @@ input::placeholder { color: var(--cp-text-soft); }
 .sheet-head > span { display: none; }
 .icon-button { display: inline-grid; place-items: center; width: 44px; height: 44px; background: none; color: var(--cp-text-muted); flex-shrink: 0; }
 .expense-form, .panel-content { padding: 20px; }
-.description-input { display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--cp-border-strong); }
+.description-input { display: flex; align-items: center; gap: 12px; padding: 0 12px; border: 1px solid var(--cp-border); border-radius: 6px; }
 .description-field { margin-bottom: 16px; }
 .description-field > label { margin-bottom: 8px; }
 .expense-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
@@ -171,9 +170,10 @@ input::placeholder { color: var(--cp-text-soft); }
 .file-picker { display: flex; align-items: center; gap: 10px; position: relative; min-height: 48px; padding: 8px; border: 1px solid var(--cp-border); border-radius: 6px; overflow-wrap: anywhere; }
 .file-picker-button { flex-shrink: 0; background: var(--cp-surface-soft); padding: 8px; border-radius: 4px; color: var(--cp-text); }
 .file-picker input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
-.file-picker:focus-within { outline: 3px solid var(--cp-accent); outline-offset: 3px; }
+.search:focus-within, .description-input:focus-within, .file-picker:focus-within { outline: 3px solid var(--cp-accent); outline-offset: 3px; }
 .file-picker:has(input:disabled) { opacity: .55; }
 .description-input > input { border: 0; padding-left: 0; font-size: 20px; border-radius: 0; }
+.search input:focus-visible, .description-input > input:focus-visible { outline: none; }
 label { display: flex; flex-direction: column; gap: 8px; font-size: 12px; color: var(--cp-text-muted); font-weight: 500; }
 input, select, textarea { width: 100%; min-width: 0; padding: 13px 12px; border: 1px solid var(--cp-border); background: var(--cp-surface); color: var(--cp-text); min-height: 48px; font-size: 16px; }
 textarea { resize: vertical; }
@@ -272,8 +272,7 @@ form > label, .panel-content > label { margin-bottom: 20px; }
 .statistics-empty > svg { color: var(--cp-accent-text); margin-bottom: 12px; }
 .statistics-empty h2 { font-size: 16px; }
 .statistics-empty p { font-size: 13px; margin-bottom: 0; }
-.search:focus-within { box-shadow: 0 0 0 2px var(--cp-accent); }
-.description-input:focus-within, .amount-input:focus-within { border-color: var(--cp-accent-text); }
+.amount-input:focus-within { border-color: var(--cp-accent-text); }
 .split-button[aria-expanded="true"] > svg { transform: rotate(180deg); }
 @media (hover: hover) {
   .swipe-front:hover:not([aria-disabled="true"]), .icon-button:not(.row-actions-toggle):hover:not(:disabled),
@@ -305,8 +304,7 @@ form > label, .panel-content > label { margin-bottom: 20px; }
 @media (prefers-reduced-motion: no-preference) {
   button { transition: background-color .18s ease, color .18s ease, border-color .18s ease, box-shadow .18s ease, opacity .18s ease; }
   .entry-icon, .bottom-nav > button > svg { transition: background-color .18s ease, color .18s ease; }
-  .search { transition: box-shadow .18s ease; }
-  .description-input, .amount-input { transition: border-color .18s ease; }
+  .amount-input { transition: border-color .18s ease; }
   .add-button, .primary, .settle-button {
     transition: transform .18s var(--cp-ease-out), background-color .18s ease, border-color .18s ease, box-shadow .18s ease, opacity .18s ease;
   }

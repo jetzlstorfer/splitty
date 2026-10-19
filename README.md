@@ -56,6 +56,8 @@ before deleting that expense. Hovering either list highlights the entire row,
 including its three-dot menu. Light and dark
 themes share the same visual language. The original app icon is a heart containing
 a euro symbol, used consistently in the app, favicon, and Android install icons.
+The expense description, search, and to-do title fields share a rounded border
+and teal focus ring; expense and search icons sit inside that border.
 
 ### Expense categories
 

@@ -1,7 +1,9 @@
-import { validateMutation, type MutationResult } from "../../shared/model";
+import type { TableClient } from "@azure/data-tables";
+import { validateChange, validateEntry, type MutationResult, type VersionedRecord } from "../../shared/model";
+import { validateTodo } from "../../shared/todo";
 import { authenticate, logout, sessionCookie, signInWithToken } from "./auth";
 import { getConfig, HttpError } from "./config";
-import { applyMutation, readChanges } from "./ledger";
+import { expenseLedger, todoLedger, type createLedger } from "./ledger";
 import { tables } from "./storage";
 
 const headers = {
@@ -45,28 +47,8 @@ export async function handler(request: Request, logError: (message: string) => v
     }
     const member = await authenticate(request, config, auth);
     if (path === "me" && request.method === "GET") return json({ member, nameA: config.nameA, nameB: config.nameB });
-    if (path === "sync" && request.method === "GET") {
-      const raw = url.searchParams.get("since") ?? "0";
-      if (!/^\d+$/.test(raw) || !Number.isSafeInteger(Number(raw))) throw new HttpError(400, "Invalid sync cursor.");
-      return json(await readChanges(ledger, config.household, Number(raw)));
-    }
-    if (path === "sync" && request.method === "POST") {
-      const data = await body(request);
-      if (!Array.isArray(data.mutations) || data.mutations.length < 1 || data.mutations.length > 20) throw new HttpError(400, "Send between 1 and 20 changes.");
-      let mutations;
-      try { mutations = data.mutations.map(validateMutation); }
-      catch (error) { throw new HttpError(400, error instanceof Error ? error.message : "Invalid changes."); }
-      const results: MutationResult[] = [], blocked = new Map<string, MutationResult>();
-      for (const mutation of mutations) {
-        const previous = blocked.get(mutation.entry.id);
-        const result: MutationResult = previous?.status === "conflict"
-          ? { ...previous, id: mutation.id }
-          : await applyMutation(ledger, config.household, mutation);
-        if (result.status === "conflict") blocked.set(mutation.entry.id, result);
-        results.push(result);
-      }
-      return json(results);
-    }
+    if (path === "sync") return await syncRequest(request, url, ledger, config.household, validateEntry, expenseLedger);
+    if (path === "todo-sync") return await syncRequest(request, url, ledger, config.household, validateTodo, todoLedger);
     throw new HttpError(404, "Endpoint not found.");
   } catch (error) {
     if (error instanceof HttpError) return json({ error: error.message }, error.status);
@@ -74,4 +56,30 @@ export async function handler(request: Request, logError: (message: string) => v
     logError(`Splitty request failed (${error instanceof Error ? error.name : "unknown error"}).`);
     return json({ error: "The server could not complete this request. Your changes remain saved on your device. Retry shortly." }, 500);
   }
+}
+
+async function syncRequest<T extends VersionedRecord>(
+  request: Request, url: URL, table: TableClient, household: string,
+  validate: (value: unknown) => T, ledger: ReturnType<typeof createLedger<T>>
+): Promise<Response> {
+  if (request.method === "GET") {
+    const raw = url.searchParams.get("since") ?? "0";
+    if (!/^\d+$/.test(raw) || !Number.isSafeInteger(Number(raw))) throw new HttpError(400, "Invalid sync cursor.");
+    return json(await ledger.readChanges(table, household, Number(raw)));
+  }
+  const data = await body(request);
+  if (!Array.isArray(data.mutations) || data.mutations.length < 1 || data.mutations.length > 20) throw new HttpError(400, "Send between 1 and 20 changes.");
+  let mutations;
+  try { mutations = data.mutations.map((mutation) => validateChange(mutation, validate)); }
+  catch (error) { throw new HttpError(400, error instanceof Error ? error.message : "Invalid changes."); }
+  const results: MutationResult<T>[] = [], blocked = new Map<string, MutationResult<T>>();
+  for (const mutation of mutations) {
+    const previous = blocked.get(mutation.entry.id);
+    const result: MutationResult<T> = previous?.status === "conflict"
+      ? { ...previous, id: mutation.id }
+      : await ledger.applyMutation(table, household, mutation);
+    if (result.status === "conflict") blocked.set(mutation.entry.id, result);
+    results.push(result);
+  }
+  return json(results);
 }

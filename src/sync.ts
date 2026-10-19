@@ -1,5 +1,5 @@
-import { applyPage, applyResults, db, getPreferences } from "./db";
-import type { Member, MutationResult, SyncPage } from "../shared/model";
+import { applyStorePage, applyStoreResults, expenseStore, todoStore, getPreferences, type SyncStore } from "./db";
+import type { Member, MutationResult, SyncPage, VersionedRecord } from "../shared/model";
 
 export interface Identity {
   member: Member;
@@ -32,40 +32,46 @@ export async function api<T>(path: string, body?: unknown): Promise<T> {
 
 let syncing: Promise<void> | null = null;
 
-async function pull(): Promise<void> {
+async function pull<T extends VersionedRecord>(path: string, store: SyncStore<T>): Promise<void> {
   let more = true;
   while (more) {
-    const { cursor } = await getPreferences();
-    const page = await api<SyncPage>(`sync?since=${cursor}`);
+    const cursor = (await getPreferences(store.database))[store.cursorField] ?? 0;
+    const page = await api<SyncPage<T>>(`${path}?since=${cursor}`);
     if (page.cursor < cursor || (page.more && page.cursor === cursor)) throw new Error("Sync did not make progress.");
-    await applyPage(page);
+    await applyStorePage(page, store);
     more = page.more;
   }
+}
+
+async function synchronizeStore<T extends VersionedRecord>(path: string, store: SyncStore<T>, batchSize: number): Promise<void> {
+  await pull(path, store);
+  const blocked = new Set((await store.conflicts.toArray()).map((c) => c.entryId));
+  const queue = (await store.outbox.toArray()).sort((a, b) =>
+    a.entry.id.localeCompare(b.entry.id) || a.expectedRevision - b.expectedRevision);
+  for (let offset = 0; offset < queue.length; offset += batchSize) {
+    const batch = queue.slice(offset, offset + batchSize).filter((m) => !blocked.has(m.entry.id));
+    if (!batch.length) continue;
+    const results = await api<MutationResult<T>[]>(path, { mutations: batch });
+    if (!Array.isArray(results) || results.length !== batch.length
+      || results.some((result, i) => result.id !== batch[i].id || !["ok", "conflict"].includes(result.status))) {
+      throw new Error("The server returned an invalid acknowledgement.");
+    }
+    await applyStoreResults(results, store);
+    for (const result of results) {
+      if (result.status === "conflict") {
+        blocked.add(batch.find((mutation) => mutation.id === result.id)!.entry.id);
+      }
+    }
+  }
+  await pull(path, store);
 }
 
 export function synchronize(): Promise<void> {
   if (syncing) return syncing;
   syncing = (async () => {
-    await pull();
-    const blocked = new Set((await db.conflicts.toArray()).map((c) => c.entryId));
-    const queue = (await db.outbox.toArray()).sort((a, b) =>
-      a.entry.id.localeCompare(b.entry.id) || a.expectedRevision - b.expectedRevision);
-    for (let offset = 0; offset < queue.length; offset += 20) {
-      const batch = queue.slice(offset, offset + 20).filter((m) => !blocked.has(m.entry.id));
-      if (!batch.length) continue;
-      const results = await api<MutationResult[]>("sync", { mutations: batch });
-      if (!Array.isArray(results) || results.length !== batch.length
-        || results.some((result, i) => result.id !== batch[i].id || !["ok", "conflict"].includes(result.status))) {
-        throw new Error("The server returned an invalid acknowledgement.");
-      }
-      await applyResults(results);
-      for (const result of results) {
-        if (result.status === "conflict") {
-          blocked.add(batch.find((mutation) => mutation.id === result.id)!.entry.id);
-        }
-      }
-    }
-    await pull();
+    await synchronizeStore("sync", expenseStore(), 20);
+    // Leave room for JSON escaping of long descriptions within the API's body limit.
+    await synchronizeStore("todo-sync", todoStore(), 5);
   })().finally(() => { syncing = null; });
   return syncing;
 }

@@ -68,7 +68,7 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     const cookie = consumed.headers.get("set-cookie")!;
     expect(cookie).toContain("HttpOnly");
     expect(cookie).toContain("SameSite=Lax");
-    expect(cookie).not.toMatch(/(?:Max-Age|Expires)=/i);
+    expect(cookie).toContain("Max-Age=34560000");
     const secondSession = await call("auth/token", { token });
     expect(secondSession.status).toBe(200);
     const me = await call("me", undefined, cookie);
@@ -76,7 +76,9 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     process.env.MEMBER_A_TOKEN = "C".repeat(43);
     expect((await call("me", undefined, cookie)).status).toBe(401);
     process.env.MEMBER_A_TOKEN = token;
-    expect((await call("auth/logout", {}, cookie)).status).toBe(200);
+    const signedOut = await call("auth/logout", {}, cookie);
+    expect(signedOut.status).toBe(200);
+    expect(signedOut.headers.get("set-cookie")).toContain("Max-Age=0");
     expect((await call("me", undefined, cookie)).status).toBe(401);
   });
   it("syncs two devices, retries safely, and returns explicit conflicts", async () => {

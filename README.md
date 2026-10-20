@@ -354,8 +354,11 @@ up and clearing that site's local data.
 Each member has a reusable 256-bit token that does not expire. The server keeps
 these tokens in backend settings and never stores them in browser storage; signing
 in exchanges one for a server-side session using an HttpOnly, Secure, SameSite
-cookie in production with no expiry. A device stays signed in until it signs out
-or that member token is rotated. The session stores the member-token digest, so
+cookie in production with an explicit 400-day lifetime, so closing the browser or
+restarting Android does not end the sign-in. A device stays signed in for up to
+400 days unless it signs out, its browser clears the cookie, or that member token
+is rotated. Devices signed in before this change need to sign in once more to
+receive the persistent cookie. The session stores the member-token digest, so
 replacing a member token revokes that member's existing sessions. Treat tokens
 like passwords: anyone who has one can access the shared ledger. Rotate storage
 and member tokens through Azure settings, never through client code.

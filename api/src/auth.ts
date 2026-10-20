@@ -8,6 +8,7 @@ const digest = (value: string) => createHash("sha256").update(value).digest("hex
 const randomToken = () => randomBytes(32).toString("base64url");
 const partition = (config: Config) => `auth-${config.household}`;
 const sessionName = (config: Config) => config.local ? "splitty-local" : "__Host-splitty";
+const sessionMaxAge = 400 * 24 * 60 * 60;
 interface AuthEntity { member: Member; credentialDigest: string }
 
 export function sessionCookie(config: Config, value: string, maxAge?: number): string {
@@ -41,7 +42,7 @@ export async function signInWithToken(value: string, config: Config, table: Tabl
   await table.createEntity({
     partitionKey: pk, rowKey: `s-${digest(raw)}`, member, credentialDigest: digest(value)
   });
-  return sessionCookie(config, raw);
+  return sessionCookie(config, raw, sessionMaxAge);
 }
 
 export async function logout(request: Request, config: Config, table: TableClient): Promise<void> {

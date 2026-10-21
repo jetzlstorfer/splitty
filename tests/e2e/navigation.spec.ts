@@ -1,5 +1,21 @@
 import { expect, test, type Page } from "@playwright/test";
 
+async function holdSyncPull(page: Page, path: "sync" | "todo-sync", status: 200 | 503 = 200) {
+  let release = () => {};
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  let notify = () => {};
+  const started = new Promise<void>((resolve) => { notify = resolve; });
+  await page.route(`**/api/${path}?*`, async (route) => {
+    notify();
+    await held;
+    await route.fulfill({
+      status,
+      json: status === 200 ? { entries: [], cursor: 0, more: false } : { error: "Sync request failed." }
+    });
+  }, { times: 1 });
+  return { started, release };
+}
+
 for (const reducedMotion of ["no-preference", "reduce"] as const) {
   test(`visual feedback preserves expense entry with motion preference: ${reducedMotion}`, async ({ page }) => {
     await page.emulateMedia({ reducedMotion });
@@ -57,6 +73,160 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     await dialog.getByRole("button", { name: "Close", exact: true }).click();
     await expect(dialog).not.toBeVisible();
     await expect(page.getByRole("button", { name: "Add expense", exact: true })).toBeFocused();
+  });
+
+  test(`heart logo follows sync activity with motion preference: ${reducedMotion}`, async ({ page, context }) => {
+    await page.emulateMedia({ reducedMotion });
+    await page.route("**/api/me", (route) => route.fulfill({ json: { member: "a", nameA: "Alex", nameB: "Sam" } }));
+    await page.route(/\/api\/(?:todo-)?sync\?/, (route) =>
+      route.fulfill({ json: { entries: [], cursor: 0, more: false } }));
+    const expenses = await holdSyncPull(page, "sync");
+    const todos = await holdSyncPull(page, "todo-sync");
+    const releases = [expenses.release, todos.release];
+    const icon = page.locator(".topbar .brand-mark");
+    const button = page.locator(".sync-pill");
+    const motion = reducedMotion === "no-preference";
+    try {
+      await page.goto("/");
+      await expenses.started;
+      await expect(icon).toHaveClass(/is-syncing/);
+      await expect(button).toHaveAttribute("aria-busy", "true");
+      await expect(button).toBeDisabled();
+      for (const width of [320, 393, 1280]) {
+        await page.setViewportSize({ width, height: 900 });
+        for (const theme of ["light", "dark"]) {
+          await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
+          await expect(icon).toHaveCSS("animation-name", motion ? "sync-heartbeat" : "none");
+          await expect(icon).toHaveCSS("width", "32px");
+          await expect(icon).toHaveCSS("height", "32px");
+          if (motion) {
+            await expect(icon).toHaveCSS("animation-duration", "1.8s");
+            await expect(icon).toHaveCSS("animation-iteration-count", "infinite");
+            await expect.poll(() => icon.evaluate((element) =>
+              new DOMMatrixReadOnly(getComputedStyle(element).transform).a), { intervals: [50] }).toBeGreaterThan(1.03);
+          } else {
+            await expect(icon).toHaveCSS("transform", "none");
+            await expect(icon).not.toHaveCSS("box-shadow", "none");
+          }
+          expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        }
+      }
+      expenses.release();
+      await todos.started;
+      await expect(icon).toHaveClass(/is-syncing/);
+      await expect(button).toHaveAttribute("aria-busy", "true");
+      todos.release();
+      await expect(page.locator(".sync-status")).toHaveText("Auf dem neuesten Stand");
+      await expect(icon).not.toHaveClass(/is-syncing/);
+      await expect(icon).toHaveCSS("animation-name", "none");
+      await expect(icon).toHaveCSS("transform", "none");
+      await expect(icon).toHaveCSS("box-shadow", "none");
+      await expect(button).toHaveAttribute("aria-busy", "false");
+      await expect(button).toBeEnabled();
+
+      const failed = await holdSyncPull(page, "sync", 503);
+      releases.push(failed.release);
+      await button.click();
+      await failed.started;
+      await expect(icon).toHaveClass(/is-syncing/);
+      failed.release();
+      await expect(page.locator(".sync-status")).not.toHaveText("Auf dem neuesten Stand");
+      await expect(icon).not.toHaveClass(/is-syncing/);
+      await expect(icon).toHaveCSS("animation-name", "none");
+      await expect(button).toHaveAttribute("aria-busy", "false");
+
+      const offline = await holdSyncPull(page, "sync");
+      releases.push(offline.release);
+      await button.click();
+      await offline.started;
+      await expect(icon).toHaveClass(/is-syncing/);
+      await context.setOffline(true);
+      await expect(icon).not.toHaveClass(/is-syncing/);
+      await expect(icon).toHaveCSS("animation-name", "none");
+      await expect(icon).toHaveCSS("box-shadow", "none");
+      await expect(button).toHaveAttribute("aria-busy", "false");
+      await expect(button).toContainText("Offline");
+    } finally {
+      for (const release of releases) release();
+    }
+  });
+}
+
+for (const reducedMotion of ["no-preference", "reduce"] as const) {
+  test(`new local expenses and todos pulse the logo once with motion: ${reducedMotion}`, async ({ page, context }) => {
+    await page.emulateMedia({ reducedMotion });
+    await page.goto("/");
+    const nav = page.getByRole("navigation");
+    await nav.getByRole("button", { name: "Einstellungen", exact: true }).click();
+    await page.getByLabel("App-Sprache", { exact: true }).selectOption("en");
+    await nav.getByRole("button", { name: "Expenses", exact: true }).click();
+    await context.setOffline(true);
+    const icon = page.locator(".topbar .brand-mark");
+    await expect(page.locator(".sync-pill")).toHaveAttribute("aria-busy", "false");
+    await expect(icon).not.toHaveClass(/is-saving|is-syncing/);
+    const dialog = page.getByRole("dialog");
+    const save = async () => {
+      await dialog.getByRole("button", { name: "Save", exact: true }).click();
+      await expect(dialog).not.toBeVisible();
+    };
+    const expectPulse = async () => {
+      await expect(icon).toHaveClass(/is-saving/);
+      await expect(icon).toHaveCSS("animation-name", reducedMotion === "reduce" ? "none" : "sync-heartbeat");
+      await expect(icon).toHaveCSS("animation-iteration-count", "1");
+      await expect(icon).not.toHaveCSS("box-shadow", "none");
+      await expect(page.locator(".sync-pill")).toHaveAttribute("aria-busy", "false");
+      await expect(icon).not.toHaveClass(/is-saving/, { timeout: 3500 });
+      await expect(icon).toHaveCSS("animation-name", "none");
+      await expect(icon).toHaveCSS("box-shadow", "none");
+    };
+
+    await page.getByRole("button", { name: "Add expense", exact: true }).click();
+    await dialog.getByLabel("Description", { exact: true }).fill("Coffee pulse");
+    await dialog.getByRole("textbox", { name: "Amount in EUR" }).fill("12.345");
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(dialog.getByRole("alert")).toBeVisible();
+    await expect(icon).not.toHaveClass(/is-saving/);
+    await dialog.getByRole("textbox", { name: "Amount in EUR" }).fill("12");
+    await save();
+    await expect(page.locator(".expense-row")).toContainText("Coffee pulse");
+    await expectPulse();
+
+    await page.getByText("Coffee pulse", { exact: true }).click();
+    await dialog.getByLabel("Description", { exact: true }).fill("Coffee edited");
+    await save();
+    await expect(icon).not.toHaveClass(/is-saving/);
+    await page.getByRole("button", { name: "Settle up", exact: true }).click();
+    await dialog.getByRole("textbox", { name: "Amount in EUR" }).fill("6");
+    await dialog.getByLabel("Paid by", { exact: true }).selectOption("b");
+    await save();
+    await expect(icon).not.toHaveClass(/is-saving/);
+
+    await nav.getByRole("button", { name: "To-dos", exact: true }).click();
+    await page.getByRole("button", { name: "Add to-do", exact: true }).click();
+    await dialog.getByLabel("Title", { exact: true }).fill(" ");
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(dialog.getByRole("alert")).toBeVisible();
+    await expect(icon).not.toHaveClass(/is-saving/);
+    await dialog.getByLabel("Title", { exact: true }).fill("Call dentist");
+    await save();
+    await expect(page.getByRole("listitem")).toContainText("Call dentist");
+    await expectPulse();
+
+    await page.getByRole("button", { name: "To-do actions: Call dentist", exact: true }).click();
+    await page.getByRole("button", { name: "Edit to-do: Call dentist", exact: true }).click();
+    await dialog.getByLabel("Title", { exact: true }).fill("Call dentist edited");
+    await save();
+    await expect(icon).not.toHaveClass(/is-saving/);
+    await page.getByRole("checkbox").click();
+    await expect(page.getByRole("checkbox")).toBeChecked();
+    await expect(icon).not.toHaveClass(/is-saving/);
+    await page.getByRole("button", { name: "To-do actions: Call dentist edited", exact: true }).click();
+    await page.getByRole("button", { name: "Edit to-do: Call dentist edited", exact: true }).click();
+    page.once("dialog", (confirmation) => confirmation.accept());
+    await dialog.getByRole("button", { name: "Delete to-do", exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+    await expect(page.getByRole("listitem")).toHaveCount(0);
+    await expect(icon).not.toHaveClass(/is-saving/);
   });
 }
 

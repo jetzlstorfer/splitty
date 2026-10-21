@@ -22,6 +22,13 @@ async function save(page: Page) {
   await expect(page.getByRole("dialog")).not.toBeVisible();
 }
 
+async function addTodo(page: Page, title: string) {
+  await page.getByRole("navigation").getByRole("button", { name: "To-dos" }).click();
+  await page.getByRole("button", { name: "Add to-do", exact: true }).click();
+  await page.getByLabel("Title", { exact: true }).fill(title);
+  await save(page);
+}
+
 async function login(page: Page, token: string) {
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByLabel("Member token").fill(token);
@@ -37,6 +44,7 @@ async function offlineReady(page: Page) {
 }
 
 async function swipe(page: Page, row: Locator, dx: number, dy = 0) {
+  await expect(row).toBeVisible();
   const box = (await row.boundingBox())!;
   const x = dx < 0 ? box.x + box.width - 16 : Math.max(0, box.x) + 16;
   const y = box.y + box.height / 2;
@@ -46,13 +54,91 @@ async function swipe(page: Page, row: Locator, dx: number, dy = 0) {
   await page.mouse.up();
 }
 
+test("expense description and search match the rounded todo field border and focus ring", async ({ page }, info) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const fieldStyle = (field: Locator) => field.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      borders: [style.borderTop, style.borderRight, style.borderBottom, style.borderLeft],
+      radius: style.borderRadius, outline: style.outlineStyle === "none" ? "none" : style.outline,
+      offset: style.outlineOffset, shadow: style.boxShadow
+    };
+  });
+  for (const width of [320, 393, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const theme of ["light", "dark"]) {
+      await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
+      await page.getByRole("navigation").getByRole("button", { name: "To-dos" }).click();
+      await page.getByRole("button", { name: "Add to-do", exact: true }).click();
+      const title = page.getByLabel("Title", { exact: true });
+      await expect(title).toBeFocused();
+      await expect(title).toHaveCSS("border-radius", "6px");
+      await expect(title).toHaveCSS("outline-width", "3px");
+      const focused = await fieldStyle(title);
+      await page.keyboard.press("Tab");
+      const unfocused = await fieldStyle(title);
+      await page.keyboard.press("Escape");
+
+      await page.getByRole("navigation").getByRole("button", { name: "Expenses", exact: true }).click();
+      await page.getByRole("button", { name: "Add expense", exact: true }).click();
+      const description = page.getByLabel("Description", { exact: true });
+      const field = page.locator(".description-input");
+      await expect(description).toBeFocused();
+      expect(await fieldStyle(field)).toEqual(focused);
+      await expect(description).toHaveCSS("outline-style", "none");
+      await expect(description).toHaveCSS("border-width", "0px");
+      await description.fill("Coffee");
+      await expect(description).toHaveValue("Coffee");
+      const icon = field.getByRole("img", { name: "Coffee", exact: true });
+      await expect(icon).toBeVisible();
+      const fieldBox = (await field.boundingBox())!, iconBox = (await icon.boundingBox())!;
+      expect(iconBox.x).toBeGreaterThan(fieldBox.x);
+      expect(iconBox.x + iconBox.width).toBeLessThan(fieldBox.x + fieldBox.width);
+      await page.keyboard.press("Tab");
+      await expect(page.getByRole("textbox", { name: "Amount in EUR" })).toBeFocused();
+      expect(await fieldStyle(field)).toEqual(unfocused);
+      await page.keyboard.press("Shift+Tab");
+      await expect(description).toBeFocused();
+      expect(await fieldStyle(field)).toEqual(focused);
+      expect(await page.getByRole("dialog").evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+      if (width === 393) await page.screenshot({ path: info.outputPath(`expense-input-${theme}.png`) });
+      await page.getByText("Description", { exact: true }).click();
+      await expect(description).toBeFocused();
+      expect(await fieldStyle(field)).toEqual(focused);
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("button", { name: "Add expense", exact: true })).toBeFocused();
+
+      await page.getByRole("navigation").getByRole("button", { name: "Search", exact: true }).click();
+      const search = page.getByRole("searchbox", { name: "Search expenses" });
+      const searchField = page.locator(".search");
+      expect(await fieldStyle(searchField)).toEqual(unfocused);
+      await page.getByRole("button", { name: "Import", exact: true }).focus();
+      await page.keyboard.press("Tab");
+      await expect(search).toBeFocused();
+      expect(await fieldStyle(searchField)).toEqual(focused);
+      await expect(search).toHaveCSS("outline-style", "none");
+      await expect(search).toHaveCSS("border-width", "0px");
+      await expect(searchField.locator("svg")).toBeVisible();
+      await search.fill("Coffee");
+      await expect(page.getByRole("heading", { name: "No matching expenses" })).toBeVisible();
+      await page.keyboard.press("Tab");
+      expect(await fieldStyle(searchField)).toEqual(unfocused);
+      await search.click();
+      expect(await fieldStyle(searchField)).toEqual(focused);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      if (width === 393) await page.screenshot({ path: info.outputPath(`search-input-${theme}.png`) });
+      await search.clear();
+    }
+  }
+});
+
 test("expense swipe actions edit, close, and ignore short or vertical gestures", async ({ page }) => {
   await addExpense(page, "Swipe groceries", "20");
   await save(page);
-  const row = page.locator(".swipe-expense").filter({ hasText: "Swipe groceries" });
+  const row = page.locator(".swipe-row").filter({ hasText: "Swipe groceries" });
   const toggle = row.getByRole("button", { name: "Entry actions: Swipe groceries" });
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
-  await expect(row.locator(".expense-swipe-actions")).toHaveAttribute("inert", "");
+  await expect(row.locator(".swipe-actions")).toHaveAttribute("inert", "");
   await swipe(page, row.locator(".expense-row"), -25);
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByRole("dialog")).not.toBeVisible();
@@ -112,11 +198,152 @@ test("keyboard actions delete with confirmation offline and in search", async ({
   await context.setOffline(false);
 });
 
-test("touch swipes reveal actions without opening edit and cancel safely", async ({ page }) => {
-  await page.setViewportSize({ width: 320, height: 851 });
-  await addExpense(page, "Touch expense", "12");
+test("manual todo swipes preserve checkboxes and support editing and offline deletion", async ({ page, context }) => {
+  await addTodo(page, "Swipe task");
+  await addTodo(page, "Keep task");
+  const row = page.getByRole("listitem").filter({ has: page.getByText("Swipe task", { exact: true }) });
+  const toggle = row.getByRole("button", { name: "To-do actions: Swipe task" });
+  await expect(row.locator(".swipe-actions")).toHaveAttribute("inert", "");
+  for (const [dx, dy] of [[-25, 0], [-10, 50]]) {
+    await swipe(page, row.locator(".swipe-content"), dx, dy);
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(row.getByRole("checkbox")).not.toBeChecked();
+  }
+  await swipe(page, row.locator(".swipe-content"), -140);
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(row.getByRole("checkbox")).not.toBeChecked();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  await swipe(page, row.locator(".swipe-content"), 140);
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await toggle.click();
+  await row.getByRole("button", { name: "Edit to-do: Swipe task" }).click();
+  await page.getByLabel("Description (optional)").fill("Edited from swipe actions");
   await save(page);
-  const row = page.locator(".expense-row");
+  await expect(row).toContainText("Edited from swipe actions");
+  await row.getByRole("checkbox").click();
+  const done = page.getByRole("region", { name: "Done", exact: true });
+  await expect(done.getByRole("checkbox")).toBeChecked();
+
+  await offlineReady(page);
+  await context.setOffline(true);
+  await page.getByRole("navigation").getByRole("button", { name: "To-dos" }).click();
+  await swipe(page, row.locator(".swipe-content"), -140);
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await row.getByRole("button", { name: "Delete to-do: Swipe task" }).click();
+  await expect(done.getByRole("checkbox")).toBeChecked();
+  page.once("dialog", (dialog) => dialog.accept());
+  await row.getByRole("button", { name: "Delete to-do: Swipe task" }).click();
+  await expect(row).toHaveCount(0);
+  await page.reload();
+  await page.getByRole("navigation").getByRole("button", { name: "To-dos" }).click();
+  await expect(row).toHaveCount(0);
+  await expect(page.getByText("Keep task", { exact: true })).toBeVisible();
+  await context.setOffline(false);
+});
+
+test("todo action menus close on Escape, outside clicks, and another row opening", async ({ page }) => {
+  await addTodo(page, "First task");
+  await addTodo(page, "Second task");
+  const first = page.getByRole("button", { name: "To-do actions: First task" });
+  const second = page.getByRole("button", { name: "To-do actions: Second task" });
+  await first.click();
+  await second.click();
+  await expect(first).toHaveAttribute("aria-expanded", "false");
+  await expect(second).toHaveAttribute("aria-expanded", "true");
+  await page.keyboard.press("Escape");
+  await expect(second).toBeFocused();
+  await expect(second).toHaveAttribute("aria-expanded", "false");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Edit to-do: Second task" })).toBeFocused();
+  await page.getByRole("heading", { name: /^To-dos/, level: 1 }).click();
+  await expect(second).toHaveAttribute("aria-expanded", "false");
+  await second.click();
+  await page.getByRole("listitem").filter({ hasText: "Second task" }).getByText("Second task", { exact: true }).click();
+  await expect(second).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("checkbox", { name: "Second task" })).not.toBeChecked();
+  await page.getByText("Second task", { exact: true }).click();
+  await expect(page.getByRole("checkbox", { name: "Second task" })).toBeChecked();
+});
+
+test("insurance todo swipes open and delete their linked expense with explicit confirmation", async ({ page }) => {
+  await addExpense(page, "Doctor swipe", "30");
+  await save(page);
+  await page.getByRole("navigation").getByRole("button", { name: "To-dos" }).click();
+  const row = page.getByRole("listitem").filter({ hasText: "Doctor swipe" });
+  await swipe(page, row.locator(".swipe-content"), -140);
+  await expect(row.getByRole("checkbox")).not.toBeChecked();
+  await row.getByRole("button", { name: "Open expense: Doctor swipe" }).click();
+  await expect(page.getByRole("dialog", { name: "Edit entry" })).toBeVisible();
+  await page.getByLabel("Description", { exact: true }).fill("Doctor edited");
+  await save(page);
+  const edited = page.getByRole("listitem").filter({ hasText: "Doctor edited" });
+  await edited.getByRole("checkbox").click();
+  await expect(edited.getByRole("checkbox")).toBeChecked();
+  await swipe(page, edited.locator(".swipe-content"), -140);
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toBe("Delete this entry for both of you? This will sync when you are online.");
+    await dialog.dismiss();
+  });
+  await edited.getByRole("button", { name: "Delete entry: Doctor edited" }).click();
+  await expect(edited.getByRole("checkbox")).toBeChecked();
+  page.once("dialog", (dialog) => dialog.accept());
+  await edited.getByRole("button", { name: "Delete entry: Doctor edited" }).click();
+  await expect(edited).toHaveCount(0);
+  await page.getByRole("button", { name: "Expenses", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "No expenses yet" })).toBeVisible();
+  await expect(page.locator(".balance-amount")).toContainText("0.00");
+});
+
+test("expense and todo rows align and highlight their full width including the three-dot menu", async ({ page }) => {
+  await addExpense(page, "Doctor hover", "12");
+  await save(page);
+  await addTodo(page, "Hover task");
+  for (const width of [320, 393, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const theme of ["light", "dark"]) {
+      await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
+      await page.getByRole("button", { name: "Expenses", exact: true }).click();
+      const expense = await page.locator(".swipe-row").boundingBox();
+      await page.getByRole("navigation").getByRole("button", { name: "To-dos" }).click();
+      for (const row of await page.locator(".swipe-row").all()) {
+        const todo = await row.boundingBox();
+        expect(todo?.x).toBe(expense?.x);
+        expect(todo?.width).toBe(expense?.width);
+      }
+      for (const tab of ["Expenses", "To-dos"]) {
+        await page.getByRole("navigation").getByRole("button", { name: tab, exact: true }).click();
+        for (const row of await page.locator(".swipe-row").all()) {
+          const front = row.locator(".swipe-front");
+          const background = await front.evaluate((element) => getComputedStyle(element).backgroundColor);
+          for (const target of [row.locator(".entry-description"), row.locator(".row-actions-toggle")]) {
+            await target.hover();
+            await expect(front).not.toHaveCSS("background-color", background);
+            for (const child of [row.locator(".swipe-content"), row.locator(".row-actions-toggle")]) {
+              const childColor = await child.evaluate((element) => getComputedStyle(element).backgroundColor);
+              expect(["rgba(0, 0, 0, 0)", await front.evaluate((element) => getComputedStyle(element).backgroundColor)]).toContain(childColor);
+            }
+          }
+          await page.getByRole("heading", { level: 1 }).hover();
+          await expect(front).toHaveCSS("background-color", background);
+        }
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    }
+  }
+});
+
+for (const kind of ["expense", "manual todo", "insurance todo"]) {
+test(`touch swipes on ${kind} reveal actions without activating the row and cancel safely`, async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 851 });
+  const title = kind === "insurance todo" ? "Doctor touch" : "Touch item";
+  if (kind === "manual todo") await addTodo(page, title);
+  else {
+    await addExpense(page, title, "12");
+    await save(page);
+    if (kind === "insurance todo") await page.getByRole("navigation").getByRole("button", { name: "To-dos" }).click();
+  }
+  const row = page.locator(".swipe-content");
   await expect(row).toHaveCSS("touch-action", "pan-y pinch-zoom");
   const box = (await row.boundingBox())!;
   const x = box.x + box.width - 16, y = box.y + box.height / 2;
@@ -127,9 +354,9 @@ test("touch swipes reveal actions without opening edit and cancel safely", async
       await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x - offset, y }] });
     }
     await session.send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
-    const toggle = page.getByRole("button", { name: "Entry actions: Touch expense" });
+    const toggle = page.getByRole("button", { name: `${kind === "expense" ? "Entry actions" : "To-do actions"}: ${title}` });
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
-    await expect(page.locator(".expense-swipe-front")).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, 0)");
+    await expect(page.locator(".swipe-front")).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, 0)");
     await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
     for (let offset = 20; offset <= 140; offset += 20) {
       await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x - offset, y }] });
@@ -137,10 +364,12 @@ test("touch swipes reveal actions without opening edit and cancel safely", async
     await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
     await expect(page.getByRole("dialog")).not.toBeVisible();
-    await expect(page.getByRole("button", { name: "Delete entry: Touch expense" })).toBeInViewport();
+    await expect(page.getByRole("button", { name: `${kind === "manual todo" ? "Delete to-do" : "Delete entry"}: ${title}` })).toBeInViewport();
+    if (kind !== "expense") await expect(page.getByRole("checkbox")).not.toBeChecked();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   } finally { await session.detach(); }
 });
+}
 
 test("mobile expense entry, custom splits, settlements and offline reload", async ({ page, context }, info) => {
   await page.goto("/");

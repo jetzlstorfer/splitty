@@ -9,7 +9,7 @@ import { MAX_TODO_TITLE, MAX_TODO_DESCRIPTION, type Todo } from "../shared/todo"
 import { db, queueEntries, queueTodos, resolveConflict, resolveStoreConflict, todoStore, updatePreferences, getPreferences, type Conflict, type Preferences } from "./db";
 import { missingBackupRecords, readBackup, restoreBackup } from "./backup";
 import { previewImport, readCsv, type ImportPreview } from "./importer";
-import { api, ApiError, synchronize, type Identity } from "./sync";
+import { ApiError, identify, signInDevice, signOutDevice, synchronize, type Identity } from "./sync";
 import { LanguageContext, useLocale } from "./i18n";
 import { categoryLabels, detectCategory, expenseCategory, normalizeText, storedCategory, type Category } from "./categories";
 import ExpenseIcon from "./ExpenseIcon";
@@ -408,7 +408,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     syncLock.current = (async () => {
       do {
         syncRequested.current = false;
-        const me = await api<Identity>("me");
+        const me = await identify();
         if ((me.member !== "a" && me.member !== "b") || !me.nameA || !me.nameB) throw new Error("Invalid sign-in response.");
         setIdentity(me);
         await updatePreferences({ member: me.member, nameA: me.nameA, nameB: me.nameB });
@@ -472,7 +472,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   async function signIn(event: FormEvent) {
     event.preventDefault(); setSignInBusy(true); setError("");
     try {
-      await api("auth/token", { token: memberToken });
+      await signInDevice(memberToken);
       setMemberToken(""); setTab("settings"); await sync();
     } catch (e) { setError(e instanceof Error ? e.message : "Could not sign in with this token."); }
     finally { setSignInBusy(false); }
@@ -480,7 +480,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
 
   async function signOut() {
     try {
-      await api("auth/logout", {});
+      await signOutDevice();
       setIdentity(null); setSyncStatus("Signed out · local history remains on this device");
     } catch (e) { setError(e instanceof Error ? e.message : "Could not sign out."); }
   }

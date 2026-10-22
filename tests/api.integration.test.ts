@@ -81,6 +81,34 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     expect(signedOut.headers.get("set-cookie")).toContain("Max-Age=0");
     expect((await call("me", undefined, cookie)).status).toBe(401);
   });
+  it("restores a lost cookie from the device key until the session is revoked", async () => {
+    const token = "B".repeat(43);
+    const signedIn = await call("auth/token", { token });
+    const { deviceKey } = await signedIn.json() as { deviceKey: string };
+    const cookie = signedIn.headers.get("set-cookie")!.split(";")[0];
+    expect(cookie).toBe(`splitty-local=${deviceKey}`);
+    expect((await call("me")).status).toBe(401);
+
+    const resumed = await call("auth/resume", { deviceKey });
+    expect(resumed.status).toBe(200);
+    expect(resumed.headers.get("set-cookie")).toBe(`${cookie}; Path=/; HttpOnly; SameSite=Lax; Max-Age=34560000`);
+    expect(await (await call("me", undefined, cookie)).json()).toMatchObject({ member: "b" });
+    expect((await call("auth/resume", { deviceKey }, undefined, "https://evil.example")).status).toBe(403);
+    expect((await call("auth/resume", { deviceKey: "short" })).status).toBe(400);
+    expect((await call("auth/resume", { deviceKey: "X".repeat(43) })).status).toBe(401);
+
+    process.env.MEMBER_B_TOKEN = "D".repeat(43);
+    try {
+      const rotated = await call("auth/resume", { deviceKey });
+      expect(rotated.status).toBe(401);
+      expect(rotated.headers.has("set-cookie")).toBe(false);
+    } finally { process.env.MEMBER_B_TOKEN = token; }
+
+    // A device that already lost its cookie can still revoke its session.
+    expect((await call("auth/logout", { deviceKey })).status).toBe(200);
+    expect((await call("auth/resume", { deviceKey })).status).toBe(401);
+    expect((await call("me", undefined, cookie)).status).toBe(401);
+  });
   it("syncs two devices, retries safely, and returns explicit conflicts", async () => {
     // Use a fresh household so rate limits and earlier sessions do not affect this test.
     process.env.HOUSEHOLD_ID = `test-${crypto.randomUUID()}`;

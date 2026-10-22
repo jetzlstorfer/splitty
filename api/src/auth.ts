@@ -20,9 +20,23 @@ function readCookie(request: Request, config: Config): string | null {
   return cookie?.slice(cookie.indexOf("=") + 1) ?? null;
 }
 
+export const isSessionKey = (value: unknown): value is string => typeof value === "string" && /^[a-zA-Z0-9_-]{43}$/.test(value);
+
 export async function authenticate(request: Request, config: Config, table: TableClient): Promise<Member> {
-  const value = readCookie(request, config);
-  if (!value || !/^[a-zA-Z0-9_-]{43}$/.test(value)) throw new HttpError(401, "Sign in to sync this device.");
+  return verifySession(readCookie(request, config), config, table);
+}
+
+/**
+ * Some Android Chrome installs lose the session cookie while keeping IndexedDB.
+ * The device keeps the same session value there and exchanges it for a new cookie.
+ */
+export async function resumeSession(value: string, config: Config, table: TableClient): Promise<string> {
+  await verifySession(value, config, table);
+  return sessionCookie(config, value, sessionMaxAge);
+}
+
+async function verifySession(value: string | null, config: Config, table: TableClient): Promise<Member> {
+  if (!isSessionKey(value)) throw new HttpError(401, "Sign in to sync this device.");
   const session = await optionalEntity<AuthEntity>(table, partition(config), `s-${digest(value)}`);
   if (!session || !/^[a-f0-9]{64}$/.test(session.credentialDigest)) throw new HttpError(401, "Sign in to sync this device.");
   const expectedDigest = digest(session.member === "a" ? config.memberAToken : config.memberBToken);
@@ -32,7 +46,7 @@ export async function authenticate(request: Request, config: Config, table: Tabl
   return session.member;
 }
 
-export async function signInWithToken(value: string, config: Config, table: TableClient): Promise<string> {
+export async function signInWithToken(value: string, config: Config, table: TableClient): Promise<{ cookie: string; deviceKey: string }> {
   const provided = Buffer.from(digest(value));
   const tokenA = timingSafeEqual(provided, Buffer.from(digest(config.memberAToken)));
   const tokenB = timingSafeEqual(provided, Buffer.from(digest(config.memberBToken)));
@@ -42,12 +56,14 @@ export async function signInWithToken(value: string, config: Config, table: Tabl
   await table.createEntity({
     partitionKey: pk, rowKey: `s-${digest(raw)}`, member, credentialDigest: digest(value)
   });
-  return sessionCookie(config, raw, sessionMaxAge);
+  return { cookie: sessionCookie(config, raw, sessionMaxAge), deviceKey: raw };
 }
 
-export async function logout(request: Request, config: Config, table: TableClient): Promise<void> {
-  const raw = readCookie(request, config);
-  if (!raw) return;
-  try { await table.deleteEntity(partition(config), `s-${digest(raw)}`); }
-  catch (error) { if (statusCode(error) !== 404) throw error; }
+export async function logout(request: Request, config: Config, table: TableClient, deviceKey?: string): Promise<void> {
+  const cookie = readCookie(request, config);
+  const sessions = new Set([cookie, deviceKey].filter(isSessionKey));
+  for (const raw of sessions) {
+    try { await table.deleteEntity(partition(config), `s-${digest(raw)}`); }
+    catch (error) { if (statusCode(error) !== 404) throw error; }
+  }
 }

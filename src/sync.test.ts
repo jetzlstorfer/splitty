@@ -3,11 +3,75 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mutation } from "../shared/model";
 import type { Todo } from "../shared/todo";
 import { example, exampleTodo } from "../tests/fixtures";
-import { db, getPreferences, queueTodos } from "./db";
-import { synchronize } from "./sync";
+import { db, getDeviceKey, getPreferences, queueTodos, setDeviceKey } from "./db";
+import { ApiError, identify, signInDevice, signOutDevice, synchronize } from "./sync";
 
 beforeEach(async () => { await db.delete(); await db.open(); });
 afterEach(async () => { vi.unstubAllGlobals(); await db.delete(); });
+
+const deviceKey = "K".repeat(43);
+const identity = { member: "a", nameA: "Alex", nameB: "Sam" };
+
+describe("device session recovery", () => {
+  it("stores the device key on sign-in and sends it when signing out", async () => {
+    const requests: [string, unknown][] = [];
+    vi.stubGlobal("fetch", vi.fn(async (path: string, init: RequestInit) => {
+      requests.push([path, JSON.parse(String(init.body))]);
+      return Response.json(path === "/api/auth/token" ? { signedIn: true, deviceKey } : { signedOut: true });
+    }));
+    await signInDevice("A".repeat(43));
+    expect(await getDeviceKey()).toBe(deviceKey);
+    await signOutDevice();
+    expect(await getDeviceKey()).toBeNull();
+    expect(requests).toEqual([["/api/auth/token", { token: "A".repeat(43) }], ["/api/auth/logout", { deviceKey }]]);
+  });
+
+  it("restores a lost session cookie without asking for the member token", async () => {
+    await setDeviceKey(deviceKey);
+    let cookie = false;
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (path: string, init: RequestInit) => {
+      requests.push(path);
+      if (path === "/api/auth/resume") {
+        expect(JSON.parse(String(init.body))).toEqual({ deviceKey });
+        cookie = true;
+        return Response.json({ resumed: true });
+      }
+      return cookie ? Response.json(identity) : Response.json({ error: "Sign in to sync this device." }, { status: 401 });
+    }));
+    await expect(identify()).resolves.toEqual(identity);
+    expect(requests).toEqual(["/api/me", "/api/auth/resume", "/api/me"]);
+    expect(await getDeviceKey()).toBe(deviceKey);
+  });
+
+  it("forgets revoked keys but keeps them when the network fails", async () => {
+    await setDeviceKey(deviceKey);
+    vi.stubGlobal("fetch", vi.fn(async (path: string) => {
+      if (path === "/api/auth/resume") throw new TypeError("Failed to fetch");
+      return Response.json({ error: "Sign in to sync this device." }, { status: 401 });
+    }));
+    await expect(identify()).rejects.toThrow("Failed to fetch");
+    expect(await getDeviceKey()).toBe(deviceKey);
+
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "Your member token was rotated. Sign in again." }, { status: 401 })));
+    await expect(identify()).rejects.toBeInstanceOf(ApiError);
+    expect(await getDeviceKey()).toBeNull();
+  });
+
+  it("does not try to recover without a stored key or after non-auth errors", async () => {
+    const fetch = vi.fn(async () => Response.json({ error: "Sign in to sync this device." }, { status: 401 }));
+    vi.stubGlobal("fetch", fetch);
+    await expect(identify()).rejects.toMatchObject({ status: 401 });
+    expect(fetch).toHaveBeenCalledOnce();
+
+    await setDeviceKey(deviceKey);
+    const failing = vi.fn(async () => Response.json({ error: "Retry shortly." }, { status: 500 }));
+    vi.stubGlobal("fetch", failing);
+    await expect(identify()).rejects.toMatchObject({ status: 500 });
+    expect(failing).toHaveBeenCalledOnce();
+    expect(await getDeviceKey()).toBe(deviceKey);
+  });
+});
 
 describe("todo synchronization", () => {
   it("bounds escaped payloads, clears acknowledged writes, and keeps stream cursors separate", async () => {

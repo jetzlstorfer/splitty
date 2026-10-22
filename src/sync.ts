@@ -1,4 +1,4 @@
-import { applyStorePage, applyStoreResults, expenseStore, todoStore, getPreferences, type SyncStore } from "./db";
+import { applyStorePage, applyStoreResults, expenseStore, todoStore, getDeviceKey, getPreferences, setDeviceKey, type SyncStore } from "./db";
 import type { Member, MutationResult, SyncPage, VersionedRecord } from "../shared/model";
 
 export interface Identity {
@@ -28,6 +28,32 @@ export async function api<T>(path: string, body?: unknown): Promise<T> {
     throw new ApiError(message, response.status);
   }
   return data as T;
+}
+
+/** Returns the signed-in member, restoring a lost session cookie from this device's key when possible. */
+export async function identify(): Promise<Identity> {
+  try { return await api<Identity>("me"); }
+  catch (error) {
+    const deviceKey = error instanceof ApiError && error.status === 401 ? await getDeviceKey() : null;
+    if (!deviceKey) throw error;
+    try { await api("auth/resume", { deviceKey }); }
+    catch (resumeError) {
+      // Only a definite rejection revokes the key; network failures keep it for the next attempt.
+      if (resumeError instanceof ApiError && (resumeError.status === 401 || resumeError.status === 400)) await setDeviceKey(null);
+      throw resumeError;
+    }
+    return api<Identity>("me");
+  }
+}
+
+export async function signInDevice(token: string): Promise<void> {
+  const { deviceKey } = await api<{ deviceKey?: unknown }>("auth/token", { token });
+  await setDeviceKey(typeof deviceKey === "string" ? deviceKey : null);
+}
+
+export async function signOutDevice(): Promise<void> {
+  await api("auth/logout", { deviceKey: await getDeviceKey() ?? undefined });
+  await setDeviceKey(null);
 }
 
 let syncing: Promise<void> | null = null;

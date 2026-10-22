@@ -290,6 +290,7 @@ export const german = {
   "Enter a valid member token.": "Gib einen gültigen Mitglieds-Token ein.",
   "Invalid member token.": "Der Mitglieds-Token ist ungültig.",
   "Your member token was rotated. Sign in again.": "Dein Mitglieds-Token wurde erneuert. Melde dich erneut an.",
+  "Invalid device key.": "Der Geräteschlüssel ist ungültig.",
   "Invalid sync cursor.": "Ungültiger Synchronisierungsstand.",
   "Send between 1 and 20 changes.": "Sende zwischen 1 und 20 Änderungen.",
   "Invalid changes.": "Ungültige Änderungen.",

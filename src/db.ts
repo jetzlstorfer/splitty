@@ -18,6 +18,12 @@ export interface Conflict<T = Entry> {
   remote: T | null;
 }
 
+/** Recovers the sign-in when a browser drops the session cookie but keeps IndexedDB. Never exported in backups. */
+export interface DeviceSession {
+  id: "session";
+  key: string;
+}
+
 export class SplittyDatabase extends Dexie {
   entries!: Table<Entry, string>;
   outbox!: Table<Mutation, string>;
@@ -26,6 +32,7 @@ export class SplittyDatabase extends Dexie {
   todos!: Table<Todo, string>;
   todoOutbox!: Table<Mutation<Todo>, string>;
   todoConflicts!: Table<Conflict<Todo>, string>;
+  session!: EntityTable<DeviceSession, "id">;
 
   constructor(name = "splitty") {
     super(name);
@@ -40,10 +47,20 @@ export class SplittyDatabase extends Dexie {
       todoOutbox: "id, entry.id",
       todoConflicts: "entryId"
     });
+    this.version(3).stores({ session: "id" });
   }
 }
 
 export const db = new SplittyDatabase();
+
+export async function getDeviceKey(database = db): Promise<string | null> {
+  return (await database.session.get("session"))?.key ?? null;
+}
+
+export async function setDeviceKey(key: string | null, database = db): Promise<void> {
+  if (key) await database.session.put({ id: "session", key });
+  else await database.session.delete("session");
+}
 
 export async function getPreferences(database = db): Promise<Preferences> {
   const preferences: Preferences = await database.preferences.get("preferences")

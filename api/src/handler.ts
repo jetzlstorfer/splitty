@@ -1,7 +1,7 @@
 import type { TableClient } from "@azure/data-tables";
 import { validateChange, validateEntry, type MutationResult, type VersionedRecord } from "../../shared/model";
 import { validateTodo } from "../../shared/todo";
-import { authenticate, logout, sessionCookie, signInWithToken } from "./auth";
+import { authenticate, isSessionKey, logout, resumeSession, sessionCookie, signInWithToken } from "./auth";
 import { getConfig, HttpError } from "./config";
 import { expenseLedger, todoLedger, type createLedger } from "./ledger";
 import { tables } from "./storage";
@@ -38,22 +38,25 @@ export async function handler(request: Request, logError: (message: string) => v
     if (path === "auth/token" && request.method === "POST") {
       const data = await body(request);
       if (typeof data.token !== "string" || !/^[a-zA-Z0-9_-]{43}$/.test(data.token)) throw new HttpError(400, "Enter a valid member token.");
-      const cookie = await signInWithToken(data.token, config, auth);
-      return json({ signedIn: true }, 200, { "Set-Cookie": cookie });
+      const { cookie, deviceKey } = await signInWithToken(data.token, config, auth);
+      return json({ signedIn: true, deviceKey }, 200, { "Set-Cookie": cookie });
+    }
+    if (path === "auth/resume" && request.method === "POST") {
+      const data = await body(request);
+      if (!isSessionKey(data.deviceKey)) throw new HttpError(400, "Invalid device key.");
+      const cookie = await resumeSession(data.deviceKey, config, auth);
+      return json({ resumed: true }, 200, { "Set-Cookie": cookie });
     }
     if (path === "auth/logout" && request.method === "POST") {
-      await logout(request, config, auth);
+      const data = await body(request);
+      await logout(request, config, auth, isSessionKey(data.deviceKey) ? data.deviceKey : undefined);
       return json({ signedOut: true }, 200, { "Set-Cookie": sessionCookie(config, "", 0) });
     }
-    const { member, cookie } = await authenticate(request, config, auth);
-    let response: Response;
-    if (path === "me" && request.method === "GET") response = json({ member, nameA: config.nameA, nameB: config.nameB });
-    else if (path === "sync") response = await syncRequest(request, url, ledger, config.household, validateEntry, expenseLedger);
-    else if (path === "todo-sync") response = await syncRequest(request, url, ledger, config.household, validateTodo, todoLedger);
-    else throw new HttpError(404, "Endpoint not found.");
-    // Renew active devices and upgrade legacy session-only cookies without another sign-in.
-    response.headers.set("Set-Cookie", cookie);
-    return response;
+    const member = await authenticate(request, config, auth);
+    if (path === "me" && request.method === "GET") return json({ member, nameA: config.nameA, nameB: config.nameB });
+    if (path === "sync") return await syncRequest(request, url, ledger, config.household, validateEntry, expenseLedger);
+    if (path === "todo-sync") return await syncRequest(request, url, ledger, config.household, validateTodo, todoLedger);
+    throw new HttpError(404, "Endpoint not found.");
   } catch (error) {
     if (error instanceof HttpError) return json({ error: error.message }, error.status);
     // Avoid logging financial payloads, cookies or member tokens.

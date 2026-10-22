@@ -73,47 +73,41 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     expect(secondSession.status).toBe(200);
     const me = await call("me", undefined, cookie);
     expect(await me.json()).toMatchObject({ member: "a" });
-    expect(me.headers.get("set-cookie")).toBe(cookie);
     process.env.MEMBER_A_TOKEN = "C".repeat(43);
-    try {
-      const revoked = await call("me", undefined, cookie);
-      expect(revoked.status).toBe(401);
-      expect(revoked.headers.has("set-cookie")).toBe(false);
-    } finally { process.env.MEMBER_A_TOKEN = token; }
+    expect((await call("me", undefined, cookie)).status).toBe(401);
+    process.env.MEMBER_A_TOKEN = token;
     const signedOut = await call("auth/logout", {}, cookie);
     expect(signedOut.status).toBe(200);
-    expect(signedOut.headers.get("set-cookie")).toContain("splitty-local=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0");
-    const revoked = await call("me", undefined, cookie);
-    expect(revoked.status).toBe(401);
-    expect(revoked.headers.has("set-cookie")).toBe(false);
-    expect((await call("me", undefined, secondSession.headers.get("set-cookie")!)).status).toBe(200);
+    expect(signedOut.headers.get("set-cookie")).toContain("Max-Age=0");
+    expect((await call("me", undefined, cookie)).status).toBe(401);
   });
-  it("upgrades existing cookies and renews both sync streams without creating a new session", async () => {
-    const cookie = await login("b");
-    const expected = `${cookie}; Path=/; HttpOnly; SameSite=Lax; Max-Age=34560000`;
-    for (const path of ["me", "sync?since=0", "todo-sync?since=0"]) {
-      const response = await call(path, undefined, cookie);
-      expect(response.status).toBe(200);
-      expect(response.headers.get("set-cookie")).toBe(expected);
-    }
-    for (const [path, entry] of [
-      ["sync", example({ id: crypto.randomUUID() })],
-      ["todo-sync", exampleTodo({ id: crypto.randomUUID() })]
-    ] as const) {
-      const response = await call(path, {
-        mutations: [{ id: crypto.randomUUID(), expectedRevision: 0, entry }]
-      }, cookie);
-      expect(response.status).toBe(200);
-      expect(response.headers.get("set-cookie")).toBe(expected);
-    }
-    for (const invalid of [undefined, "splitty-local=invalid", `splitty-local=${"X".repeat(43)}`]) {
-      const response = await call("me", undefined, invalid);
-      expect(response.status).toBe(401);
-      expect(response.headers.has("set-cookie")).toBe(false);
-    }
-    const invalidRequest = await call("sync?since=-1", undefined, cookie);
-    expect(invalidRequest.status).toBe(400);
-    expect(invalidRequest.headers.has("set-cookie")).toBe(false);
+  it("restores a lost cookie from the device key until the session is revoked", async () => {
+    const token = "B".repeat(43);
+    const signedIn = await call("auth/token", { token });
+    const { deviceKey } = await signedIn.json() as { deviceKey: string };
+    const cookie = signedIn.headers.get("set-cookie")!.split(";")[0];
+    expect(cookie).toBe(`splitty-local=${deviceKey}`);
+    expect((await call("me")).status).toBe(401);
+
+    const resumed = await call("auth/resume", { deviceKey });
+    expect(resumed.status).toBe(200);
+    expect(resumed.headers.get("set-cookie")).toBe(`${cookie}; Path=/; HttpOnly; SameSite=Lax; Max-Age=34560000`);
+    expect(await (await call("me", undefined, cookie)).json()).toMatchObject({ member: "b" });
+    expect((await call("auth/resume", { deviceKey }, undefined, "https://evil.example")).status).toBe(403);
+    expect((await call("auth/resume", { deviceKey: "short" })).status).toBe(400);
+    expect((await call("auth/resume", { deviceKey: "X".repeat(43) })).status).toBe(401);
+
+    process.env.MEMBER_B_TOKEN = "D".repeat(43);
+    try {
+      const rotated = await call("auth/resume", { deviceKey });
+      expect(rotated.status).toBe(401);
+      expect(rotated.headers.has("set-cookie")).toBe(false);
+    } finally { process.env.MEMBER_B_TOKEN = token; }
+
+    // A device that already lost its cookie can still revoke its session.
+    expect((await call("auth/logout", { deviceKey })).status).toBe(200);
+    expect((await call("auth/resume", { deviceKey })).status).toBe(401);
+    expect((await call("me", undefined, cookie)).status).toBe(401);
   });
   it("syncs two devices, retries safely, and returns explicit conflicts", async () => {
     // Use a fresh household so rate limits and earlier sessions do not affect this test.

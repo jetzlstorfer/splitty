@@ -8,10 +8,11 @@ const digest = (value: string) => createHash("sha256").update(value).digest("hex
 const randomToken = () => randomBytes(32).toString("base64url");
 const partition = (config: Config) => `auth-${config.household}`;
 const sessionName = (config: Config) => config.local ? "splitty-local" : "__Host-splitty";
+const sessionMaxAge = 365 * 24 * 60 * 60;
 interface AuthEntity { member: Member; credentialDigest: string }
 
-export function sessionCookie(config: Config, value: string, maxAge?: number): string {
-  return `${sessionName(config)}=${value}; Path=/; HttpOnly; SameSite=Lax${maxAge === undefined ? "" : `; Max-Age=${maxAge}`}${config.local ? "" : "; Secure"}`;
+export function sessionCookie(config: Config, value: string, maxAge = sessionMaxAge): string {
+  return `${sessionName(config)}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${config.local ? "" : "; Secure"}`;
 }
 
 function readCookie(request: Request, config: Config): string | null {
@@ -19,7 +20,7 @@ function readCookie(request: Request, config: Config): string | null {
   return cookie?.slice(cookie.indexOf("=") + 1) ?? null;
 }
 
-export async function authenticate(request: Request, config: Config, table: TableClient): Promise<Member> {
+export async function authenticate(request: Request, config: Config, table: TableClient): Promise<{ member: Member; cookie: string }> {
   const value = readCookie(request, config);
   if (!value || !/^[a-zA-Z0-9_-]{43}$/.test(value)) throw new HttpError(401, "Sign in to sync this device.");
   const session = await optionalEntity<AuthEntity>(table, partition(config), `s-${digest(value)}`);
@@ -28,7 +29,7 @@ export async function authenticate(request: Request, config: Config, table: Tabl
   if (!timingSafeEqual(Buffer.from(session.credentialDigest, "hex"), Buffer.from(expectedDigest, "hex"))) {
     throw new HttpError(401, "Your member token was rotated. Sign in again.");
   }
-  return session.member;
+  return { member: session.member, cookie: sessionCookie(config, value) };
 }
 
 export async function signInWithToken(value: string, config: Config, table: TableClient): Promise<string> {

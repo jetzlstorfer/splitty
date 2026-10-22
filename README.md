@@ -353,9 +353,15 @@ up and clearing that site's local data.
 
 Each member has a reusable 256-bit token that does not expire. The server keeps
 these tokens in backend settings and never stores them in browser storage; signing
-in exchanges one for a server-side session using an HttpOnly, Secure, SameSite
-cookie in production with no expiry. A device stays signed in until it signs out
-or that member token is rotated. The session stores the member-token digest, so
+in exchanges one for a server-side session using an HttpOnly, Secure, SameSite=Lax
+cookie in production. The cookie persists across browser/app restarts for one year
+and is renewed on successful identity and expense/to-do sync requests. An omitted
+cookie expiry means "browser session only", not "stay signed in forever"; older
+session-only cookies are upgraded automatically on the next successful request.
+If an older cookie has already been lost, sign in once after updating.
+Signing out, rotating the member token, clearing site data, or a year without
+successful authenticated requests requires signing in again. Browser privacy
+settings can also remove cookies sooner. The session stores the member-token digest, so
 replacing a member token revokes that member's existing sessions. Treat tokens
 like passwords: anyone who has one can access the shared ledger. Rotate storage
 and member tokens through Azure settings, never through client code.

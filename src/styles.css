@@ -143,7 +143,7 @@ input::placeholder { color: var(--cp-text-soft); }
 .swipe-front.dragging { transition: none; }
 .swipe-content { display: flex; flex: 1; min-width: 0; touch-action: pan-y pinch-zoom; }
 .row-actions-toggle { flex: 0 0 32px; align-self: center; padding: 4px; min-width: 32px; min-height: 44px; }
-.expense-row { position: relative; isolation: isolate; width: 100%; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 10px 0; text-align: left; background: none; border-radius: 0; min-height: 64px; touch-action: pan-y pinch-zoom; }
+.expense-row, .todo-row { position: relative; isolation: isolate; width: 100%; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 10px 0; text-align: left; background: none; border-radius: 0; min-height: 64px; touch-action: pan-y pinch-zoom; }
 .saved-row-glow { position: absolute; inset: 0; z-index: -1; background: var(--cp-highlight); border-radius: 8px; pointer-events: none; }
 .save-feedback { position: fixed; bottom: calc(140px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 8px; width: max-content; max-width: min(440px, calc(100% - 32px)); padding: 12px 16px; border: 1px solid var(--cp-highlight); border-radius: 14px; background: var(--cp-surface); color: var(--cp-accent-text); box-shadow: var(--cp-shadow); font-size: 13px; line-height: 1.4; pointer-events: none; }
 .save-feedback > svg { flex-shrink: 0; }
@@ -166,8 +166,10 @@ input::placeholder { color: var(--cp-text-soft); }
 .nav-badge { display: inline-block; margin-left: 4px; min-width: 16px; padding: 0 4px; border-radius: 8px; background: var(--cp-accent-text); color: var(--cp-surface); font-size: 10px; line-height: 16px; font-weight: 600; }
 .todo-group { margin-bottom: 20px; }
 .todo-list { list-style: none; margin: 0; padding: 0; }
-.todo-check { flex: 1; display: flex; flex-direction: row; align-items: center; gap: 10px; padding: 10px 0; min-height: 64px; min-width: 0; margin: 0; cursor: pointer; }
-.todo-check input { width: 22px; height: 22px; flex: none; margin: 0; accent-color: var(--cp-accent); }
+.todo-row { padding: 0; }
+.todo-check { flex: 0 0 25px; align-self: stretch; display: flex; align-items: center; justify-content: center; min-height: 44px; margin: 0; cursor: pointer; }
+.todo-check input { width: 22px; height: 22px; min-height: 22px; padding: 0; flex: none; margin: 0; accent-color: var(--cp-accent); }
+.todo-details { flex: 1; align-self: stretch; display: flex; align-items: center; gap: inherit; min-width: 0; min-height: 64px; padding: 10px 0; text-align: left; background: none; border-radius: 0; touch-action: pan-y pinch-zoom; }
 .todo-item.done .entry-description strong { text-decoration: line-through; color: var(--cp-text-soft); }
 .manual-todo .entry-description strong { white-space: normal; overflow-wrap: anywhere; }
 .manual-todo .entry-description small { white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
@@ -337,13 +339,13 @@ form > label, .panel-content > label { margin-bottom: 20px; }
   .entry-description strong { font-size: 15px; }
   .entry-description small { font-size: 12px; }
   .entry-balance small { font-size: 11px; }
-  .expense-row { gap: 16px; }
+  .expense-row, .todo-row { gap: 16px; }
 }
 @media (max-width: 359px) {
   .statistics-card { padding-inline: 10px; }
   .statistics-chart { gap: 0; }
   .entry-icon { width: 28px; }
-  .expense-row { gap: 7px; }
+  .expense-row, .todo-row { gap: 7px; }
   .entry-description strong { font-size: 14px; }
   .entry-balance strong { font-size: 14px; }
   .entry-balance small { font-size: 10px; }

@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const row = (page: Page, title: string) => page.getByRole("listitem").filter({ has: page.getByText(title, { exact: true }) });
 const todos = (page: Page) => page.getByRole("navigation").getByRole("button", { name: "To-dos" }).click();
@@ -21,6 +21,17 @@ async function add(page: Page, title: string, description = "") {
   await dialog.getByLabel("Beschreibung (optional)").fill(description);
   await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
   await expect(dialog).not.toBeVisible();
+}
+
+async function addInsuranceExpense(page: Page) {
+  await page.getByRole("navigation").getByRole("button", { name: "Ausgaben", exact: true }).click();
+  await page.getByRole("button", { name: "Ausgabe hinzufügen", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Beschreibung", { exact: true }).fill("Apotheke");
+  await dialog.getByRole("textbox", { name: "Betrag in EUR" }).fill("20");
+  await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await todos(page);
 }
 
 async function edit(page: Page, title: string, next: string, description: string) {
@@ -155,6 +166,109 @@ test("todo and expense add buttons share their floating position, styling, and k
   }
 });
 
+test("todo rows match expense text and column alignment in both themes", async ({ page }, info) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+  await todos(page);
+  await add(page, "Call dentist", "Shared household details");
+  await addInsuranceExpense(page);
+  const geometry = (item: Locator) => item.evaluate((element) => {
+    const icon = element.querySelector(".entry-icon")!.getBoundingClientRect();
+    const title = element.querySelector(".entry-description strong")!;
+    const titleStyle = getComputedStyle(title);
+    const subtitleStyle = getComputedStyle(element.querySelector(".entry-description small")!);
+    return {
+      height: element.getBoundingClientRect().height, iconX: icon.x, iconWidth: icon.width, iconHeight: icon.height,
+      textX: title.getBoundingClientRect().x, color: titleStyle.color, fontSize: titleStyle.fontSize,
+      fontWeight: titleStyle.fontWeight, lineHeight: titleStyle.lineHeight,
+      subtitleColor: subtitleStyle.color, subtitleSize: subtitleStyle.fontSize
+    };
+  });
+  const manual = row(page, "Call dentist");
+  const insurance = page.getByRole("listitem").filter({ hasText: "Ausgabe: Apotheke" });
+
+  for (const width of [320, 393, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const theme of ["light", "dark"]) {
+      await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
+      await page.getByRole("navigation").getByRole("button", { name: "Ausgaben", exact: true }).click();
+      const expense = page.locator(".expense-row");
+      const expected = await geometry(expense);
+      const date = (await expense.locator(".date-block").boundingBox())!;
+      expect(expected.color).toBe(await page.locator("body").evaluate((element) => getComputedStyle(element).color));
+      await todos(page);
+
+      for (const item of [manual, insurance]) {
+        expect(await geometry(item.locator(".todo-row"))).toEqual(expected);
+        const checkbox = (await item.getByRole("checkbox").boundingBox())!;
+        expect(checkbox.x + checkbox.width / 2).toBeCloseTo(date.x + date.width / 2, 1);
+        expect(checkbox.height).toBe(22);
+        const front = item.locator(".swipe-front");
+        await page.getByRole("heading", { level: 1 }).hover();
+        const background = await front.evaluate((element) => getComputedStyle(element).backgroundColor);
+        await item.locator(".entry-description").hover();
+        const hover = await front.evaluate((element) => getComputedStyle(element).backgroundColor);
+        expect(hover).not.toBe(background);
+        await item.locator(".row-actions-toggle").hover();
+        await expect(front).toHaveCSS("background-color", hover);
+        await expect(item.getByRole("checkbox")).not.toBeChecked();
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      if (width === 393) await page.screenshot({ path: info.outputPath(`todo-rows-${theme}.png`) });
+    }
+  }
+});
+
+test("todo content opens details while only the checkbox completes or reopens it", async ({ page }) => {
+  await page.goto("/");
+  await todos(page);
+  await add(page, "Call dentist", "Shared household details");
+  await addInsuranceExpense(page);
+  const items = [
+    { item: row(page, "Call dentist"), dialogName: "To-do bearbeiten", field: "Titel", value: "Call dentist" },
+    { item: page.getByRole("listitem").filter({ hasText: "Ausgabe: Apotheke" }), dialogName: "Eintrag bearbeiten", field: "Beschreibung", value: "Apotheke" }
+  ];
+  for (const { item, dialogName, field, value } of items) {
+    const details = item.locator(".todo-details");
+    const checkbox = item.getByRole("checkbox");
+    const dialog = page.getByRole("dialog", { name: dialogName });
+    await expect(checkbox).toHaveAccessibleName(value === "Apotheke" ? "Bei Versicherung einreichen: Apotheke" : value);
+    for (const done of [false, true]) {
+      for (const target of [item.locator(".entry-icon"), item.locator(".entry-description strong"), item.locator(".entry-description small")]) {
+        await target.click();
+        await expect(dialog.getByLabel(field, { exact: true })).toHaveValue(value);
+        await dialog.getByRole("button", { name: "Schließen", exact: true }).click();
+        await expect(details).toBeFocused();
+        await expect(checkbox).toBeChecked({ checked: done });
+      }
+      for (const key of ["Enter", "Space"]) {
+        await details.focus();
+        await page.keyboard.press(key);
+        await expect(dialog).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(details).toBeFocused();
+        await expect(checkbox).toBeChecked({ checked: done });
+      }
+      await details.focus();
+      await page.keyboard.press("Shift+Tab");
+      await expect(checkbox).toBeFocused();
+      await page.keyboard.press("Space");
+      await expect(checkbox).toBeChecked({ checked: !done });
+      await expect(dialog).not.toBeVisible();
+    }
+    const label = item.locator(".todo-check");
+    await label.click({ position: { x: 1, y: 1 } });
+    await expect(checkbox).toBeChecked();
+    await label.click({ position: { x: 1, y: 1 } });
+    await expect(checkbox).not.toBeChecked();
+    await expect(dialog).not.toBeVisible();
+  }
+  await page.reload();
+  await todos(page);
+  await expect(page.getByRole("region", { name: "Offene To-dos" }).getByRole("checkbox")).toHaveCount(2);
+  await expect(page.getByRole("region", { name: "Erledigt", exact: true })).toHaveCount(0);
+});
+
 test("the floating todo button stays above navigation without covering the last item", async ({ page }) => {
   await page.goto("/");
   await todos(page);
@@ -272,6 +386,7 @@ test("todo conflicts show both versions and allow keeping local edits or remote 
     await expect(conflict).toContainText("Local details");
     await expect(conflict).toContainText("Remote details");
     await expect(row(a, title).getByRole("checkbox")).toBeDisabled();
+    await expect(row(a, title).locator(".todo-details")).toBeDisabled();
     await expect(row(a, title).getByRole("button", { name: `To-do-Aktionen: ${title}` })).toBeDisabled();
     await conflict.getByRole("button", { name: "Diese Version behalten" }).click();
     await upToDate(a);

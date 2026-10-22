@@ -262,7 +262,12 @@ test("todo action menus close on Escape, outside clicks, and another row opening
   await page.getByRole("listitem").filter({ hasText: "Second task" }).getByText("Second task", { exact: true }).click();
   await expect(second).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByRole("checkbox", { name: "Second task" })).not.toBeChecked();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
   await page.getByText("Second task", { exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Edit to-do" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("checkbox", { name: "Second task" })).not.toBeChecked();
+  await page.getByRole("checkbox", { name: "Second task" }).click();
   await expect(page.getByRole("checkbox", { name: "Second task" })).toBeChecked();
 });
 

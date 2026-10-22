@@ -20,6 +20,7 @@ A private, offline-first expense ledger for two people. Record shared expenses i
 - Categorize expenses automatically, switch between German and English, and download or restore backups.
 
 Insurance reminders are derived from health and pharmacy expenses; manual to-dos remain separate from the ledger and never affect balances.
+Like expense rows, to-do rows open their details when selected. Use the checkbox at the left to complete or reopen a to-do; insurance reminders open the associated expense.
 
 ## How sync works
 

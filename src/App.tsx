@@ -326,10 +326,13 @@ function TodoList({ todos, manualTodos, conflicts, resolve, openCount, status, b
                   setOpen={(open) => setSwipedTodo(open ? id : null)} edit={() => edit(todo)} remove={() => remove(item)} onError={onError}
                   actionsLabel={t("To-do actions")} editLabel={t("Edit to-do")} deleteLabel={t("Delete to-do")}
                   deleteConfirmation={t("Delete this to-do for everyone in your household? This will sync when you are online.")}>
-                <label className="todo-check"><input type="checkbox" checked={done} disabled={manualBlocked.has(todo.id)} onChange={(event) => toggleManual(todo, event.target.checked)} />
-                  <span className="entry-icon"><ClipboardCheck size={20} /></span>
-                  <span className="entry-description"><strong>{todo.title}</strong>{todo.description && <small>{todo.description}</small>}</span>
-                </label>
+                  <div className="todo-row">
+                    <label className="todo-check"><input type="checkbox" aria-label={todo.title} checked={done} disabled={manualBlocked.has(todo.id)} onChange={(event) => toggleManual(todo, event.target.checked)} /></label>
+                    <button className="todo-details" disabled={manualBlocked.has(todo.id)} onClick={() => edit(todo)}>
+                      <span className="entry-icon"><ClipboardCheck size={20} /></span>
+                      <span className="entry-description"><strong>{todo.title}</strong>{todo.description && <small>{todo.description}</small>}</span>
+                    </button>
+                  </div>
                 </SwipeableRow>
               </li>;
             }
@@ -345,10 +348,13 @@ function TodoList({ todos, manualTodos, conflicts, resolve, openCount, status, b
                 setOpen={(open) => setSwipedTodo(open ? id : null)} edit={() => open(entry)} remove={() => remove(item)} onError={onError}
                 actionsLabel={t("To-do actions")} editLabel={t("Open expense")} deleteLabel={t("Delete entry")}
                 deleteConfirmation={t("Delete this entry for both of you? This will sync when you are online.")}>
-              <label className="todo-check"><input type="checkbox" checked={done} disabled={blocked.has(entry.id)} onChange={(event) => toggle(entry, event.target.checked)} />
-                <span className="entry-icon" data-category={category}><ExpenseIcon category={category} /></span>
-                <span className="entry-description"><strong>{t("Submit to insurance")}</strong><small>{details}</small></span>
-              </label>
+                <div className="todo-row">
+                  <label className="todo-check"><input type="checkbox" aria-label={`${t("Submit to insurance")}: ${entry.description}`} checked={done} disabled={blocked.has(entry.id)} onChange={(event) => toggle(entry, event.target.checked)} /></label>
+                  <button className="todo-details" disabled={blocked.has(entry.id)} onClick={() => open(entry)}>
+                    <span className="entry-icon" data-category={category}><ExpenseIcon category={category} /></span>
+                    <span className="entry-description"><strong>{t("Submit to insurance")}</strong><small>{details}</small></span>
+                  </button>
+                </div>
               </SwipeableRow>
             </li>;
           })}</ul>

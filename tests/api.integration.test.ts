@@ -68,7 +68,7 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     const cookie = consumed.headers.get("set-cookie")!;
     expect(cookie).toContain("HttpOnly");
     expect(cookie).toContain("SameSite=Lax");
-    expect(cookie).toContain("Max-Age=31536000");
+    expect(cookie).toContain("Max-Age=34560000");
     const secondSession = await call("auth/token", { token });
     expect(secondSession.status).toBe(200);
     const me = await call("me", undefined, cookie);
@@ -90,7 +90,7 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
   });
   it("upgrades existing cookies and renews both sync streams without creating a new session", async () => {
     const cookie = await login("b");
-    const expected = `${cookie}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000`;
+    const expected = `${cookie}; Path=/; HttpOnly; SameSite=Lax; Max-Age=34560000`;
     for (const path of ["me", "sync?since=0", "todo-sync?since=0"]) {
       const response = await call(path, undefined, cookie);
       expect(response.status).toBe(200);

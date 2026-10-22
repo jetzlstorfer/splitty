@@ -175,7 +175,7 @@ export const german = {
   "Sign out": "Abmelden",
   "Signing out does not erase this device's offline history. Use a trusted device.": "Beim Abmelden bleibt der Offline-Verlauf auf diesem Gerät. Verwende nur ein vertrauenswürdiges Gerät.",
   "Member token": "Mitglieds-Token",
-  "Sign-in is remembered for a year and renewed when you sync. Signing out, clearing browser data, or changing the member token requires signing in again.": "Die Anmeldung wird ein Jahr gespeichert und beim Synchronisieren verlängert. Nach dem Abmelden, dem Löschen der Browserdaten oder einer Änderung des Mitglieds-Tokens musst du dich erneut anmelden.",
+  "Sign-in is remembered for 400 days and renewed when you sync. Signing out, clearing browser data, or changing the member token requires signing in again.": "Die Anmeldung wird 400 Tage gespeichert und beim Synchronisieren verlängert. Nach dem Abmelden, dem Löschen der Browserdaten oder einer Änderung des Mitglieds-Tokens musst du dich erneut anmelden.",
   "Sign in": "Anmelden",
   "Household": "Haushalt",
   "First person": "Erste Person",

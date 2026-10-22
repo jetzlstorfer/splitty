@@ -42,7 +42,7 @@ for (const legacy of [false, true]) {
       }
       const cookie = (await context.cookies(baseURL)).find((item) => item.name === "splitty-local");
       expect(cookie).toMatchObject({ httpOnly: true, sameSite: "Lax", path: "/" });
-      expect(cookie!.expires).toBeGreaterThan(Date.now() / 1000 + 364 * 24 * 60 * 60);
+      expect(cookie!.expires).toBeGreaterThan(Date.now() / 1000 + 399 * 24 * 60 * 60);
       expect(await page.evaluate(() => document.cookie)).not.toContain("splitty-local");
       await page.evaluate(async () => { await navigator.serviceWorker.ready; });
       await page.reload();

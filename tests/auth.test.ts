@@ -10,13 +10,13 @@ const config: Config = {
 describe("persistent device cookies", () => {
   it("keeps production cookies host-only, secure and inaccessible to JavaScript", () => {
     expect(sessionCookie(config, "test-session")).toBe(
-      "__Host-splitty=test-session; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000; Secure"
+      "__Host-splitty=test-session; Path=/; HttpOnly; SameSite=Lax; Max-Age=34560000; Secure"
     );
   });
 
   it("uses the same persistent lifetime for local development", () => {
     expect(sessionCookie({ ...config, local: true }, "test-session")).toBe(
-      "splitty-local=test-session; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000"
+      "splitty-local=test-session; Path=/; HttpOnly; SameSite=Lax; Max-Age=34560000"
     );
   });
 

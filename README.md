@@ -44,6 +44,8 @@ Local-only use needs no account or Azure resources. Shared sync requires a backe
 
 For conflict handling, data retention, and the full sync lifecycle, see [synchronization and deployment](docs/synchronization-and-deployment.md).
 
+For a proposed shared deployment supporting multiple households and indicative Azure costs, see the [multi-tenant plan](docs/multi-tenant-plan.md). Multi-tenancy is not implemented.
+
 ## Run locally
 
 Use Node.js 22.13+ or 24+ and npm:

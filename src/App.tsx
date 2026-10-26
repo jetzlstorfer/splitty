@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { liveQuery } from "dexie";
 import {
-  BarChart3, Check, ChevronDown, ClipboardCheck, Cloud, CloudOff,
+  BarChart3, Check, ChevronDown, ClipboardCheck, Cloud, CloudAlert, CloudOff,
   Download, Languages, Plus, Receipt, RefreshCw, Search, Settings, Sparkles, Sun, Trash2, Upload, Users, X
 } from "lucide-react";
 import { calculateShareA, expenseBalance, parseMoney, type Entry, type Member, type SplitType } from "../shared/model";
@@ -281,10 +281,10 @@ function TodoForm({ todo, close, saved }: { todo?: Todo; close: () => void; save
   </Sheet>;
 }
 
-function TodoList({ todos, manualTodos, conflicts, resolve, openCount, status, blocked, open, toggle, edit, toggleManual, remove, onError }: {
+function TodoList({ todos, manualTodos, conflicts, resolve, openCount, status, statusQuiet, blocked, open, toggle, edit, toggleManual, remove, onError }: {
   todos: HouseholdTodo[]; manualTodos: Todo[]; conflicts: Conflict<Todo>[];
   resolve: (id: string, keepLocal: boolean) => void;
-  openCount: number; status: string; blocked: Set<string>;
+  openCount: number; status: string; statusQuiet: boolean; blocked: Set<string>;
   open: (entry: Entry) => void; toggle: (entry: Entry, submitted: boolean) => void;
   edit: (todo: Todo) => void; toggleManual: (todo: Todo, done: boolean) => void;
   remove: (item: HouseholdTodo) => Promise<void>; onError: (error: unknown) => void;
@@ -295,7 +295,7 @@ function TodoList({ todos, manualTodos, conflicts, resolve, openCount, status, b
   const version = (todo: Todo | null | undefined) => !todo ? t("Not present") : todo.deleted ? t("Deleted")
     : `${todo.title}${todo.description ? `\n${todo.description}` : ""}\n${t(todo.done ? "Done" : "Open to-dos")}`;
   return <section className="todos-page"><header className="page-heading"><h1>{t("To-dos")}<span className="entry-count">{number(openCount)}</span></h1></header>
-    <p className="sync-status" role="status">{status}</p>
+    <p className={`sync-status ${statusQuiet ? "sr-only" : ""}`} role="status">{status}</p>
     {!!conflicts.length && <section className="conflict-panel" aria-label={t("Conflicting to-do edits")}><h3>{t("Conflicting to-do edits")}</h3>
       <p>{t("These to-dos changed on another device. Choose which version to keep.")}</p>
       {conflicts.map((conflict) => <div key={conflict.entryId}>
@@ -386,6 +386,8 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [syncStatus, setSyncStatus] = useState("Saved on this device");
   const [syncBusy, setSyncBusy] = useState(navigator.onLine);
+  const upToDate = syncStatus === "Up to date";
+  const needsAttention = !["Up to date", "Syncing…", "Saved on this device", "Saved locally · changes waiting to sync"].includes(syncStatus);
   const syncLock = useRef<Promise<void> | null>(null);
   const syncRequested = useRef(false);
   const [error, setError] = useState("");
@@ -552,12 +554,12 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement || event.target instanceof HTMLTextAreaElement) event.target.setCustomValidity("");
   }}>
     <header className="topbar"><a className="wordmark" href="/" aria-label={t("Splitty home")}><img key={logoPulse.sequence} className={`brand-mark ${syncBusy ? "is-syncing" : logoPulse.active ? "is-saving" : ""}`} src="/icon.svg" width="32" height="32" alt="" />Splitty</a>
-      <button className={`sync-pill ${online ? "" : "offline"}`} onClick={() => void sync()} disabled={syncBusy} aria-busy={syncBusy} aria-label={t("Synchronize devices")}>{online ? <Cloud size={16} /> : <CloudOff size={16} />}<span>{syncBusy ? t("Syncing") : ledger.pending ? t("{count} pending", { count: number(ledger.pending) }) : t(online ? "Sync" : "Offline")}</span></button>
+      <button className={`sync-pill ${online ? "" : "offline"}`} onClick={() => void sync()} disabled={syncBusy} aria-busy={syncBusy} aria-label={t("Synchronize devices")}>{!online ? <CloudOff size={16} /> : needsAttention ? <CloudAlert size={16} /> : <span className="sync-icon"><Cloud size={16} />{upToDate && <Check className="sync-check" size={9} strokeWidth={4} />}</span>}<span>{syncBusy ? t("Syncing") : ledger.pending ? t("{count} pending", { count: number(ledger.pending) }) : t(online ? "Sync" : "Offline")}</span></button>
     </header>
     <main className={tab === "expenses" || tab === "todos" ? "with-expense-action" : undefined}>
       {error && <div className="banner error" role="alert">{message(error)}<button className="icon-button" aria-label={t("Dismiss error")} onClick={() => setError("")}><X size={18} /></button></div>}
       {update && <div className="banner">{t("An app update is ready. Your saved entries will be kept.")}<button onClick={() => void update().catch((e: Error) => setError(e.message))} className="text-button">{t("Update")}</button></div>}
-      {tab === "todos" ? <TodoList todos={todos} openCount={openTodos} status={message(syncStatus)} blocked={conflictIds} open={setForm}
+      {tab === "todos" ? <TodoList todos={todos} openCount={openTodos} status={message(syncStatus)} statusQuiet={upToDate} blocked={conflictIds} open={setForm}
         manualTodos={ledger.todos} conflicts={ledger.todoConflicts}
         resolve={(id, keepLocal) => void resolveStoreConflict(id, keepLocal, todoStore()).then(saved).catch((e: Error) => setError(e.message))}
         edit={setTodoForm}
@@ -600,7 +602,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
             <button className="secondary" onClick={() => void resolveConflict(conflict.entryId, true).then(saved).catch((e: Error) => setError(e.message))}>{t("Keep this device")}</button>
           </div></div>;
         })}</section>}
-        <p className="sync-status" role="status">{message(syncStatus)}</p>
+        <p className={`sync-status ${upToDate ? "sr-only" : ""}`} role="status">{message(syncStatus)}</p>
         <section className="ledger-section" aria-label={t(tab === "search" ? "Search results" : "Expenses")}>
           {tab === "search" && <div className="section-title"><h2>{t("Search results")}<span>{number(shown.length)}</span></h2></div>}
           {!shown.length ? <div className="empty-state"><h2>{t(query ? "No matching expenses" : "No expenses yet")}</h2>{query && <p>{t("Try a different description, category or date.")}</p>}</div> :

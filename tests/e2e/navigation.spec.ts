@@ -85,6 +85,9 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     const releases = [expenses.release, todos.release];
     const icon = page.locator(".topbar .brand-mark");
     const button = page.locator(".sync-pill");
+    const nav = page.getByRole("navigation");
+    const status = page.locator(".sync-status");
+    const listTabs = ["Ausgaben", "To-dos", "Suche"];
     const motion = reducedMotion === "no-preference";
     try {
       await page.goto("/");
@@ -108,15 +111,36 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
             await expect(icon).toHaveCSS("transform", "none");
             await expect(icon).not.toHaveCSS("box-shadow", "none");
           }
-          expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+          for (const tab of listTabs) {
+            await nav.getByRole("button", { name: tab, exact: true }).click();
+            await expect(status).toHaveText("Wird synchronisiert…");
+            await expect(status).toHaveCSS("clip", "rect(0px, 0px, 0px, 0px)");
+            await expect(status).toHaveCSS("position", "absolute");
+            expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+          }
         }
       }
+      await nav.getByRole("button", { name: "Einstellungen", exact: true }).click();
+      await expect(page.getByRole("status")).toHaveText("Wird synchronisiert…");
+      await expect(page.getByRole("status")).toBeVisible();
+      await nav.getByRole("button", { name: "Ausgaben", exact: true }).click();
       expenses.release();
       await todos.started;
       await expect(icon).toHaveClass(/is-syncing/);
       await expect(button).toHaveAttribute("aria-busy", "true");
+      await expect(status).toHaveText("Wird synchronisiert…");
+      await expect(status).toHaveCSS("clip", "rect(0px, 0px, 0px, 0px)");
       todos.release();
-      await expect(page.locator(".sync-status")).toHaveText("Auf dem neuesten Stand");
+      for (const tab of listTabs) {
+        await nav.getByRole("button", { name: tab, exact: true }).click();
+        await expect(status).toHaveText("Auf dem neuesten Stand");
+        await expect(status).toHaveCSS("clip", "rect(0px, 0px, 0px, 0px)");
+        await expect(status).toHaveCSS("position", "absolute");
+      }
+      await nav.getByRole("button", { name: "Einstellungen", exact: true }).click();
+      await expect(page.getByRole("status")).toHaveText("Auf dem neuesten Stand");
+      await expect(page.getByRole("status")).toBeVisible();
+      await nav.getByRole("button", { name: "Ausgaben", exact: true }).click();
       await expect(icon).not.toHaveClass(/is-syncing/);
       await expect(icon).toHaveCSS("animation-name", "none");
       await expect(icon).toHaveCSS("transform", "none");
@@ -130,7 +154,12 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
       await failed.started;
       await expect(icon).toHaveClass(/is-syncing/);
       failed.release();
-      await expect(page.locator(".sync-status")).not.toHaveText("Auf dem neuesten Stand");
+      for (const tab of listTabs) {
+        await nav.getByRole("button", { name: tab, exact: true }).click();
+        await expect(status).toHaveText("Die Synchronisierung ist fehlgeschlagen.");
+        await expect(status).toBeVisible();
+        await expect(status).toHaveCSS("clip", "auto");
+      }
       await expect(icon).not.toHaveClass(/is-syncing/);
       await expect(icon).toHaveCSS("animation-name", "none");
       await expect(button).toHaveAttribute("aria-busy", "false");
@@ -146,6 +175,12 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
       await expect(icon).toHaveCSS("box-shadow", "none");
       await expect(button).toHaveAttribute("aria-busy", "false");
       await expect(button).toContainText("Offline");
+      for (const tab of listTabs) {
+        await nav.getByRole("button", { name: tab, exact: true }).click();
+        await expect(status).toHaveText("Offline · Änderungen bleiben auf diesem Gerät");
+        await expect(status).toBeVisible();
+        await expect(status).toHaveCSS("clip", "auto");
+      }
     } finally {
       for (const release of releases) release();
     }

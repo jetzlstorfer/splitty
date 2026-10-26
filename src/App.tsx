@@ -387,6 +387,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const [syncStatus, setSyncStatus] = useState("Saved on this device");
   const [syncBusy, setSyncBusy] = useState(navigator.onLine);
   const upToDate = syncStatus === "Up to date";
+  const statusQuiet = upToDate || syncStatus === "Syncing…";
   const needsAttention = !["Up to date", "Syncing…", "Saved on this device", "Saved locally · changes waiting to sync"].includes(syncStatus);
   const syncLock = useRef<Promise<void> | null>(null);
   const syncRequested = useRef(false);
@@ -559,7 +560,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     <main className={tab === "expenses" || tab === "todos" ? "with-expense-action" : undefined}>
       {error && <div className="banner error" role="alert">{message(error)}<button className="icon-button" aria-label={t("Dismiss error")} onClick={() => setError("")}><X size={18} /></button></div>}
       {update && <div className="banner">{t("An app update is ready. Your saved entries will be kept.")}<button onClick={() => void update().catch((e: Error) => setError(e.message))} className="text-button">{t("Update")}</button></div>}
-      {tab === "todos" ? <TodoList todos={todos} openCount={openTodos} status={message(syncStatus)} statusQuiet={upToDate} blocked={conflictIds} open={setForm}
+      {tab === "todos" ? <TodoList todos={todos} openCount={openTodos} status={message(syncStatus)} statusQuiet={statusQuiet} blocked={conflictIds} open={setForm}
         manualTodos={ledger.todos} conflicts={ledger.todoConflicts}
         resolve={(id, keepLocal) => void resolveStoreConflict(id, keepLocal, todoStore()).then(saved).catch((e: Error) => setError(e.message))}
         edit={setTodoForm}
@@ -602,7 +603,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
             <button className="secondary" onClick={() => void resolveConflict(conflict.entryId, true).then(saved).catch((e: Error) => setError(e.message))}>{t("Keep this device")}</button>
           </div></div>;
         })}</section>}
-        <p className={`sync-status ${upToDate ? "sr-only" : ""}`} role="status">{message(syncStatus)}</p>
+        <p className={`sync-status ${statusQuiet ? "sr-only" : ""}`} role="status">{message(syncStatus)}</p>
         <section className="ledger-section" aria-label={t(tab === "search" ? "Search results" : "Expenses")}>
           {tab === "search" && <div className="section-title"><h2>{t("Search results")}<span>{number(shown.length)}</span></h2></div>}
           {!shown.length ? <div className="empty-state"><h2>{t(query ? "No matching expenses" : "No expenses yet")}</h2>{query && <p>{t("Try a different description, category or date.")}</p>}</div> :

@@ -18,6 +18,7 @@ A private, offline-first expense ledger for two people. Record shared expenses i
 - Use the installable PWA offline; queued changes sync when a device reconnects.
 - Import German or English Splitwise CSV exports and check the final balance before confirming.
 - Categorize expenses automatically, switch between German and English, and download or restore backups.
+- Optionally scan German/English receipts on-device, review suggestions, and download the scanner for offline use.
 
 Insurance reminders are derived from health and pharmacy expenses; manual to-dos remain separate from the ledger and never affect balances.
 Like expense rows, to-do rows open their details when selected. Use the checkbox at the left to complete or reopen a to-do; insurance reminders open the associated expense.
@@ -43,6 +44,54 @@ flowchart LR
 Local-only use needs no account or Azure resources. Shared sync requires a backend. Browser storage can be cleared or evicted, so download a backup before replacing a device or clearing site data. This app is not end-to-end encrypted.
 
 For conflict handling, data retention, and the full sync lifecycle, see [synchronization and deployment](docs/synchronization-and-deployment.md).
+
+## Local receipt scanning
+
+In a **new expense**, choose **Beleg scannen (optional) / Scan receipt (optional)**,
+then **Scanner herunterladen / Download scanner**. The optional download is about
+16 MB, hosted with Splitty rather than a third-party OCR service. It includes the
+Tesseract.js WebAssembly runtime and German/English language data. Manual entry
+does not download these assets and does not depend on the scanner.
+
+Take a photo with the Android camera picker or choose a JPEG, PNG, or WebP image
+under 20 MB. Use a sharp, upright photo cropped around the receipt. Processing
+runs locally in a cancellable worker; keep the app open while scanning. Large
+photos are resized before recognition. Speed and accuracy depend on the phone,
+receipt layout, print quality, and lighting; this is best-effort autofill, not
+reliable financial document understanding.
+
+Review the suggested merchant, date, total, currency, and any warnings. **Use
+suggestions** copies identified fields into the editable expense form; fields
+without a suggestion keep their existing value. Payer and split are unchanged.
+Review/correct the form and explicitly **Save** it. Scanning, retrying, cancelling,
+closing the form, or applying suggestions never creates an expense on its own.
+Low-confidence text and ambiguous totals/dates are left for manual entry.
+Recognized text is available for inspection while the form is open.
+
+The ledger remains EUR-only. A detected foreign or mixed currency never fills
+the amount; enter a converted EUR amount manually. If no currency is recognized,
+confirm that the receipt is in EUR before applying its total. No exchange rates
+or automatic currency conversion are provided.
+
+After the scanner download and app service-worker activation, scanning works
+offline, including after an offline reload. The OCR assets use a separate cache
+and are excluded from the normal app-shell download. Clearing or evicting browser
+storage requires another download. Offline behavior requires a production build;
+the Vite development server is for online development. If downloading or scanning
+fails, an error is shown and manual entry remains available.
+
+Splitty never uploads or persists receipt photos or OCR text, and provides no
+receipt-image sharing or retrieval endpoint. The camera/gallery may retain its
+own original photo outside Splitty. Only the confirmed expense fields enter the
+existing household sync and backups. There is no cloud OCR fallback, OCR API key,
+per-scan OCR charge, or added receipt storage; normal static hosting/download
+costs still apply. Use a trusted device with a screen lock, as with the ledger.
+
+The build serves the pinned OCR packages under `receipt-ocr-v1`, including their
+runtime license notices. When updating the runtime or language packages, bump
+the asset/cache version in `src\receiptAssets.ts`, the service-worker route in
+`vite.config.ts`, and the fallback exclusion in `public\staticwebapp.config.json`
+together so cached assets cannot mix incompatible versions.
 
 ## Run locally
 
@@ -103,5 +152,9 @@ npm run test:e2e
 ```
 
 See [browser validation](.github/skills/browser-validation/SKILL.md) and [offline-sync validation](.github/skills/offline-sync-validation/SKILL.md) for focused test setup. See [Copilot instructions](.github/copilot-instructions.md) for repository conventions.
+
+Receipt browser checks use generated, non-personal receipt images and the real
+local OCR engine. They cover editable suggestions, currency safeguards, retries,
+cancellation, download failures, and scanning again after an offline reload.
 
 For the local API, emulator, and registry setup, see [development](docs/development.md).

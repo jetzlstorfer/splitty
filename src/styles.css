@@ -215,6 +215,21 @@ input::placeholder { color: var(--cp-text-soft); }
 .file-picker input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
 .search:focus-within, .description-input:focus-within, .file-picker:focus-within { outline: 3px solid var(--cp-accent); outline-offset: 3px; }
 .file-picker:has(input:disabled) { opacity: .55; }
+.receipt-scanner { margin-bottom: 20px; }
+.receipt-content { margin-top: 12px; padding: 12px; border: 1px solid var(--cp-border); border-radius: 10px; }
+.receipt-content p { font-size: 12px; margin-bottom: 12px; }
+.receipt-inputs { margin-block: 12px; flex-wrap: wrap; }
+.receipt-inputs .file-picker { flex-direction: row; min-width: 110px; font-size: 12px; }
+.receipt-inputs svg { flex-shrink: 0; }
+.receipt-content progress { width: 100%; accent-color: var(--cp-accent); }
+.receipt-result dl { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px; }
+.receipt-result dt { color: var(--cp-text-muted); }
+.receipt-result dd { margin: 0; overflow-wrap: anywhere; }
+.receipt-warning { color: var(--cp-warning); }
+.receipt-result .success { margin-top: 12px; }
+.receipt-result details { margin-top: 12px; font-size: 12px; }
+.receipt-result summary { cursor: pointer; min-height: 44px; padding-block: 12px; }
+.receipt-result pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: Consolas, "Courier New", Courier, monospace; max-height: 240px; overflow-y: auto; }
 .description-input > input { border: 0; padding-left: 0; font-size: 20px; border-radius: 0; }
 .search input:focus-visible, .description-input > input:focus-visible { outline: none; }
 label { display: flex; flex-direction: column; gap: 8px; font-size: 12px; color: var(--cp-text-muted); font-weight: 500; }

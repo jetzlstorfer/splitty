@@ -16,6 +16,7 @@ import ExpenseIcon from "./ExpenseIcon";
 import SwipeableRow from "./SwipeableRow";
 import Statistics from "./StatisticsPage";
 import { householdTodos, type HouseholdTodo } from "./todos";
+import ReceiptScanner from "./ReceiptScanner";
 
 const today = () => {
   const date = new Date();
@@ -93,6 +94,7 @@ function ExpenseForm({ entry, settlement, preferences: p, close, saved }: {
   const [expanded, setExpanded] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [scanBusy, setScanBusy] = useState(false);
   const [categoryChoice, setCategoryChoice] = useState<Category | "auto">(() => {
     const category = entry ? storedCategory(entry.category) : undefined;
     if (entry?.categoryMode === "manual" && category && category !== "payment") return category;
@@ -117,6 +119,7 @@ function ExpenseForm({ entry, settlement, preferences: p, close, saved }: {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (busy || scanBusy) return;
     setBusy(true); setError("");
     try {
       let value: Entry;
@@ -159,6 +162,11 @@ function ExpenseForm({ entry, settlement, preferences: p, close, saved }: {
   const other = p.member === "a" ? p.nameB : p.nameA;
   return <Sheet title={t(entry ? "Edit entry" : settlement ? "Settle up" : "Add an expense")} close={close} initialFocus={!entry ? "#expense-description" : undefined}>
     <form onSubmit={submit} className="expense-form" lang={language}>
+      {!entry && !settlement && <ReceiptScanner onBusyChange={setScanBusy} apply={(draft) => {
+        if (draft.merchant) setDescription(draft.merchant);
+        if (draft.date) setDate(draft.date);
+        if (draft.amountCents) setAmount((draft.amountCents / 100).toFixed(2).replace(".", language === "de" ? "," : "."));
+      }} />}
       <div className="description-field"><label htmlFor="expense-description">{t("Description")}</label><div className="description-input" data-category={category}><ExpenseIcon category={category} size={24} /><input id="expense-description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t(settlement ? "Payment" : "Enter a description")} required maxLength={500} /></div></div>
       <label>{t("Amount in EUR")}<div className="amount-input"><span>€</span><input aria-label={t("Amount in EUR")} inputMode="decimal" value={amount} readOnly={imported} onChange={(e) => setAmount(e.target.value)} placeholder={language === "de" ? "0,00" : "0.00"} required /></div></label>
       {imported ? <p className="notice">{t("Imported balance: {amount} for {name}. The CSV does not reliably identify the original payer or split, so those amounts are preserved. Description and date can be edited.", { amount: money(entry.balanceA), name: p.nameA })}</p> : <>
@@ -188,7 +196,7 @@ function ExpenseForm({ entry, settlement, preferences: p, close, saved }: {
         {(Object.keys(categoryLabels) as Category[]).filter((key) => key !== "payment").map((key) => <option key={key} value={key}>{t(categoryLabels[key])}</option>)}
       </select><span className="category-detected" role="status">{t(categoryChoice === "auto" ? "Detected: {category}" : "Selected: {category}", { category: t(categoryLabels[category]) })}</span></label>}
       {error && <p className="error" role="alert">{message(error)}</p>}
-      <button className="primary" disabled={busy} type="submit"><Check size={19} />{t(busy ? "Saving…" : "Save")}</button>
+      <button className="primary" disabled={busy || scanBusy} type="submit"><Check size={19} />{t(busy ? "Saving…" : "Save")}</button>
       {entry && <button className="danger-link" type="button" disabled={busy} onClick={remove}><Trash2 size={16} />{t("Delete entry")}</button>}
     </form>
   </Sheet>;

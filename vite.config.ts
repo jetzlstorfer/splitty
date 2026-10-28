@@ -1,10 +1,35 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { RECEIPT_ASSET_PATH, RECEIPT_CACHE, receiptAssets } from "./src/receiptAssets";
+
+const ocrFiles = Object.entries(receiptAssets).map(([name, source]) => ({
+  url: `${RECEIPT_ASSET_PATH}/${name}`,
+  source: resolve("node_modules", source),
+  contentType: name.endsWith(".gz") ? "application/gzip" : name.endsWith(".txt") ? "text/plain" : "text/javascript"
+}));
 
 export default defineConfig({
   plugins: [
     react(),
+    {
+      name: "local-receipt-assets",
+      generateBundle() {
+        for (const file of ocrFiles) {
+          this.emitFile({ type: "asset", fileName: file.url.slice(1), source: readFileSync(file.source) });
+        }
+      },
+      configureServer(server) {
+        server.middlewares.use((request, response, next) => {
+          const file = ocrFiles.find((candidate) => candidate.url === request.url);
+          if (!file) return next();
+          response.setHeader("Content-Type", file.contentType);
+          response.end(readFileSync(file.source));
+        });
+      }
+    },
     VitePWA({
       registerType: "prompt",
       includeAssets: ["icon.svg"],
@@ -25,9 +50,16 @@ export default defineConfig({
         ]
       },
       workbox: {
+        clientsClaim: true,
         globPatterns: ["**/*.{js,css,html,svg,png,woff2}"],
-        navigateFallbackDenylist: [/^\/api(?:\/|$)/],
-        cleanupOutdatedCaches: true
+        globIgnores: ["**/receipt-ocr-*/**"],
+        navigateFallbackDenylist: [/^\/api(?:\/|$)/, /^\/receipt-ocr-/],
+        cleanupOutdatedCaches: true,
+        runtimeCaching: [{
+          urlPattern: ({ url }) => url.origin === self.location.origin && url.pathname.startsWith("/receipt-ocr-v1/"),
+          handler: "CacheFirst",
+          options: { cacheName: RECEIPT_CACHE, cacheableResponse: { statuses: [200] } }
+        }]
       }
     })
   ],

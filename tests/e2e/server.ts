@@ -46,7 +46,7 @@ export async function startStorage() {
     await rm(directory, { recursive: true, force: true });
   };
   try {
-    const deadline = Date.now() + 30_000;
+    const deadline = Date.now() + 60_000;
     while (true) {
       if (!running()) throw new Error(`Browser-test storage exited: ${output}`);
       try { await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(1000) }); break; }

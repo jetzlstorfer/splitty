@@ -1,4 +1,6 @@
-import { rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, test, type BrowserContext, type Page } from "./fixtures";
 import { signIn as signInMember, useEnglish } from "./helpers";
 
@@ -16,7 +18,8 @@ const sessionCookie = async (context: BrowserContext, baseURL?: string) =>
 
 test("recovers when the browser drops the session cookie but keeps offline data", async ({ browser, baseURL }, info) => {
   test.setTimeout(120_000);
-  const profile = info.outputPath("browser-profile");
+  // Chromium's nested CacheStorage paths exceed Windows limits under test-results.
+  const profile = await mkdtemp(join(tmpdir(), "splitty-session-"));
   const launch = () => browser.browserType().launchPersistentContext(profile, {
     baseURL, channel: info.project.use.channel, viewport: { width: 393, height: 851 },
     isMobile: true, hasTouch: true
@@ -35,8 +38,16 @@ test("recovers when the browser drops the session cookie but keeps offline data"
     expect(await page.evaluate(() => document.cookie)).not.toContain("splitty-local");
 
     // Android Chrome has been observed dropping only the cookie; IndexedDB survives.
-    await context.clearCookies();
+    await expect.poll(() => page.evaluate(async () => {
+      const registration = await navigator.serviceWorker.getRegistration();
+      return {
+        active: registration?.active?.state ?? null,
+        installing: registration?.installing?.state ?? null,
+        waiting: registration?.waiting?.state ?? null
+      };
+    }), { timeout: 15_000 }).toMatchObject({ active: "activated" });
     await page.evaluate(async () => { await navigator.serviceWorker.ready; });
+    await context.clearCookies();
     await page.reload();
     await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
     await syncDetails(page);

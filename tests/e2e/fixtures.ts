@@ -22,7 +22,7 @@ export const test = base.extend<{
       if (previous === undefined) delete process.env.TABLE_STORAGE_CONNECTION_STRING;
       else process.env.TABLE_STORAGE_CONNECTION_STRING = previous;
     }
-  }, { scope: "worker" }],
+  }, { scope: "worker", timeout: 90_000 }],
   app: [async ({ storage: _storage }, use) => {
     const values = {
       NODE_ENV: "test", APP_ORIGIN: "", LOCAL_DEVELOPMENT: "true",

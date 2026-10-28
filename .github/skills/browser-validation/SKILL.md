@@ -59,6 +59,9 @@ developer's servers, credentials, or saved household data.
      Wait for state updates and CSS transitions using assertions, not fixed sleeps.
 8. For offline reloads, wait for `navigator.serviceWorker.ready`, reload, and
    verify that a service worker controls the page before disconnecting.
+   For persistent Chromium contexts, use a short OS temporary profile path;
+   deeply nested test-result paths can break CacheStorage on Windows. Close the
+   context before deleting its task-owned profile.
    For storage or sync changes, also follow
    [offline-sync validation](../offline-sync-validation/SKILL.md).
 9. On failure, inspect the assertion, error context, and retained trace. Fix the

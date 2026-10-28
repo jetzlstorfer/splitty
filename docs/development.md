@@ -68,6 +68,10 @@ data are also cleaned up. Do not start browser-test servers manually or reuse
 personal local settings. The separate API integration suite still needs its own
 emulator.
 
+Persistent Chromium profiles use short, task-owned OS temporary directories:
+deep paths under test results can make CacheStorage fail on Windows. Close the
+context before removing its profile.
+
 Chromium owns the main regression suite. WebKit runs
 [the mobile/PWA smoke tests](../tests/e2e/webkit.spec.ts) and
 [the themed-control regressions](../tests/e2e/controls.spec.ts), not the

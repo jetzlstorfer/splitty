@@ -299,6 +299,11 @@ input:disabled { opacity: .55; cursor: default; }
 .success { color: var(--cp-success); font-size: 13px; }
 .muted { color: var(--cp-text-soft); font-size: 13px; line-height: 1.6; }
 .banner { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px; border: 1px solid var(--cp-border); background: var(--cp-surface); border-radius: 10px; margin-bottom: 20px; font-size: 13px; }
+.update-card { margin: 20px 0; }
+.update-card h2 { display: flex; align-items: center; gap: 12px; margin: 0; font-size: 24px; font-weight: 700; line-height: 1.25; letter-spacing: -.6px; }
+.update-card h2 > svg { flex-shrink: 0; color: #b5e9d8; }
+.update-card p { margin: 10px 0 16px; color: #c3dfd4; font-size: 14px; }
+.update-card .primary:focus-visible { outline-color: #b5e9d8; }
 .conflict-panel { margin-top: 24px; border: 1px solid var(--cp-warning); padding: 16px; background: var(--cp-surface); border-radius: 12px; font-size: 13px; }
 .conflict-panel h3 { font-size: 16px; }
 .conflict-panel > div + div { margin-top: 24px; }
@@ -326,7 +331,7 @@ input:disabled { opacity: .55; cursor: default; }
 .statistics-period button[aria-pressed="true"] { background: var(--cp-surface); color: var(--cp-accent-text); box-shadow: 0 1px 5px var(--cp-highlight); }
 .statistics-month { display: flex; align-items: center; justify-content: space-between; min-height: 60px; gap: 8px; font-size: 15px; font-weight: 600; text-align: center; }
 .statistics-month > span { flex: 1; }
-.statistics-hero { padding: 22px; border-radius: 22px; background: radial-gradient(ellipse at top right, #246957 0, transparent 65%), #123d33; color: #fff; }
+.accent-hero { padding: 22px; border-radius: 22px; background: radial-gradient(ellipse at top right, #246957 0, transparent 65%), #123d33; color: #fff; }
 .statistics-eyebrow { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #b5e9d8; }
 .statistics-total { display: block; font-size: clamp(30px, 9vw, 44px); letter-spacing: -1.5px; line-height: 1.2; margin: 12px 0 6px; overflow-wrap: anywhere; }
 .statistics-hero > p { font-size: 12px; color: #c3dfd4; margin-bottom: 20px; }

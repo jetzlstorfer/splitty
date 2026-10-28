@@ -588,7 +588,13 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     </header>
     <main className={tab === "expenses" || tab === "todos" ? "with-expense-action" : undefined}>
       {error && <div className="banner error" role="alert">{message(error)}<button className="icon-button" aria-label={t("Dismiss error")} onClick={() => setError("")}><X size={18} /></button></div>}
-      {update && <div className="banner">{t("An app update is ready. Your saved entries will be kept.")}<button onClick={() => void update().catch((e: Error) => setError(e.message))} className="text-button">{t("Update")}</button></div>}
+      {update && <section className="update-card accent-hero" aria-labelledby="update-title">
+        <div role="status">
+          <h2 id="update-title"><Sparkles size={24} aria-hidden="true" />{t("New version available")}</h2>
+          <p>{t("Your saved entries will be kept.")}</p>
+        </div>
+        <button onClick={() => void update().catch((e: Error) => setError(e.message))} className="primary"><RefreshCw size={18} aria-hidden="true" />{t("Update")}</button>
+      </section>}
       {tab === "todos" ? <TodoList todos={todos} openCount={openTodos} blocked={conflictIds} open={setForm}
         conflicts={ledger.todoConflicts}
         edit={setTodoForm}

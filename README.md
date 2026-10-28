@@ -24,6 +24,8 @@ Like expense rows, to-do rows open their details when selected. Use the checkbox
 
 Dropdowns, date selection, confirmations, and validation messages use Splitty's theme in both light and dark mode. Dates can also be typed as `YYYY-MM-DD`. The device keyboard, file picker, and permission prompts remain system-provided.
 
+When a new app version is ready, a prominent green card above the current page offers an **Update** button. Updating keeps your saved entries.
+
 ## How sync works
 
 Each device saves changes to IndexedDB first, so recording an expense does not wait for the network. When online, the app sends queued changes to the same-origin API. The API stores versioned records and an ordered change log; devices pull updates to converge. Expenses and manual to-dos have separate outboxes and sync cursors.

@@ -109,7 +109,7 @@ test("accepting a real service-worker update preserves queued expenses and todos
     await registration.update();
   });
   await expect.poll(() => page.evaluate(async () => !!(await navigator.serviceWorker.ready).waiting)).toBe(true);
-  await expect(page.locator(".banner").filter({ hasText: "An app update is ready. Your saved entries will be kept." })).toBeVisible();
+  await expect(page.getByRole("region", { name: "New version available", exact: true })).toContainText("Your saved entries will be kept.");
   await Promise.all([
     page.waitForEvent("load"),
     page.getByRole("button", { name: "Update", exact: true }).click()

@@ -79,6 +79,7 @@ html[data-theme="dark"] {
 html { scroll-padding-top: calc(72px + env(safe-area-inset-top)); }
 body { margin: 0; background: var(--cp-bg); color: var(--cp-text); font-family: "Segoe UI", Aptos, Calibri, -apple-system, BlinkMacSystemFont, sans-serif; -webkit-tap-highlight-color: var(--cp-accent-soft); }
 button, input, select, textarea { font: inherit; }
+button, input, textarea { appearance: none; -webkit-appearance: none; }
 button, a, input, select, textarea { touch-action: manipulation; }
 button { cursor: pointer; }
 button:disabled { opacity: .55; cursor: default; }
@@ -127,6 +128,7 @@ h1 { font-size: 24px; line-height: 1.25; font-weight: 650; letter-spacing: -.6px
 .search { display: flex; flex-direction: row; align-items: center; gap: 10px; background: var(--cp-surface-soft); border: 1px solid var(--cp-border); border-radius: 6px; padding: 0 12px; color: var(--cp-text-soft); }
 .search > svg { flex-shrink: 0; }
 .search input { border: 0; background: none; padding: 10px 0; min-height: 48px; font-size: 16px; }
+.search input::-webkit-search-cancel-button { display: none; }
 .search-hint { margin: 8px 0 0; color: var(--cp-text-soft); font-size: 12px; }
 input::placeholder { color: var(--cp-text-soft); }
 .empty-state { text-align: center; padding: 32px 12px; border-top: 1px solid var(--cp-border); }
@@ -208,7 +210,7 @@ input::placeholder { color: var(--cp-text-soft); }
 .expense-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .description-input > .expense-icon { color: var(--category-ink); }
 .category-picker { margin-bottom: 20px; }
-.category-picker select { font-size: 14px; }
+.category-picker .select-control { font-size: 14px; }
 .category-detected { font-size: 12px; color: var(--cp-text-soft); }
 .file-picker { display: flex; align-items: center; gap: 10px; position: relative; min-height: 48px; padding: 8px; border: 1px solid var(--cp-border); border-radius: 6px; overflow-wrap: anywhere; }
 .file-picker-button { flex-shrink: 0; background: var(--cp-surface-soft); padding: 8px; border-radius: 4px; color: var(--cp-text); }
@@ -225,13 +227,53 @@ form > label, .panel-content > label { margin-bottom: 20px; }
 .amount-input > span { font-size: 32px; color: var(--cp-text-soft); padding: 0 12px; }
 .amount-input input { border: 0; background: none; font-size: 40px; font-weight: 600; padding-left: 4px; letter-spacing: -1px; }
 .split-summary { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 20px 0 12px; font-size: 13px; color: var(--cp-text-muted); }
-.split-summary select { width: auto; max-width: 65%; font-size: 14px; min-height: 44px; }
+.split-summary .select-control { width: auto; max-width: 65%; font-size: 14px; min-height: 44px; }
 .split-button { display: flex; justify-content: space-between; align-items: center; width: 100%; text-align: left; background: var(--cp-accent-soft); border: 1px solid var(--cp-highlight); padding: 14px; color: var(--cp-accent-text); margin-bottom: 24px; font-size: 14px; }
 .split-button small { display: block; font-size: 11px; margin-top: 6px; color: var(--cp-text-muted); }
 .split-options { border: 1px solid var(--cp-border); border-radius: 6px; padding: 16px; margin: 0 0 24px; }
 .split-options legend { font-size: 12px; color: var(--cp-text-muted); padding: 0 6px; }
 .radio { display: flex; flex-direction: row; align-items: center; gap: 10px; min-height: 44px; font-size: 14px; }
 .radio input { width: 18px; height: 18px; min-height: 18px; accent-color: var(--cp-accent); }
+input[type="checkbox"], input[type="radio"] { display: inline-grid; place-content: center; padding: 0; border: 2px solid var(--cp-border-strong); flex-shrink: 0; background: var(--cp-surface); cursor: pointer; }
+input[type="radio"] { border-radius: 50%; }
+input[type="checkbox"]:checked, input[type="radio"]:checked { border-color: var(--cp-accent-text); background: var(--cp-accent); }
+input[type="checkbox"]::before { content: ""; width: 6px; height: 11px; border: solid var(--cp-accent-fg); border-width: 0 2px 2px 0; transform: translateY(-1px) rotate(45deg); visibility: hidden; }
+input[type="radio"]::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--cp-accent-fg); visibility: hidden; }
+input[type="checkbox"]:checked::before, input[type="radio"]:checked::before { visibility: visible; }
+input:disabled { opacity: .55; cursor: default; }
+.select-control { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-width: 0; min-height: 48px; padding: 12px; text-align: left; border: 1px solid var(--cp-border); background: var(--cp-surface); color: var(--cp-text); font-size: 16px; font-weight: 400; }
+.select-control span { min-width: 0; overflow-wrap: anywhere; }
+.select-control svg { flex-shrink: 0; }
+.sheet.control-dialog { width: calc(100% - 24px); max-width: 400px; height: auto; max-height: calc(100dvh - 32px); padding: 0; border: 1px solid var(--cp-border); border-radius: 16px; box-shadow: var(--cp-shadow); }
+.control-dialog .sheet-head { padding-top: 8px; }
+.control-dialog .panel-content p { font-size: 14px; overflow-wrap: anywhere; }
+.control-dialog .button-row { flex-wrap: wrap; }
+.control-dialog .button-row > button { flex-basis: 110px; }
+.select-options { padding: 8px; }
+.select-options button { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 48px; padding: 12px; text-align: left; background: var(--cp-surface); color: var(--cp-text); overflow-wrap: anywhere; }
+.select-options button svg { flex-shrink: 0; }
+.select-options button[aria-selected="true"] { background: var(--cp-accent-soft); color: var(--cp-accent-text); }
+.select-options button:hover, .calendar-grid button:hover { background: var(--cp-surface-soft); }
+.date-field { margin-bottom: 20px; }
+.date-field > label { margin-bottom: 8px; }
+.date-input { display: flex; align-items: center; gap: 4px; }
+.date-input .icon-button { min-height: 48px; color: var(--cp-accent-text); border: 1px solid var(--cp-border); background: var(--cp-surface); }
+.calendar-content { padding: 8px; }
+.calendar-heading { display: flex; align-items: center; justify-content: space-between; }
+.calendar-heading h3 { margin: 0; font-size: 16px; }
+.calendar-grid { margin-bottom: 12px; }
+.calendar-grid [role="row"] { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.calendar-grid [role="columnheader"] { text-align: center; padding-block: 10px; font-size: 11px; color: var(--cp-text-muted); }
+.calendar-grid button { min-width: 0; min-height: 44px; padding: 0; background: var(--cp-surface); color: var(--cp-text); font-size: 14px; }
+.calendar-grid button[aria-current="date"] { box-shadow: inset 0 0 0 1px var(--cp-accent-text); }
+.calendar-grid button[aria-selected="true"] { background: var(--cp-accent); color: var(--cp-accent-fg); font-weight: 600; }
+.primary.danger-button { background: var(--cp-danger); color: var(--cp-surface); }
+.primary.danger-button:hover:not(:disabled) { background: var(--cp-danger); }
+@media (forced-colors: active) {
+  input[type="checkbox"]:checked, input[type="radio"]:checked { border-color: Highlight; background: Highlight; }
+  input[type="checkbox"]::before { border-color: HighlightText; }
+  input[type="radio"]::before { background: HighlightText; }
+}
 .primary, .secondary { min-height: 48px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 16px; font-weight: 600; font-size: 14px; }
 .primary { background: var(--cp-accent); color: var(--cp-accent-fg); }
 .primary:hover:not(:disabled) { background: var(--cp-accent-hover); }

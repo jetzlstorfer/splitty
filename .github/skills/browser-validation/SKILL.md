@@ -32,7 +32,7 @@ developer's servers, credentials, or saved household data.
    production credentials are needed; never reuse an unknown listener.
 5. Reuse installed Chromium and WebKit browsers. Install a missing browser only
    after a validation command reports it absent. Chromium runs the main suite;
-   WebKit runs the focused mobile/PWA smoke spec. Use `--project=chromium` or
+   WebKit runs the focused mobile/PWA and themed-control specs. Use `--project=chromium` or
    `--project=webkit` to select one. Run `npm run check:e2e` after editing tests or
    fixtures. Preserve fixture ownership and teardown when adding contexts.
 6. Run filename selectors from the repository root, for example:

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "./fixtures";
+import { chooseOption } from "./controls";
 
 async function holdSyncPull(page: Page, path: "sync" | "todo-sync", status: 200 | 503 = 200) {
   let release = () => {};
@@ -22,7 +23,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     await page.goto("/");
     const nav = page.getByRole("navigation");
     await nav.getByRole("button", { name: "Einstellungen", exact: true }).click();
-    await page.getByLabel("App-Sprache", { exact: true }).selectOption("en");
+    await chooseOption(page, page.getByLabel("App-Sprache", { exact: true }), "English");
     await nav.getByRole("button", { name: "Expenses", exact: true }).click();
     const motion = reducedMotion === "no-preference";
     await expect(page.locator(".balance-card")).toHaveCSS("animation-name", motion ? "rise-in" : "none");
@@ -246,7 +247,7 @@ test("search owns import, filtering, pagination and editing without filtering Ex
   await expect(page.locator(".add-button")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Import/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Sicherung herunterladen", exact: true })).toBeVisible();
-  await page.getByLabel("App-Sprache", { exact: true }).selectOption("en");
+  await chooseOption(page, page.getByLabel("App-Sprache", { exact: true }), "English");
   await expect(page.getByRole("navigation").getByRole("button")).toHaveText(["Expenses", "To-dos", "Search", "Statistics", "Settings"]);
   await page.getByRole("button", { name: "Search", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Search", exact: true })).toBeVisible();

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { liveQuery } from "dexie";
 import {
   BarChart3, Check, ChevronDown, ClipboardCheck, Cloud, CloudAlert, CloudOff,
@@ -16,11 +16,7 @@ import ExpenseIcon from "./ExpenseIcon";
 import SwipeableRow from "./SwipeableRow";
 import Statistics from "./StatisticsPage";
 import { householdTodos, type HouseholdTodo } from "./todos";
-
-const today = () => {
-  const date = new Date();
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-};
+import { ConfirmationProvider, DateField, Form, Select, Sheet, dateValue as today, useConfirm } from "./Controls";
 
 interface Snapshot {
   entries: Entry[]; todos: Todo[]; pending: number; preferences: Preferences;
@@ -43,23 +39,6 @@ function useLedger(): Snapshot | null {
     return () => subscription.unsubscribe();
   }, []);
   return value;
-}
-
-function Sheet({ title, children, close, initialFocus }: { title: string; children: ReactNode; close: () => void; initialFocus?: string }) {
-  const { t } = useLocale();
-  const dialog = useRef<HTMLDialogElement>(null);
-  const heading = useId();
-  useLayoutEffect(() => {
-    const element = dialog.current;
-    element?.showModal();
-    if (initialFocus) element?.querySelector<HTMLElement>(initialFocus)?.focus();
-    // Close before React removes the dialog so the browser can restore focus to its opener.
-    return () => element?.close();
-  }, [initialFocus]);
-  return <dialog ref={dialog} onCancel={close} className="sheet" aria-labelledby={heading}>
-    <div className="sheet-head"><button className="icon-button" onClick={close} aria-label={t("Close")}><X size={22} /></button><h2 id={heading}>{title}</h2><span /></div>
-    {children}
-  </dialog>;
 }
 
 function SyncPopover({ online, busy, pending, attention, upToDate, status, children }: {
@@ -105,6 +84,7 @@ function ExpenseForm({ entry, settlement, preferences: p, close, saved }: {
   entry?: Entry; settlement: boolean; preferences: Preferences; close: () => void; saved: (entry?: Entry) => void;
 }) {
   const { t, message, money, payer, language } = useLocale();
+  const confirm = useConfirm();
   const imported = entry?.kind === "imported";
   const [description, setDescription] = useState(entry?.description ?? (settlement ? t("Payment") : ""));
   const [amount, setAmount] = useState(entry ? (entry.amountCents / 100).toFixed(2).replace(".", language === "de" ? "," : ".") : "");
@@ -176,7 +156,7 @@ function ExpenseForm({ entry, settlement, preferences: p, close, saved }: {
   }
 
   async function remove() {
-    if (!entry || !window.confirm(t("Delete this entry for both of you? This will sync when you are online."))) return;
+    if (!entry || !await confirm({ title: t("Delete entry"), description: t("Delete this entry for both of you? This will sync when you are online."), action: t("Delete entry"), dangerous: true })) return;
     setBusy(true);
     try { await queueEntries([{ ...entry, deleted: true }]); saved(); close(); }
     catch (e) { setError(e instanceof Error ? e.message : "Could not delete this entry."); }
@@ -185,15 +165,13 @@ function ExpenseForm({ entry, settlement, preferences: p, close, saved }: {
 
   const other = p.member === "a" ? p.nameB : p.nameA;
   return <Sheet title={t(entry ? "Edit entry" : settlement ? "Settle up" : "Add an expense")} close={close} initialFocus={!entry ? "#expense-description" : undefined}>
-    <form onSubmit={submit} className="expense-form" lang={language}>
+    <Form onSubmit={submit} className="expense-form" lang={language}>
       <div className="description-field"><label htmlFor="expense-description">{t("Description")}</label><div className="description-input" data-category={category}><ExpenseIcon category={category} size={24} /><input id="expense-description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t(settlement ? "Payment" : "Enter a description")} required maxLength={500} /></div></div>
       <label>{t("Amount in EUR")}<div className="amount-input"><span>€</span><input aria-label={t("Amount in EUR")} inputMode="decimal" value={amount} readOnly={imported} onChange={(e) => setAmount(e.target.value)} placeholder={language === "de" ? "0,00" : "0.00"} required /></div></label>
       {imported ? <p className="notice">{t("Imported balance: {amount} for {name}. The CSV does not reliably identify the original payer or split, so those amounts are preserved. Description and date can be edited.", { amount: money(entry.balanceA), name: p.nameA })}</p> : <>
         <div className="split-summary">
           <span>{t(settlement ? "Payment from" : "Paid by")}</span>
-          <select aria-label={t("Paid by")} value={paidBy} onChange={(e) => setPaidBy(e.target.value as Member)}>
-            <option value="a">{payer(p, "a")}</option><option value="b">{payer(p, "b")}</option>
-          </select>
+          <Select<Member> label={t("Paid by")} value={paidBy} onChange={setPaidBy} options={[{ value: "a", label: payer(p, "a") }, { value: "b", label: payer(p, "b") }]} />
           {settlement && <span>{paidBy !== p.member ? t("to you") : other === t("Your wife") ? t("to your wife") : t("to {name}", { name: other })}</span>}
         </div>
         {!settlement && <>
@@ -209,15 +187,15 @@ function ExpenseForm({ entry, settlement, preferences: p, close, saved }: {
           </fieldset>}
         </>}
       </>}
-      <label>{t("Date")}<input type="date" value={date} onChange={(e) => setDate(e.target.value)} required /></label>
-      {!imported && !settlement && <label className="category-picker">{t("Category")}<select aria-label={t("Category")} value={categoryChoice} onChange={(event) => setCategoryChoice(event.target.value as Category | "auto")}>
-        <option value="auto">{t("Automatic")}</option>
-        {(Object.keys(categoryLabels) as Category[]).filter((key) => key !== "payment").map((key) => <option key={key} value={key}>{t(categoryLabels[key])}</option>)}
-      </select><span className="category-detected" role="status">{t(categoryChoice === "auto" ? "Detected: {category}" : "Selected: {category}", { category: t(categoryLabels[category]) })}</span></label>}
+      <DateField value={date} onChange={setDate} />
+      {!imported && !settlement && <div className="category-picker"><label>{t("Category")}
+        <Select<Category | "auto"> label={t("Category")} value={categoryChoice} onChange={setCategoryChoice}
+          options={[{ value: "auto", label: t("Automatic") }, ...(Object.keys(categoryLabels) as Category[]).filter((key) => key !== "payment").map((key) => ({ value: key, label: t(categoryLabels[key]) }))]} />
+      </label><span className="category-detected" role="status">{t(categoryChoice === "auto" ? "Detected: {category}" : "Selected: {category}", { category: t(categoryLabels[category]) })}</span></div>}
       {error && <p className="error" role="alert">{message(error)}</p>}
       <button className="primary" disabled={busy} type="submit"><Check size={19} />{t(busy ? "Saving…" : "Save")}</button>
-      {entry && <button className="danger-link" type="button" disabled={busy} onClick={remove}><Trash2 size={16} />{t("Delete entry")}</button>}
-    </form>
+      {entry && <button className="danger-link" type="button" disabled={busy} onClick={(event) => { event.currentTarget.focus(); void remove(); }}><Trash2 size={16} />{t("Delete entry")}</button>}
+    </Form>
   </Sheet>;
 }
 
@@ -259,7 +237,7 @@ function ImportForm({ preferences: p, close, saved }: { preferences: Preferences
     <p>{t("Choose a CSV export for two people in EUR. Entries stay on this device until you confirm, then sync with your household.")}</p>
     <FilePicker label={t("Splitwise CSV")} accept=".csv,text/csv" choose={(file) => void choose(file)} disabled={busy} />
     {!!members.length && <>
-      <label>{t("Export column for {name}", { name: p.nameA })}<select value={memberA} disabled={busy} onChange={(e) => { setMemberA(e.target.value); setPreview(null); }}>{members.map((member) => <option key={member}>{member}</option>)}</select></label>
+      <label>{t("Export column for {name}", { name: p.nameA })}<Select label={t("Export column for {name}", { name: p.nameA })} value={memberA} disabled={busy} onChange={(value) => { setMemberA(value); setPreview(null); }} options={members.map((member) => ({ value: member, label: member }))} /></label>
       <p className="muted">{t("{source} maps to {name}. Use the same mapping on every device.", { source: members.find((member) => member !== memberA) ?? "", name: p.nameB })}</p>
       <button className="secondary" disabled={busy} onClick={inspect}>{t(busy ? "Reading history…" : "Preview import")}</button>
     </>}
@@ -277,6 +255,7 @@ function ImportForm({ preferences: p, close, saved }: { preferences: Preferences
 
 function TodoForm({ todo, close, saved }: { todo?: Todo; close: () => void; saved: () => void }) {
   const { t, message, language } = useLocale();
+  const confirm = useConfirm();
   const [title, setTitle] = useState(todo?.title ?? "");
   const [description, setDescription] = useState(todo?.description ?? "");
   const [busy, setBusy] = useState(false);
@@ -296,15 +275,16 @@ function TodoForm({ todo, close, saved }: { todo?: Todo; close: () => void; save
   }
 
   return <Sheet title={t(todo ? "Edit to-do" : "Add to-do")} close={close} initialFocus={!todo ? "#todo-title" : undefined}>
-    <form className="panel-content" lang={language} onSubmit={(event) => { event.preventDefault(); void save(); }}>
+    <Form className="panel-content" lang={language} onSubmit={(event) => { event.preventDefault(); void save(); }}>
       <label htmlFor="todo-title">{t("Title")}<input id="todo-title" required maxLength={MAX_TODO_TITLE} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
       <label>{t("Description (optional)")}<textarea rows={4} maxLength={MAX_TODO_DESCRIPTION} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
       {error && <p className="error" role="alert">{message(error)}</p>}
       <button className="primary" disabled={busy}>{t(busy ? "Saving…" : "Save")}</button>
-      {todo && <button type="button" className="danger-link" disabled={busy} onClick={() => {
-        if (window.confirm(t("Delete this to-do for everyone in your household? This will sync when you are online."))) void save(true);
+      {todo && <button type="button" className="danger-link" disabled={busy} onClick={async (event) => {
+        event.currentTarget.focus();
+        if (await confirm({ title: t("Delete to-do"), description: t("Delete this to-do for everyone in your household? This will sync when you are online."), action: t("Delete to-do"), dangerous: true })) await save(true);
       }}><Trash2 size={16} />{t("Delete to-do")}</button>}
-    </form>
+    </Form>
   </Sheet>;
 }
 
@@ -384,11 +364,12 @@ export default function App() {
     document.documentElement.lang = language;
     document.title = language === "de" ? "Splitty · Gemeinsame Ausgaben" : "Splitty · Shared expenses";
   }, [language]);
-  return <LanguageContext.Provider value={language}><AppContent ledger={ledger} /></LanguageContext.Provider>;
+  return <LanguageContext.Provider value={language}><ConfirmationProvider><AppContent ledger={ledger} /></ConfirmationProvider></LanguageContext.Provider>;
 }
 
 function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const { t, language, locale, number, money, message, person, payer } = useLocale();
+  const confirm = useConfirm();
   const [tab, setTab] = useState<"expenses" | "todos" | "search" | "statistics" | "settings">("expenses");
   const [form, setForm] = useState<"expense" | "settlement" | Entry | null>(null);
   const [todoForm, setTodoForm] = useState<"new" | Todo | null>(null);
@@ -526,8 +507,8 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
       if (file.size > 20_000_000) throw new Error("Choose a backup smaller than 20 MB.");
       const data = readBackup(JSON.parse(await file.text()));
       const missing = await missingBackupRecords(data);
-      if (!window.confirm(t("Restore {entries} missing entries and {todos} missing to-dos? Existing data will not be overwritten. Keep the same person A/B mapping as the original device.",
-        { entries: number(missing.entries.length), todos: number(missing.todos.length) }))) return;
+      if (!await confirm({ title: t("Restore backup"), description: t("Restore {entries} missing entries and {todos} missing to-dos? Existing data will not be overwritten. Keep the same person A/B mapping as the original device.",
+        { entries: number(missing.entries.length), todos: number(missing.todos.length) }), action: t("Restore backup") })) return;
       await restoreBackup(data);
       saved();
     } catch (e) { setError(e instanceof Error ? e.message : "Could not restore the backup."); }
@@ -570,15 +551,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     return queueEntries([submitted ? { ...rest, insuranceSubmittedAt: new Date().toISOString() } : rest]);
   };
 
-  return <div className="app-shell" onInvalidCapture={(event) => {
-    const input = event.target;
-    if (input instanceof HTMLInputElement || input instanceof HTMLSelectElement || input instanceof HTMLTextAreaElement) {
-      input.setCustomValidity(input.validity.valueMissing ? t("Please fill out this field.")
-        : input instanceof HTMLInputElement && input.type === "date" ? t("Enter a valid date.") : "");
-    }
-  }} onInputCapture={(event) => {
-    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement || event.target instanceof HTMLTextAreaElement) event.target.setCustomValidity("");
-  }}>
+  return <div className="app-shell">
     <header className="topbar"><a className="wordmark" href="/" aria-label={t("Splitty home")}><img key={logoPulse.sequence} className={`brand-mark ${syncBusy ? "is-syncing" : logoPulse.active ? "is-saving" : ""}`} src="/icon.svg" width="32" height="32" alt="" />Splitty</a>
       <SyncPopover online={online} busy={syncBusy} pending={ledger.pending} attention={needsAttention} upToDate={upToDate} status={message(currentStatus)}>
         <dl className="sync-details">
@@ -648,7 +621,9 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
           </section>
         </> : <>
           <header className="page-heading search-heading"><h1>{t("Search")}</h1><button className="text-button" onClick={() => setImporting(true)}><Upload size={18} />{t("Import")}</button></header>
-          <label className="search"><Search size={19} /><input aria-label={t("Search expenses")} type="search" placeholder={t("Search expenses")} value={search} onChange={(e) => { setSearch(e.target.value); setLimit(100); }} /></label>
+          <label className="search"><Search size={19} /><input aria-label={t("Search expenses")} type="search" placeholder={t("Search expenses")} value={search} onChange={(e) => { setSearch(e.target.value); setLimit(100); }} />{search && <button type="button" className="icon-button" aria-label={t("Clear search")} onClick={(event) => {
+            setSearch(""); setLimit(100); event.currentTarget.parentElement?.querySelector("input")?.focus();
+          }}><X size={18} /></button>}</label>
           <p className="search-hint">{t("Description, category or date")}</p>
         </>}
         <section className="ledger-section" aria-label={t(tab === "search" ? "Search results" : "Expenses")}>
@@ -681,12 +656,11 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
         </section>
       </> : <section className="settings-page"><header className="page-heading"><h1>{t("Settings")}</h1></header>
         <section className="settings-card"><h2><Languages size={20} />{t("Language")}</h2>
-          <label>{t("App language")}<select aria-label={t("App language")} value={language} onChange={(event) => void updatePreferences({ language: event.target.value === "en" ? "en" : "de" }).catch((e: Error) => setError(e.message))}>
-            <option value="de" lang="de">Deutsch</option><option value="en" lang="en">English</option>
-          </select></label>
+          <label>{t("App language")}<Select label={t("App language")} value={language} onChange={(value) => void updatePreferences({ language: value }).catch((e: Error) => setError(e.message))}
+            options={[{ value: "de", label: "Deutsch", lang: "de" }, { value: "en", label: "English", lang: "en" }]} /></label>
         </section>
         <section className="settings-card"><h2><Users size={20} />{t("Household")}</h2><label>{t("First person")}<input defaultValue={p.nameA} key={`a-${p.nameA}`} maxLength={60} readOnly={!!identity} onBlur={(e) => { if (e.target.value.trim() && e.target.value.trim() !== p.nameA) void updatePreferences({ nameA: e.target.value.trim() }).catch((err: Error) => setError(err.message)); }} /></label><label>{t("Second person")}<input defaultValue={p.nameB} key={`b-${p.nameB}`} maxLength={60} readOnly={!!identity} onBlur={(e) => { if (e.target.value.trim() && e.target.value.trim() !== p.nameB) void updatePreferences({ nameB: e.target.value.trim() }).catch((err: Error) => setError(err.message)); }} /></label>
-          {!identity && <label>{t("This device belongs to")}<select value={p.member} onChange={(e) => void updatePreferences({ member: e.target.value as Member }).catch((err: Error) => setError(err.message))}><option value="a">{p.nameA}</option><option value="b">{p.nameB}</option></select></label>}
+          {!identity && <label>{t("This device belongs to")}<Select<Member> label={t("This device belongs to")} value={p.member} onChange={(value) => void updatePreferences({ member: value }).catch((err: Error) => setError(err.message))} options={[{ value: "a", label: p.nameA }, { value: "b", label: p.nameB }]} /></label>}
           <p className="muted">{t("EUR and an equal split are always the default. Signed-in names come from your household configuration.")}</p>
         </section>
         <section className="settings-card"><h2><Download size={20} />{t("Backups")}</h2><button className="secondary" onClick={backup}><Download size={17} />{t("Download a backup")}</button><FilePicker label={t("Restore missing entries from a backup")} accept=".json,application/json" choose={(file) => void restore(file)} /><p className="muted">{t("Backups include expenses and manual to-dos. Offline data lives in this browser; sync or back up before clearing site data or changing devices.")}</p></section>

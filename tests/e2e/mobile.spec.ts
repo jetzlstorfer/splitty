@@ -1,5 +1,6 @@
 import { expect, test, type BrowserContext, type Locator, type Page } from "./fixtures";
 import { signIn, useEnglish } from "./helpers";
+import { chooseOption, confirmAction } from "./controls";
 
 test.beforeEach(async ({ page }) => { await useEnglish(page); });
 
@@ -113,6 +114,9 @@ test("expense description and search match the rounded todo field border and foc
       await search.fill("Coffee");
       await expect(page.getByRole("heading", { name: "No matching expenses" })).toBeVisible();
       await page.keyboard.press("Tab");
+      await expect(page.getByRole("button", { name: "Clear search", exact: true })).toBeFocused();
+      expect(await fieldStyle(searchField)).toEqual(focused);
+      await page.keyboard.press("Tab");
       expect(await fieldStyle(searchField)).toEqual(unfocused);
       await search.click();
       expect(await fieldStyle(searchField)).toEqual(focused);
@@ -176,11 +180,11 @@ test("keyboard actions delete with confirmation offline and in search", async ({
   await page.getByRole("button", { name: "Search", exact: true }).click();
   await page.getByRole("searchbox", { name: "Search expenses" }).fill("Delete this expense");
   await deleteToggle.click();
-  page.once("dialog", (confirmation) => confirmation.dismiss());
   await page.getByRole("button", { name: "Delete entry: Delete this expense" }).click();
+  await confirmAction(page, "Cancel");
   await expect(page.getByText("Delete this expense", { exact: true })).toBeVisible();
-  page.once("dialog", (confirmation) => confirmation.accept());
   await page.getByRole("button", { name: "Delete entry: Delete this expense" }).click();
+  await confirmAction(page, "Delete entry");
   await expect(page.getByText("Delete this expense", { exact: true })).toHaveCount(0);
   await page.reload();
   await expect(page.getByText("Delete this expense", { exact: true })).toHaveCount(0);
@@ -219,11 +223,11 @@ test("manual todo swipes preserve checkboxes and support editing and offline del
   await context.setOffline(true);
   await page.getByRole("navigation").getByRole("button", { name: "To-dos" }).click();
   await swipe(page, row.locator(".swipe-content"), -140);
-  page.once("dialog", (dialog) => dialog.dismiss());
   await row.getByRole("button", { name: "Delete to-do: Swipe task" }).click();
+  await confirmAction(page, "Cancel");
   await expect(done.getByRole("checkbox")).toBeChecked();
-  page.once("dialog", (dialog) => dialog.accept());
   await row.getByRole("button", { name: "Delete to-do: Swipe task" }).click();
+  await confirmAction(page, "Delete to-do");
   await expect(row).toHaveCount(0);
   await page.reload();
   await page.getByRole("navigation").getByRole("button", { name: "To-dos" }).click();
@@ -277,14 +281,12 @@ test("insurance todo swipes open and delete their linked expense with explicit c
   await edited.getByRole("checkbox").click();
   await expect(edited.getByRole("checkbox")).toBeChecked();
   await swipe(page, edited.locator(".swipe-content"), -140);
-  page.once("dialog", async (dialog) => {
-    expect(dialog.message()).toBe("Delete this entry for both of you? This will sync when you are online.");
-    await dialog.dismiss();
-  });
   await edited.getByRole("button", { name: "Delete entry: Doctor edited" }).click();
+  await expect(page.locator(".control-dialog")).toContainText("Delete this entry for both of you? This will sync when you are online.");
+  await confirmAction(page, "Cancel");
   await expect(edited.getByRole("checkbox")).toBeChecked();
-  page.once("dialog", (dialog) => dialog.accept());
   await edited.getByRole("button", { name: "Delete entry: Doctor edited" }).click();
+  await confirmAction(page, "Delete entry");
   await expect(edited).toHaveCount(0);
   await page.getByRole("button", { name: "Expenses", exact: true }).click();
   await expect(page.getByRole("heading", { name: "No expenses yet" })).toBeVisible();
@@ -393,13 +395,13 @@ test("mobile expense entry, custom splits, settlements and offline reload", asyn
   await save(page);
   await expect(page.locator(".balance-amount")).toContainText("28.34");
   dialog = await addExpense(page, "Partner paid", "10");
-  await dialog.getByLabel("Paid by").selectOption("b");
+  await chooseOption(page, dialog.getByLabel("Paid by"), 1);
   await save(page);
   await expect(page.locator(".balance-amount")).toContainText("23.34");
   await page.getByRole("button", { name: /Settle up/ }).click();
   dialog = page.getByRole("dialog", { name: "Settle up" });
   await dialog.getByRole("textbox", { name: "Amount in EUR" }).fill("3");
-  await dialog.getByLabel("Paid by").selectOption("b");
+  await chooseOption(page, dialog.getByLabel("Paid by"), 1);
   await save(page);
   await expect(page.locator(".balance-amount")).toContainText("20.34");
   await page.reload();
@@ -487,8 +489,8 @@ test("previews, reconciles and deduplicates a Splitwise import", async ({ page }
   await save(page);
   await expect(page.locator(".balance-amount")).toContainText("31.54");
   await page.getByText("Updated dinner", { exact: true }).click();
-  page.once("dialog", (confirmation) => confirmation.accept());
   await page.getByRole("button", { name: "Delete entry", exact: true }).click();
+  await confirmAction(page, "Delete entry");
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await expect(page.locator(".balance-amount")).toContainText("10.00");
   dialog = await preview();
@@ -508,7 +510,7 @@ for (const [theme, width] of [["light", 393], ["dark", 393], ["light", 320]] as 
     await addExpense(page, "Groceries", "40");
     await save(page);
     const dialog = await addExpense(page, "Dinner together", "60");
-    await dialog.getByLabel("Paid by").selectOption("b");
+    await chooseOption(page, dialog.getByLabel("Paid by"), 1);
     await save(page);
 
     const credit = theme === "light" ? "rgb(8, 127, 105)" : "rgb(84, 214, 183)";

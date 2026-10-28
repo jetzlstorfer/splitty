@@ -18,7 +18,7 @@ export default defineConfig({
     },
     {
       name: "webkit",
-      testMatch: "**/webkit.spec.ts",
+      testMatch: ["**/webkit.spec.ts", "**/controls.spec.ts"],
       use: { browserName: "webkit", isMobile: true, hasTouch: true }
     }
   ]

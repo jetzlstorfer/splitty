@@ -22,6 +22,8 @@ A private, offline-first expense ledger for two people. Record shared expenses i
 Insurance reminders are derived from health and pharmacy expenses; manual to-dos remain separate from the ledger and never affect balances.
 Like expense rows, to-do rows open their details when selected. Use the checkbox at the left to complete or reopen a to-do; insurance reminders open the associated expense.
 
+Dropdowns, date selection, confirmations, and validation messages use Splitty's theme in both light and dark mode. Dates can also be typed as `YYYY-MM-DD`. The device keyboard, file picker, and permission prompts remain system-provided.
+
 ## How sync works
 
 Each device saves changes to IndexedDB first, so recording an expense does not wait for the network. When online, the app sends queued changes to the same-origin API. The API stores versioned records and an ordered change log; devices pull updates to converge. Expenses and manual to-dos have separate outboxes and sync cursors.
@@ -108,8 +110,13 @@ npm run test:e2e
 Browser fixtures automatically start private Table emulators and production previews
 on available loopback ports. Every test gets a fresh household; no existing local
 servers, settings, credentials, or data are reused. Chromium runs the main suite;
-WebKit runs a small mobile/PWA smoke suite. See [development](docs/development.md#checks)
+WebKit runs focused mobile/PWA and themed-control tests. See [development](docs/development.md#checks)
 for focused commands and coverage ownership.
+
+For just the themed-control regressions in Safari's engine, run
+`npm run test:e2e -- --project=webkit controls.spec.ts`. These cover mobile touch and
+keyboard behavior in both themes; WebKit emulation does not replace testing on a
+physical iPhone.
 
 See [browser validation](.github/skills/browser-validation/SKILL.md) and [offline-sync validation](.github/skills/offline-sync-validation/SKILL.md) for focused test setup. See [Copilot instructions](.github/copilot-instructions.md) for repository conventions.
 

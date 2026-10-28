@@ -1,9 +1,10 @@
 import { expect, type Page } from "./fixtures";
+import { chooseOption } from "./controls";
 
 export async function useEnglish(page: Page) {
   await page.goto("/");
   await page.getByRole("navigation").getByRole("button", { name: "Einstellungen", exact: true }).click();
-  await page.getByLabel("App-Sprache", { exact: true }).selectOption("en");
+  await chooseOption(page, page.getByLabel("App-Sprache", { exact: true }), "English");
   await page.getByRole("navigation").getByRole("button", { name: "Expenses", exact: true }).click();
 }
 

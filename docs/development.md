@@ -68,9 +68,10 @@ data are also cleaned up. Do not start browser-test servers manually or reuse
 personal local settings. The separate API integration suite still needs its own
 emulator.
 
-Chromium owns the main regression suite. WebKit runs only
-[the mobile/PWA smoke tests](../tests/e2e/webkit.spec.ts), not the Chromium-specific
-touch/CDP matrix. Use filename selectors and projects to focus a run:
+Chromium owns the main regression suite. WebKit runs
+[the mobile/PWA smoke tests](../tests/e2e/webkit.spec.ts) and
+[the themed-control regressions](../tests/e2e/controls.spec.ts), not the
+Chromium-specific touch/CDP matrix. Use filename selectors and projects to focus a run:
 
 ```powershell
 npm run test:e2e -- --project=chromium sync-popover.spec.ts

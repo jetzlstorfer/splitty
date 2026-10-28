@@ -130,5 +130,6 @@ For the local API, emulator, and registry setup, see [development](docs/developm
 ## Dependency updates
 
 [Dependabot](.github/dependabot.yml) groups monthly npm version updates for the
-frontend and API. npm security updates use a separate group and do not wait for
-the monthly schedule. GitHub Actions version updates have their own monthly group.
+frontend and API. Routine releases must be at least seven days old at the scheduled
+check. npm security updates use a separate group and wait for neither the cooldown
+nor the monthly schedule. GitHub Actions version updates have their own monthly group.

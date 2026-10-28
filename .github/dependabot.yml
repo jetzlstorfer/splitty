@@ -6,6 +6,8 @@ updates:
       - "/api"
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
     groups:
       npm:
         patterns:

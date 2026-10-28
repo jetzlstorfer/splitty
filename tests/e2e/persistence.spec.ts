@@ -30,9 +30,15 @@ test.describe("shared browser storage", () => {
     const held = new Promise<void>((resolve) => { release = resolve; });
     let notify = () => {};
     const started = new Promise<void>((resolve) => { notify = resolve; });
+    let releaseTodoPull = () => {};
+    const heldTodoPull = new Promise<void>((resolve) => { releaseTodoPull = resolve; });
+    let notifyTodoPull = () => {};
+    const todoPullStarted = new Promise<void>((resolve) => { notifyTodoPull = resolve; });
     try {
       await other.goto("/");
       await upToDate(other);
+      await page.clock.install();
+      await page.clock.pauseAt(new Date());
       let pulls = 0;
       await page.route("**/api/sync?*", async (route) => {
         if (++pulls !== 2) return route.continue();
@@ -41,13 +47,28 @@ test.describe("shared browser storage", () => {
         await held;
         await route.fulfill({ response });
       });
+      let todoPulls = 0;
+      await other.route("**/api/todo-sync?*", async (route) => {
+        if (++todoPulls !== 2) return route.continue();
+        const response = await route.fetch();
+        notifyTodoPull();
+        await heldTodoPull;
+        await route.fulfill({ response });
+      });
       await openSync(page);
       await page.getByRole("button", { name: "Sync now" }).click();
       await started;
       await closeSync(page);
-      await Promise.all([addExpense(page, "Shared-tab expense"), addTodo(other, "Shared-tab todo")]);
+      await addTodo(other, "Shared-tab todo");
+      await todoPullStarted;
+      await addExpense(page, "Shared-tab expense");
       await expect(page.locator(".expense-row")).toContainText("Shared-tab expense");
       await expect(other.getByRole("checkbox", { name: "Shared-tab todo", exact: true })).not.toBeChecked();
+      releaseTodoPull();
+      await expect(other.locator(".sync-status")).toHaveText("Saved locally · changes waiting to sync");
+      const pending = await storedRecords(other);
+      expect(pending.outbox).toHaveLength(1);
+      expect(pending.todoOutbox).toHaveLength(0);
       release();
       await expect.poll(async () => {
         const records = await storedRecords(page);
@@ -55,6 +76,12 @@ test.describe("shared browser storage", () => {
       }).toEqual([0, 0]);
       await upToDate(page);
       await upToDate(other);
+      await expect(other.locator(".sync-check")).toHaveCount(1);
+      await openSync(other);
+      await expect(other.locator(".sync-summary")).toHaveText("Up to date");
+      await expect(other.getByText("Changes waiting to sync", { exact: true }).locator("..").locator("dd")).toHaveText("0");
+      await closeSync(other);
+      await page.clock.resume();
 
       await page.getByRole("navigation").getByRole("button", { name: "To-dos", exact: true }).click();
       await other.getByRole("checkbox", { name: "Shared-tab todo", exact: true }).click();
@@ -80,6 +107,7 @@ test.describe("shared browser storage", () => {
       await expect(remote.getByRole("checkbox", { name: "Shared-tab todo", exact: true })).toBeChecked();
     } finally {
       release();
+      releaseTodoPull();
       await receiver.close();
       await other.close();
     }

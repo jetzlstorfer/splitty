@@ -540,8 +540,10 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const todos = householdTodos(active, ledger.todos);
   const openTodos = todos.filter((todo) => !todo.done).length;
   const conflictCount = ledger.conflicts.length + ledger.todoConflicts.length;
-  const currentStatus = !online ? "Offline · changes stay on this device" : syncBusy ? "Syncing…" : syncStatus;
-  const upToDate = online && !syncBusy && !ledger.pending && !conflictCount && syncStatus === "Up to date";
+  // Another tab can acknowledge shared queued writes after this tab's sync finishes.
+  const idleStatus = syncStatus === "Saved locally · changes waiting to sync" && !ledger.pending && !conflictCount ? "Up to date" : syncStatus;
+  const currentStatus = !online ? "Offline · changes stay on this device" : syncBusy ? "Syncing…" : idleStatus;
+  const upToDate = online && !syncBusy && !ledger.pending && !conflictCount && idleStatus === "Up to date";
   const needsAttention = !!syncActionError || !!conflictCount ||
     !["Up to date", "Syncing…", "Saved on this device", "Saved locally · changes waiting to sync", "Offline · changes stay on this device"].includes(currentStatus);
   const todoVersion = (todo: Todo | null | undefined) => !todo ? t("Not present") : todo.deleted ? t("Deleted")

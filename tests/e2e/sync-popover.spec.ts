@@ -50,11 +50,12 @@ test("the cloud is the only sync entry point across tabs, widths and themes, wit
     await page.setViewportSize({ width, height: 900 });
     for (const theme of ["light", "dark"]) {
       await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
-      const wordmark = await page.locator(".wordmark").screenshot();
+      const wordmark = await page.locator(".wordmark").screenshot({ animations: "disabled", path: info.outputPath(`header-${theme}-${width}-closed.png`) });
       await indicator(page).tap();
       await expect(popover(page)).toBeVisible();
       await expectSyncBackdrop(page);
-      expect((await page.locator(".wordmark").screenshot()).equals(wordmark), "The header must stay visually unchanged").toBe(true);
+      const openWordmark = await page.locator(".wordmark").screenshot({ animations: "disabled", path: info.outputPath(`header-${theme}-${width}-open.png`) });
+      expect(openWordmark.equals(wordmark), "The header must stay visually unchanged").toBe(true);
       const bounds = (await popover(page).boundingBox())!;
       expect(bounds.x).toBeGreaterThanOrEqual(0);
       expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);

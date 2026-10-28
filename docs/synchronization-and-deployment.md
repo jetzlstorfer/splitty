@@ -9,6 +9,9 @@ The header's cloud indicator opens the synchronization popover on every page, in
 Sign-in validation is shown inline in the selected app language, not in a native
 browser validation bubble. A successful conflict-resolution retry clears its
 previous action error; unresolved conflicts and sync failures remain visible.
+If another tab acknowledges the shared queued writes, a pending-only status
+clears when both queues and conflict lists are empty; real sync errors are not
+cleared just because the queues are empty.
 
 The API stores versioned records and an ordered change log in Azure Table Storage. Writes use stable operation IDs and expected revisions; atomic commits record the mutation, its change-log entry, and an operation receipt. Retried writes do not duplicate an expense. Clients pull changes by sequence rather than client timestamps. Pending local edits are preserved; stale writes become explicit conflicts instead of silently replacing either side. Deletions are versioned tombstones.
 

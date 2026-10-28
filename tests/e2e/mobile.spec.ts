@@ -30,10 +30,11 @@ async function addTodo(page: Page, title: string) {
 }
 
 async function login(page: Page, token: string) {
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Sync status", exact: true }).click();
   await page.getByLabel("Member token").fill(token);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByText("Signed in as", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Sync status", exact: true }).click();
   await page.getByRole("button", { name: "Expenses", exact: true }).click();
 }
 
@@ -443,9 +444,14 @@ test("member-token sign-in and two devices converge after an offline change", as
     await addExpense(page, "Shared across devices", "18");
     await save(page);
     await page.context().setOffline(false);
-    await page.getByRole("button", { name: "Synchronize devices" }).click();
+    await page.getByRole("button", { name: "Sync status" }).click();
+    await page.getByRole("button", { name: "Sync now" }).click();
     await expect(page.getByRole("status")).toHaveText("Up to date");
-    await partner.getByRole("button", { name: "Synchronize devices" }).click();
+    await page.getByRole("button", { name: "Sync status" }).click();
+    await partner.getByRole("button", { name: "Sync status" }).click();
+    await partner.getByRole("button", { name: "Sync now" }).click();
+    await expect(partner.getByRole("status")).toHaveText("Up to date");
+    await partner.getByRole("button", { name: "Sync status" }).click();
     await expect(partner.getByText("Shared across devices", { exact: true })).toBeVisible();
     await expect(partner.locator(".balance-amount")).toContainText("9.00");
     await expect(partner.getByText("You owe Alex", { exact: true })).toBeVisible();

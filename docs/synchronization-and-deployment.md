@@ -4,7 +4,7 @@
 
 Each device stores its ledger and pending mutations in IndexedDB. Saving is transactional and does not wait for a server; queued changes sync after saves, when connectivity returns, on foreground/focus, and periodically while the app is visible. The service worker caches the app shell for offline reloads.
 
-The header indicates active sync and completion. Expenses, To-dos, and Search hide the redundant status line while syncing or up to date, but keep it available to screen readers. Offline, failed sync, and other attention messages remain visible when sync is not running. Settings always shows the full sync status.
+The header's cloud indicator opens the synchronization popover on every page, including while syncing or offline. It contains the current status and errors, connection state, combined expense/to-do queue count, last successful sync in the current session, sign-in/out, manual sync, and conflict resolution for both record types. No page or Settings section repeats a sync status line; a single screen-reader live region beside the indicator announces status changes even when the popover is closed. Escape, the close button, or an outside click dismisses the popover.
 
 The API stores versioned records and an ordered change log in Azure Table Storage. Writes use stable operation IDs and expected revisions; atomic commits record the mutation, its change-log entry, and an operation receipt. Retried writes do not duplicate an expense. Clients pull changes by sequence rather than client timestamps. Pending local edits are preserved; stale writes become explicit conflicts instead of silently replacing either side. Deletions are versioned tombstones.
 

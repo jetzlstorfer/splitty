@@ -7,10 +7,11 @@ const upToDate = (page: Page) => expect(page.getByRole("status")).toHaveText("Au
 
 async function signIn(page: Page, member: "A" | "B") {
   await page.goto("/");
-  await page.getByRole("button", { name: "Einstellungen", exact: true }).click();
+  await page.getByRole("button", { name: "Synchronisierungsstatus", exact: true }).click();
   await page.getByLabel("Mitglieds-Token").fill(member.repeat(43));
   await page.getByRole("button", { name: "Anmelden", exact: true }).click();
   await upToDate(page);
+  await page.getByRole("button", { name: "Synchronisierungsstatus", exact: true }).click();
   await todos(page);
 }
 
@@ -45,8 +46,10 @@ async function edit(page: Page, title: string, next: string, description: string
 }
 
 async function sync(page: Page) {
-  await page.getByRole("button", { name: "Geräte synchronisieren" }).click();
+  await page.getByRole("button", { name: "Synchronisierungsstatus" }).click();
+  await page.getByRole("button", { name: "Jetzt synchronisieren" }).click();
   await upToDate(page);
+  await page.getByRole("button", { name: "Synchronisierungsstatus" }).click();
 }
 
 async function toggle(page: Page, title: string, done: boolean) {
@@ -382,6 +385,7 @@ test("todo conflicts show both versions and allow keeping local edits or remote 
     await edit(b, title, title, "Remote details");
     await upToDate(b);
     await aContext.setOffline(false);
+    await a.getByRole("button", { name: "Synchronisierungsstatus" }).click();
     const conflict = a.getByRole("region", { name: "Widersprüchliche To-do-Änderungen" });
     await expect(conflict).toContainText("Local details");
     await expect(conflict).toContainText("Remote details");
@@ -390,6 +394,7 @@ test("todo conflicts show both versions and allow keeping local edits or remote 
     await expect(row(a, title).getByRole("button", { name: `To-do-Aktionen: ${title}` })).toBeDisabled();
     await conflict.getByRole("button", { name: "Diese Version behalten" }).click();
     await upToDate(a);
+    await a.getByRole("button", { name: "Synchronisierungsstatus" }).click();
     await sync(b);
     await expect(row(b, title)).toContainText("Local details");
 
@@ -398,6 +403,7 @@ test("todo conflicts show both versions and allow keeping local edits or remote 
     await remove(b, title);
     await upToDate(b);
     await aContext.setOffline(false);
+    await a.getByRole("button", { name: "Synchronisierungsstatus" }).click();
     await expect(conflict).toContainText("Another local edit");
     await expect(conflict).toContainText("Gelöscht");
     await conflict.getByRole("button", { name: "Andere Version behalten" }).click();
@@ -432,7 +438,9 @@ test("manual completions saved during a slow sync are sent in the next pass", as
       await held;
       await route.fulfill({ response });
     });
-    await a.getByRole("button", { name: "Geräte synchronisieren" }).click();
+    await a.getByRole("button", { name: "Synchronisierungsstatus" }).click();
+    await a.getByRole("button", { name: "Jetzt synchronisieren" }).click();
+    await a.getByRole("button", { name: "Synchronisierungsstatus" }).click();
     await pullStarted;
     for (const title of titles) await toggle(a, title, true);
     await a.clock.runFor(1_000);

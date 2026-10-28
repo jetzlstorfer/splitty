@@ -62,6 +62,33 @@ function Sheet({ title, children, close, initialFocus }: { title: string; childr
   </dialog>;
 }
 
+function SyncPopover({ online, busy, pending, attention, upToDate, status, children }: {
+  online: boolean; busy: boolean; pending: number; attention: boolean; upToDate: boolean;
+  status: string; children: ReactNode;
+}) {
+  const { t, number } = useLocale();
+  const id = useId();
+  const [open, setOpen] = useState(false);
+  return <div className="sync-control">
+    <button className={`sync-pill ${attention ? "needs-attention" : ""}`} popoverTarget={id}
+      aria-haspopup="dialog" aria-expanded={open} aria-controls={id} aria-busy={busy} aria-label={t("Sync status")}>
+      <span aria-hidden="true">{!online ? <CloudOff size={16} /> : attention ? <CloudAlert size={16} /> :
+        <span className="sync-icon"><Cloud size={16} />{upToDate && <Check className="sync-check" size={9} strokeWidth={4} />}</span>}</span>
+      <span>{!online ? t("Offline") : busy ? t("Syncing") : pending ? t("{count} pending", { count: number(pending) }) : t("Sync")}</span>
+    </button>
+    <span className="sync-status sr-only" role="status">{status}</span>
+    <div id={id} popover="auto" role="dialog" aria-labelledby={`${id}-heading`} className="sync-popover"
+      onToggle={(event) => setOpen(event.newState === "open")}>
+      <div className="sync-popover-heading">
+        <h2 id={`${id}-heading`}>{t("Synchronization")}</h2>
+        <button className="icon-button" popoverTarget={id} popoverTargetAction="hide" aria-label={t("Close")}><X size={20} /></button>
+      </div>
+      <p className={`sync-summary ${attention ? "needs-attention" : ""}`}>{status}</p>
+      {children}
+    </div>
+  </div>;
+}
+
 function FilePicker({ label, accept, disabled, choose }: { label: string; accept: string; disabled?: boolean; choose: (file?: File) => void }) {
   const { t } = useLocale();
   const [filename, setFilename] = useState("");
@@ -281,10 +308,9 @@ function TodoForm({ todo, close, saved }: { todo?: Todo; close: () => void; save
   </Sheet>;
 }
 
-function TodoList({ todos, manualTodos, conflicts, resolve, openCount, status, statusQuiet, blocked, open, toggle, edit, toggleManual, remove, onError }: {
-  todos: HouseholdTodo[]; manualTodos: Todo[]; conflicts: Conflict<Todo>[];
-  resolve: (id: string, keepLocal: boolean) => void;
-  openCount: number; status: string; statusQuiet: boolean; blocked: Set<string>;
+function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, toggleManual, remove, onError }: {
+  todos: HouseholdTodo[]; conflicts: Conflict<Todo>[];
+  openCount: number; blocked: Set<string>;
   open: (entry: Entry) => void; toggle: (entry: Entry, submitted: boolean) => void;
   edit: (todo: Todo) => void; toggleManual: (todo: Todo, done: boolean) => void;
   remove: (item: HouseholdTodo) => Promise<void>; onError: (error: unknown) => void;
@@ -292,19 +318,7 @@ function TodoList({ todos, manualTodos, conflicts, resolve, openCount, status, s
   const { t, number, money, locale } = useLocale();
   const [swipedTodo, setSwipedTodo] = useState<string | null>(null);
   const manualBlocked = new Set(conflicts.map((conflict) => conflict.entryId));
-  const version = (todo: Todo | null | undefined) => !todo ? t("Not present") : todo.deleted ? t("Deleted")
-    : `${todo.title}${todo.description ? `\n${todo.description}` : ""}\n${t(todo.done ? "Done" : "Open to-dos")}`;
   return <section className="todos-page"><header className="page-heading"><h1>{t("To-dos")}<span className="entry-count">{number(openCount)}</span></h1></header>
-    <p className={`sync-status ${statusQuiet ? "sr-only" : ""}`} role="status">{status}</p>
-    {!!conflicts.length && <section className="conflict-panel" aria-label={t("Conflicting to-do edits")}><h3>{t("Conflicting to-do edits")}</h3>
-      <p>{t("These to-dos changed on another device. Choose which version to keep.")}</p>
-      {conflicts.map((conflict) => <div key={conflict.entryId}>
-        <p className="todo-version"><strong>{t("This device")}</strong>{"\n"}{version(manualTodos.find((todo) => todo.id === conflict.entryId))}</p>
-        <p className="todo-version"><strong>{t("Other device")}</strong>{"\n"}{version(conflict.remote)}</p>
-        <div className="button-row"><button className="secondary" onClick={() => resolve(conflict.entryId, false)}>{t("Keep other device")}</button>
-          <button className="secondary" onClick={() => resolve(conflict.entryId, true)}>{t("Keep this device")}</button></div>
-      </div>)}
-    </section>}
     <div aria-live="polite" aria-atomic="true">
       {openCount === 0 && <div className="empty-state todo-clear-state">
         <span className="todo-clear-icon" aria-hidden="true"><Sun size={30} /></span>
@@ -386,14 +400,14 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [syncStatus, setSyncStatus] = useState("Saved on this device");
   const [syncBusy, setSyncBusy] = useState(navigator.onLine);
-  const upToDate = syncStatus === "Up to date";
-  const statusQuiet = upToDate || syncStatus === "Syncing…";
-  const needsAttention = !["Up to date", "Syncing…", "Saved on this device", "Saved locally · changes waiting to sync"].includes(syncStatus);
+  const [lastSynced, setLastSynced] = useState<Date | null>(null);
+  const [syncActionError, setSyncActionError] = useState("");
   const syncLock = useRef<Promise<void> | null>(null);
   const syncRequested = useRef(false);
   const [error, setError] = useState("");
   const [memberToken, setMemberToken] = useState("");
   const [signInBusy, setSignInBusy] = useState(false);
+  const [signOutBusy, setSignOutBusy] = useState(false);
   const [update, setUpdate] = useState<(() => Promise<void>) | null>(null);
   const [saveFeedback, setSaveFeedback] = useState<{ entry: Entry; settled: boolean } | null>(null);
   const [logoPulse, setLogoPulse] = useState({ sequence: 0, active: false });
@@ -423,6 +437,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
         await updatePreferences({ member: me.member, nameA: me.nameA, nameB: me.nameB });
         setSyncStatus("Syncing…");
         await synchronize();
+        setLastSynced(new Date());
         setSyncStatus(await db.conflicts.count() + await db.todoConflicts.count() ? "Some edits need your attention"
           : await db.outbox.count() + await db.todoOutbox.count() ? "Saved locally · changes waiting to sync" : "Up to date");
         // Saves during an in-flight pass need another pass, not a dropped request.
@@ -479,19 +494,22 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   }
 
   async function signIn(event: FormEvent) {
-    event.preventDefault(); setSignInBusy(true); setError("");
+    event.preventDefault(); setSignInBusy(true); setSyncActionError("");
     try {
       await signInDevice(memberToken);
-      setMemberToken(""); setTab("settings"); await sync();
-    } catch (e) { setError(e instanceof Error ? e.message : "Could not sign in with this token."); }
+      setMemberToken(""); await sync();
+    } catch (e) { setSyncActionError(e instanceof Error ? e.message : "Could not sign in with this token."); }
     finally { setSignInBusy(false); }
   }
 
   async function signOut() {
+    setSignOutBusy(true); setSyncActionError("");
     try {
       await signOutDevice();
+      setLastSynced(null);
       setIdentity(null); setSyncStatus("Signed out · local history remains on this device");
-    } catch (e) { setError(e instanceof Error ? e.message : "Could not sign out."); }
+    } catch (e) { setSyncActionError(e instanceof Error ? e.message : "Could not sign out."); }
+    finally { setSignOutBusy(false); }
   }
 
   function backup() {
@@ -528,6 +546,13 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const conflictIds = new Set(ledger.conflicts.map((conflict) => conflict.entryId));
   const todos = householdTodos(active, ledger.todos);
   const openTodos = todos.filter((todo) => !todo.done).length;
+  const conflictCount = ledger.conflicts.length + ledger.todoConflicts.length;
+  const currentStatus = !online ? "Offline · changes stay on this device" : syncBusy ? "Syncing…" : syncStatus;
+  const upToDate = online && !syncBusy && !ledger.pending && !conflictCount && syncStatus === "Up to date";
+  const needsAttention = !!syncActionError || !!conflictCount ||
+    !["Up to date", "Syncing…", "Saved on this device", "Saved locally · changes waiting to sync", "Offline · changes stay on this device"].includes(currentStatus);
+  const todoVersion = (todo: Todo | null | undefined) => !todo ? t("Not present") : todo.deleted ? t("Deleted")
+    : `${todo.title}${todo.description ? `\n${todo.description}` : ""}\n${t(todo.done ? "Done" : "Open to-dos")}`;
   const expenseSaved = (entry?: Entry) => {
     saved();
     if (!entry) { setSaveFeedback(null); return; }
@@ -555,14 +580,44 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement || event.target instanceof HTMLTextAreaElement) event.target.setCustomValidity("");
   }}>
     <header className="topbar"><a className="wordmark" href="/" aria-label={t("Splitty home")}><img key={logoPulse.sequence} className={`brand-mark ${syncBusy ? "is-syncing" : logoPulse.active ? "is-saving" : ""}`} src="/icon.svg" width="32" height="32" alt="" />Splitty</a>
-      <button className={`sync-pill ${online ? "" : "offline"}`} onClick={() => void sync()} disabled={syncBusy} aria-busy={syncBusy} aria-label={t("Synchronize devices")}>{!online ? <CloudOff size={16} /> : needsAttention ? <CloudAlert size={16} /> : <span className="sync-icon"><Cloud size={16} />{upToDate && <Check className="sync-check" size={9} strokeWidth={4} />}</span>}<span>{syncBusy ? t("Syncing") : ledger.pending ? t("{count} pending", { count: number(ledger.pending) }) : t(online ? "Sync" : "Offline")}</span></button>
+      <SyncPopover online={online} busy={syncBusy} pending={ledger.pending} attention={needsAttention} upToDate={upToDate} status={message(currentStatus)}>
+        <dl className="sync-details">
+          <div><dt>{t("Connection")}</dt><dd>{t(online ? "Online" : "Offline")}</dd></div>
+          <div><dt>{t("Changes waiting to sync")}</dt><dd>{number(ledger.pending)}</dd></div>
+          {!!conflictCount && <div><dt>{t("Edits needing attention")}</dt><dd>{number(conflictCount)}</dd></div>}
+          <div><dt>{t("Last sync this session")}</dt><dd>{lastSynced ? <time dateTime={lastSynced.toISOString()}>{lastSynced.toLocaleString(locale, { dateStyle: "short", timeStyle: "short" })}</time> : t("Not yet synced")}</dd></div>
+        </dl>
+        {syncActionError && <p className="error" role="alert">{message(syncActionError)}</p>}
+        {identity && <p>{t("Signed in as {name}.", { name: person(p, identity.member) })}</p>}
+        <div className="button-row"><button className="secondary" disabled={!online || syncBusy || signInBusy || signOutBusy} onClick={() => void sync()}><RefreshCw size={16} />{t("Sync now")}</button>
+          {identity && <button className="text-button" disabled={!online || syncBusy || signOutBusy} aria-busy={signOutBusy} onClick={() => void signOut()}>{t("Sign out")}</button>}</div>
+        {identity ? <p className="muted">{t("Signing out does not erase this device's offline history. Use a trusted device.")}</p> :
+          <form className="sync-sign-in" onSubmit={(event) => void signIn(event)}><label>{t("Member token")}<input type="password" autoComplete="off" autoCapitalize="off" spellCheck={false} required maxLength={43} value={memberToken} onChange={(event) => setMemberToken(event.target.value)} /></label>
+            <button className="primary" disabled={signInBusy || syncBusy || !online}>{t(signInBusy ? "Signing in…" : "Sign in")}</button>
+            <p className="muted">{t("This device stays signed in until you sign out or the member token is rotated.")}</p></form>}
+        {!!ledger.conflicts.length && <section className="conflict-panel" aria-label={t("Conflicting edits")}><h3>{t("Conflicting edits")}</h3><p>{t("These entries changed on another device. Choose which version to keep.")}</p>{ledger.conflicts.map((conflict) => {
+          const local = ledger.entries.find((entry) => entry.id === conflict.entryId);
+          return <div key={conflict.entryId}><strong>{local?.description}</strong><p>{t("This device: {local} · Other device: {remote} ({name}'s balance)", { local: local?.deleted ? t("Deleted") : money(local?.balanceA ?? 0), remote: conflict.remote?.deleted ? t("Deleted") : conflict.remote ? money(conflict.remote.balanceA) : t("Not present"), name: p.nameA })}</p><div className="button-row">
+            <button className="secondary" onClick={() => void resolveConflict(conflict.entryId, false).then(saved).catch((e: Error) => setSyncActionError(e.message))}>{t("Keep other device")}</button>
+            <button className="secondary" onClick={() => void resolveConflict(conflict.entryId, true).then(saved).catch((e: Error) => setSyncActionError(e.message))}>{t("Keep this device")}</button>
+          </div></div>;
+        })}</section>}
+        {!!ledger.todoConflicts.length && <section className="conflict-panel" aria-label={t("Conflicting to-do edits")}><h3>{t("Conflicting to-do edits")}</h3>
+          <p>{t("These to-dos changed on another device. Choose which version to keep.")}</p>
+          {ledger.todoConflicts.map((conflict) => <div key={conflict.entryId}>
+            <p className="todo-version"><strong>{t("This device")}</strong>{"\n"}{todoVersion(ledger.todos.find((todo) => todo.id === conflict.entryId))}</p>
+            <p className="todo-version"><strong>{t("Other device")}</strong>{"\n"}{todoVersion(conflict.remote)}</p>
+            <div className="button-row"><button className="secondary" onClick={() => void resolveStoreConflict(conflict.entryId, false, todoStore()).then(saved).catch((e: Error) => setSyncActionError(e.message))}>{t("Keep other device")}</button>
+              <button className="secondary" onClick={() => void resolveStoreConflict(conflict.entryId, true, todoStore()).then(saved).catch((e: Error) => setSyncActionError(e.message))}>{t("Keep this device")}</button></div>
+          </div>)}
+        </section>}
+      </SyncPopover>
     </header>
     <main className={tab === "expenses" || tab === "todos" ? "with-expense-action" : undefined}>
       {error && <div className="banner error" role="alert">{message(error)}<button className="icon-button" aria-label={t("Dismiss error")} onClick={() => setError("")}><X size={18} /></button></div>}
       {update && <div className="banner">{t("An app update is ready. Your saved entries will be kept.")}<button onClick={() => void update().catch((e: Error) => setError(e.message))} className="text-button">{t("Update")}</button></div>}
-      {tab === "todos" ? <TodoList todos={todos} openCount={openTodos} status={message(syncStatus)} statusQuiet={statusQuiet} blocked={conflictIds} open={setForm}
-        manualTodos={ledger.todos} conflicts={ledger.todoConflicts}
-        resolve={(id, keepLocal) => void resolveStoreConflict(id, keepLocal, todoStore()).then(saved).catch((e: Error) => setError(e.message))}
+      {tab === "todos" ? <TodoList todos={todos} openCount={openTodos} blocked={conflictIds} open={setForm}
+        conflicts={ledger.todoConflicts}
         edit={setTodoForm}
         remove={async (item) => {
           if (item.kind === "manual") await queueTodos([{ ...item.todo, deleted: true }]);
@@ -596,14 +651,6 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
           <label className="search"><Search size={19} /><input aria-label={t("Search expenses")} type="search" placeholder={t("Search expenses")} value={search} onChange={(e) => { setSearch(e.target.value); setLimit(100); }} /></label>
           <p className="search-hint">{t("Description, category or date")}</p>
         </>}
-        {!!ledger.conflicts.length && <section className="conflict-panel"><h3>{t("Conflicting edits")}</h3><p>{t("These entries changed on another device. Choose which version to keep.")}</p>{ledger.conflicts.map((conflict) => {
-          const local = ledger.entries.find((entry) => entry.id === conflict.entryId);
-          return <div key={conflict.entryId}><strong>{local?.description}</strong><p>{t("This device: {local} · Other device: {remote} ({name}'s balance)", { local: local?.deleted ? t("Deleted") : money(local?.balanceA ?? 0), remote: conflict.remote?.deleted ? t("Deleted") : conflict.remote ? money(conflict.remote.balanceA) : t("Not present"), name: p.nameA })}</p><div className="button-row">
-            <button className="secondary" onClick={() => void resolveConflict(conflict.entryId, false).then(saved).catch((e: Error) => setError(e.message))}>{t("Keep other device")}</button>
-            <button className="secondary" onClick={() => void resolveConflict(conflict.entryId, true).then(saved).catch((e: Error) => setError(e.message))}>{t("Keep this device")}</button>
-          </div></div>;
-        })}</section>}
-        <p className={`sync-status ${statusQuiet ? "sr-only" : ""}`} role="status">{message(syncStatus)}</p>
         <section className="ledger-section" aria-label={t(tab === "search" ? "Search results" : "Expenses")}>
           {tab === "search" && <div className="section-title"><h2>{t("Search results")}<span>{number(shown.length)}</span></h2></div>}
           {!shown.length ? <div className="empty-state"><h2>{t(query ? "No matching expenses" : "No expenses yet")}</h2>{query && <p>{t("Try a different description, category or date.")}</p>}</div> :
@@ -637,10 +684,6 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
           <label>{t("App language")}<select aria-label={t("App language")} value={language} onChange={(event) => void updatePreferences({ language: event.target.value === "en" ? "en" : "de" }).catch((e: Error) => setError(e.message))}>
             <option value="de" lang="de">Deutsch</option><option value="en" lang="en">English</option>
           </select></label>
-        </section>
-        <section className="settings-card"><h2><Cloud size={20} />{t("Synchronization")}</h2><p className="muted" role="status">{message(syncStatus)}</p>
-          {identity ? <><p>{t("Signed in as {name}.", { name: person(p, identity.member) })}</p><div className="button-row"><button className="secondary" disabled={syncBusy} onClick={() => void sync()}><RefreshCw size={16} />{t("Sync now")}</button><button className="text-button" onClick={() => void signOut()}>{t("Sign out")}</button></div><p className="muted">{t("Signing out does not erase this device's offline history. Use a trusted device.")}</p></> :
-            <form onSubmit={(event) => void signIn(event)}><label>{t("Member token")}<input type="password" autoComplete="off" autoCapitalize="off" spellCheck={false} required maxLength={43} value={memberToken} onChange={(event) => setMemberToken(event.target.value)} /></label><button className="primary" disabled={signInBusy || !online}>{t(signInBusy ? "Signing in…" : "Sign in")}</button><p className="muted">{t("This device stays signed in until you sign out or the member token is rotated.")}</p></form>}
         </section>
         <section className="settings-card"><h2><Users size={20} />{t("Household")}</h2><label>{t("First person")}<input defaultValue={p.nameA} key={`a-${p.nameA}`} maxLength={60} readOnly={!!identity} onBlur={(e) => { if (e.target.value.trim() && e.target.value.trim() !== p.nameA) void updatePreferences({ nameA: e.target.value.trim() }).catch((err: Error) => setError(err.message)); }} /></label><label>{t("Second person")}<input defaultValue={p.nameB} key={`b-${p.nameB}`} maxLength={60} readOnly={!!identity} onBlur={(e) => { if (e.target.value.trim() && e.target.value.trim() !== p.nameB) void updatePreferences({ nameB: e.target.value.trim() }).catch((err: Error) => setError(err.message)); }} /></label>
           {!identity && <label>{t("This device belongs to")}<select value={p.member} onChange={(e) => void updatePreferences({ member: e.target.value as Member }).catch((err: Error) => setError(err.message))}><option value="a">{p.nameA}</option><option value="b">{p.nameB}</option></select></label>}

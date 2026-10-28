@@ -94,7 +94,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
       await expenses.started;
       await expect(icon).toHaveClass(/is-syncing/);
       await expect(button).toHaveAttribute("aria-busy", "true");
-      await expect(button).toBeDisabled();
+      await expect(button).toBeEnabled();
       for (const width of [320, 393, 1280]) {
         await page.setViewportSize({ width, height: 900 });
         for (const theme of ["light", "dark"]) {
@@ -122,7 +122,11 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
       }
       await nav.getByRole("button", { name: "Einstellungen", exact: true }).click();
       await expect(page.getByRole("status")).toHaveText("Wird synchronisiert…");
-      await expect(page.getByRole("status")).toBeVisible();
+      await expect(page.locator("main .sync-status")).toHaveCount(0);
+      await button.click();
+      await expect(page.locator(".sync-summary")).toHaveText("Wird synchronisiert…");
+      await expect(page.locator(".sync-summary")).toBeVisible();
+      await page.keyboard.press("Escape");
       await nav.getByRole("button", { name: "Ausgaben", exact: true }).click();
       expenses.release();
       await todos.started;
@@ -139,7 +143,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
       }
       await nav.getByRole("button", { name: "Einstellungen", exact: true }).click();
       await expect(page.getByRole("status")).toHaveText("Auf dem neuesten Stand");
-      await expect(page.getByRole("status")).toBeVisible();
+      await expect(page.locator("main .sync-status")).toHaveCount(0);
       await nav.getByRole("button", { name: "Ausgaben", exact: true }).click();
       await expect(icon).not.toHaveClass(/is-syncing/);
       await expect(icon).toHaveCSS("animation-name", "none");
@@ -151,14 +155,16 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
       const failed = await holdSyncPull(page, "sync", 503);
       releases.push(failed.release);
       await button.click();
+      await page.getByRole("button", { name: "Jetzt synchronisieren" }).click();
+      await button.click();
       await failed.started;
       await expect(icon).toHaveClass(/is-syncing/);
       failed.release();
       for (const tab of listTabs) {
         await nav.getByRole("button", { name: tab, exact: true }).click();
         await expect(status).toHaveText("Die Synchronisierung ist fehlgeschlagen.");
-        await expect(status).toBeVisible();
-        await expect(status).toHaveCSS("clip", "auto");
+        await expect(status).toHaveCSS("clip", "rect(0px, 0px, 0px, 0px)");
+        await expect(page.locator("main .sync-status")).toHaveCount(0);
       }
       await expect(icon).not.toHaveClass(/is-syncing/);
       await expect(icon).toHaveCSS("animation-name", "none");
@@ -166,6 +172,8 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
 
       const offline = await holdSyncPull(page, "sync");
       releases.push(offline.release);
+      await button.click();
+      await page.getByRole("button", { name: "Jetzt synchronisieren" }).click();
       await button.click();
       await offline.started;
       await expect(icon).toHaveClass(/is-syncing/);
@@ -178,8 +186,8 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
       for (const tab of listTabs) {
         await nav.getByRole("button", { name: tab, exact: true }).click();
         await expect(status).toHaveText("Offline · Änderungen bleiben auf diesem Gerät");
-        await expect(status).toBeVisible();
-        await expect(status).toHaveCSS("clip", "auto");
+        await expect(status).toHaveCSS("clip", "rect(0px, 0px, 0px, 0px)");
+        await expect(page.locator("main .sync-status")).toHaveCount(0);
       }
     } finally {
       for (const release of releases) release();

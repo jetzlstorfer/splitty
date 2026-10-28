@@ -289,7 +289,7 @@ test("insurance todo swipes open and delete their linked expense with explicit c
   await confirmAction(page, "Delete entry");
   await expect(edited).toHaveCount(0);
   await page.getByRole("button", { name: "Expenses", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "No expenses yet" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Together, fairly split" })).toBeVisible();
   await expect(page.locator(".balance-amount")).toContainText("0.00");
 });
 
@@ -385,7 +385,7 @@ test("mobile expense entry, custom splits, settlements and offline reload", asyn
   await expect(page.getByText("Offline groceries", { exact: true })).toBeVisible();
   dialog = await addExpense(page, "On behalf of partner", "12,34");
   await dialog.getByRole("button", { name: /Split equally/ }).click();
-  await dialog.getByRole("radio", { name: "Your wife owes the full amount" }).check();
+  await dialog.getByRole("radio", { name: "Your spouse owes the full amount" }).check();
   await save(page);
   await expect(page.locator(".balance-amount")).toContainText("22.34");
   dialog = await addExpense(page, "Percentage expense", "8");

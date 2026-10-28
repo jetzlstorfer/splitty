@@ -14,11 +14,13 @@ export function useLocale() {
   const message = (value: string) => localizeMessage(value, language);
   const person = (preferences: Preferences, member: Member) => {
     const name = member === "a" ? preferences.nameA : preferences.nameB;
-    return !name || name === (member === "a" ? "You" : "Your wife") ? t(member === "a" ? "You" : "Your wife") : name;
+    // Keep the stored legacy placeholder compatible without rewriting household names.
+    return !name || name === (member === "a" ? "You" : "Your wife") || (member === "b" && name === "Your spouse")
+      ? t(member === "a" ? "You" : "Your spouse") : name;
   };
   const payer = (preferences: Preferences, member: Member) => {
     const name = person(preferences, member);
-    return name === t(member === "a" ? "You" : "Your wife") ? t(member === "a" ? "First person" : "Second person") : name;
+    return name === t(member === "a" ? "You" : "Your spouse") ? t(member === "a" ? "First person" : "Second person") : name;
   };
   return { language, locale, t, money, number, message, person, payer };
 }

@@ -4,6 +4,8 @@
 
 A private, offline-first expense ledger for two people. Record shared expenses in EUR, see who owes whom, and keep both devices in sync when you sign in.
 
+The empty expenses screen introduces splitting, balances, and offline saving, with a hint for syncing devices. Default household labels are gender-neutral; set your own names in Settings or use your configured household names when signing in.
+
 <p align="center">
   <img src="docs/screenshots/expenses.png" width="320" alt="Splitty expense ledger with a shared balance and recent expenses" />
   &nbsp;&nbsp;

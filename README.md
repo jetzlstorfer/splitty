@@ -126,3 +126,9 @@ physical iPhone.
 See [browser validation](.github/skills/browser-validation/SKILL.md) and [offline-sync validation](.github/skills/offline-sync-validation/SKILL.md) for focused test setup. See [Copilot instructions](.github/copilot-instructions.md) for repository conventions.
 
 For the local API, emulator, and registry setup, see [development](docs/development.md).
+
+## Dependency updates
+
+[Dependabot](.github/dependabot.yml) groups monthly npm version updates for the
+frontend and API. npm security updates use a separate group and do not wait for
+the monthly schedule. GitHub Actions version updates have their own monthly group.

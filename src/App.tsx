@@ -1,22 +1,24 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { liveQuery } from "dexie";
 import {
   BarChart3, Check, ChevronDown, ClipboardCheck, Cloud, CloudAlert, CloudOff,
   Download, Languages, Plus, Receipt, RefreshCw, Search, Settings, Sparkles, Sun, Trash2, Upload, Users, X
 } from "lucide-react";
 import { calculateShareA, expenseBalance, parseMoney, type Entry, type Member, type SplitType } from "../shared/model";
+import { translate } from "../shared/i18n";
 import { MAX_TODO_TITLE, MAX_TODO_DESCRIPTION, type Todo } from "../shared/todo";
 import { db, queueEntries, queueTodos, resolveConflict, resolveStoreConflict, todoStore, updatePreferences, getPreferences, type Conflict, type Preferences } from "./db";
 import { missingBackupRecords, readBackup, restoreBackup } from "./backup";
-import { previewImport, readCsv, type ImportPreview } from "./importer";
+import type { ImportPreview } from "./importer";
 import { ApiError, identify, signInDevice, signOutDevice, synchronize, type Identity } from "./sync";
 import { LanguageContext, useLocale } from "./i18n";
 import { categoryLabels, detectCategory, expenseCategory, normalizeText, storedCategory, type Category } from "./categories";
 import ExpenseIcon from "./ExpenseIcon";
 import SwipeableRow from "./SwipeableRow";
-import Statistics from "./StatisticsPage";
 import { householdTodos, type HouseholdTodo } from "./todos";
 import { ConfirmationProvider, DateField, Form, Select, Sheet, dateValue as today, useConfirm } from "./Controls";
+
+const Statistics = lazy(() => import("./StatisticsPage"));
 
 interface Snapshot {
   entries: Entry[]; todos: Todo[]; pending: number; preferences: Preferences;
@@ -26,11 +28,13 @@ interface Snapshot {
 function useLedger(): Snapshot | null {
   const [value, setValue] = useState<Snapshot | null>(null);
   useEffect(() => {
-    const subscription = liveQuery(async () => ({
-      entries: await db.entries.toArray(), todos: await db.todos.toArray(),
-      pending: await db.outbox.count() + await db.todoOutbox.count(),
-      preferences: await getPreferences(), conflicts: await db.conflicts.toArray(), todoConflicts: await db.todoConflicts.toArray()
-    })).subscribe({
+    const subscription = liveQuery(async () => {
+      const [entries, todos, outboxCount, todoOutboxCount, preferences, conflicts, todoConflicts] = await Promise.all([
+        db.entries.toArray(), db.todos.toArray(), db.outbox.count(), db.todoOutbox.count(),
+        getPreferences(), db.conflicts.toArray(), db.todoConflicts.toArray()
+      ]);
+      return { entries, todos, pending: outboxCount + todoOutboxCount, preferences, conflicts, todoConflicts };
+    }).subscribe({
       next: setValue,
       error: (error: unknown) => window.dispatchEvent(new CustomEvent("splitty-error", {
         detail: `Local storage failed: ${error instanceof Error ? error.message : String(error)}`
@@ -224,6 +228,7 @@ function ImportForm({ preferences: p, close, saved }: { preferences: Preferences
     try {
       if (file.size > 10_000_000) throw new Error("Choose an export smaller than 10 MB.");
       const content = await file.text();
+      const { readCsv } = await import("./importer");
       const parsed = readCsv(content);
       setText(content); setMembers(parsed.members);
       setMemberA(parsed.members.includes(p.nameA) ? p.nameA : parsed.members[0]);
@@ -231,7 +236,10 @@ function ImportForm({ preferences: p, close, saved }: { preferences: Preferences
   }
   async function inspect() {
     setBusy(true); setError("");
-    try { setPreview(await previewImport(text, memberA, new Set(await db.entries.toCollection().primaryKeys()))); }
+    try {
+      const { previewImport } = await import("./importer");
+      setPreview(await previewImport(text, memberA, new Set(await db.entries.toCollection().primaryKeys())));
+    }
     catch (e) { setError(e instanceof Error ? e.message : "Could not preview this import."); }
     finally { setBusy(false); }
   }
@@ -526,19 +534,28 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     } catch (e) { setError(e instanceof Error ? e.message : "Could not restore the backup."); }
   }
 
+  const active = useMemo(() => ledger?.entries.filter((entry) => !entry.deleted) ?? [], [ledger?.entries]);
+  const balanceA = useMemo(() => active.reduce((sum, entry) => sum + entry.balanceA, 0), [active]);
+  const query = tab === "search" ? normalizeText(search.trim()) : "";
+  const sortedActive = useMemo(() => active.slice().sort((a, b) =>
+    b.date.localeCompare(a.date) || b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id)
+  ), [active]);
+  const searchIndex = useMemo(() => tab !== "search" ? [] : sortedActive.map((entry) => ({
+    entry,
+    text: normalizeText(`${entry.description} ${entry.category} ${translate(language, categoryLabels[expenseCategory(entry.description, entry.category, entry.kind, entry.categoryMode)])} ${entry.date}`)
+  })), [language, sortedActive, tab]);
+  const shown = useMemo(() => tab === "search"
+    ? searchIndex.filter(({ text }) => !query || text.includes(query)).map(({ entry }) => entry)
+    : sortedActive, [query, searchIndex, sortedActive, tab]);
+  const conflictIds = useMemo(() => new Set(ledger?.conflicts.map((conflict) => conflict.entryId) ?? []), [ledger?.conflicts]);
+  const todos = useMemo(() => householdTodos(active, ledger?.todos ?? []), [active, ledger?.todos]);
+  const openTodos = useMemo(() => todos.filter((todo) => !todo.done).length, [todos]);
+
   if (!ledger) return <main className="loading"><img src="/icon.svg" width="64" height="64" alt="" /><h1>Splitty</h1><p>{t("Opening your shared ledger…")}</p>{error && <p className="error" role="alert">{message(error)}</p>}</main>;
 
   const p = { ...ledger.preferences, nameA: person(ledger.preferences, "a"), nameB: person(ledger.preferences, "b") };
   const other = p.member === "a" ? p.nameB : p.nameA;
-  const active = ledger.entries.filter((entry) => !entry.deleted);
-  const balanceA = active.reduce((sum, entry) => sum + entry.balanceA, 0);
   const balance = p.member === "a" ? balanceA : -balanceA;
-  const query = tab === "search" ? normalizeText(search.trim()) : "";
-  const shown = active.filter((entry) => !query || normalizeText(`${entry.description} ${entry.category} ${t(categoryLabels[expenseCategory(entry.description, entry.category, entry.kind, entry.categoryMode)])} ${entry.date}`).includes(query))
-    .sort((a, b) => b.date.localeCompare(a.date) || b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
-  const conflictIds = new Set(ledger.conflicts.map((conflict) => conflict.entryId));
-  const todos = householdTodos(active, ledger.todos);
-  const openTodos = todos.filter((todo) => !todo.done).length;
   const conflictCount = ledger.conflicts.length + ledger.todoConflicts.length;
   // Another tab can acknowledge shared queued writes after this tab's sync finishes.
   const idleStatus = syncStatus === "Saved locally · changes waiting to sync" && !ledger.pending && !conflictCount ? "Up to date" : syncStatus;
@@ -619,7 +636,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
         }}
         onError={(e) => setError(e instanceof Error ? e.message : "Could not save this to-do.")}
         toggleManual={(todo, done) => void queueTodos([{ ...todo, done }]).then(saved).catch((e: Error) => setError(e.message))}
-        toggle={(entry, submitted) => void markSubmitted(entry, submitted).then(saved).catch((e: Error) => setError(e.message))} /> : tab === "statistics" ? <Statistics entries={ledger.entries} preferences={p} /> : tab !== "settings" ? <>
+        toggle={(entry, submitted) => void markSubmitted(entry, submitted).then(saved).catch((e: Error) => setError(e.message))} /> : tab === "statistics" ? <Suspense fallback={<p className="loading">{t("Loading…")}</p>}><Statistics entries={ledger.entries} preferences={p} /></Suspense> : tab !== "settings" ? <>
         {tab === "expenses" ? <>
           <header className="page-heading">
             <h1>{t("Expenses")}<span className="entry-count">{number(active.length)}</span></h1>

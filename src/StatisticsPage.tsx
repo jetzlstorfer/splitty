@@ -45,7 +45,7 @@ export default function StatisticsPage({ entries, preferences }: { entries: Entr
       {!allTime && <button className="icon-button" aria-label={t("Next month")} disabled={month >= "9999-12"} onClick={() => setMonth(moveMonth(month, 1))}><ChevronRight size={20} /></button>}
     </div>
 
-    <section className="statistics-hero" aria-label={t("Spending overview")}>
+    <section className="statistics-hero accent-hero" aria-label={t("Spending overview")}>
       <div className="statistics-eyebrow"><Sparkles size={16} aria-hidden="true" />{t("Total spending")}</div>
       <strong className="statistics-total">{money(stats.total)}</strong>
       <p>{t("Together, not what you owe.")}</p>

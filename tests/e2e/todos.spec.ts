@@ -1,12 +1,9 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
+import { signIn as signInMember } from "./helpers";
 
 async function signIn(page: Page, member: "A" | "B" = "A") {
   await page.goto("/");
-  await page.getByRole("button", { name: "Synchronisierungsstatus", exact: true }).click();
-  await page.getByLabel("Mitglieds-Token").fill(member.repeat(43));
-  await page.getByRole("button", { name: "Anmelden", exact: true }).click();
-  await expect(page.getByRole("status")).toHaveText("Auf dem neuesten Stand");
-  await page.getByRole("button", { name: "Synchronisierungsstatus", exact: true }).click();
+  await signInMember(page, member);
   await page.getByRole("button", { name: "Ausgaben", exact: true }).click();
 }
 

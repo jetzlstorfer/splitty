@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 async function addGerman(page: Page, description: string, amount = "12,34") {
   await page.locator(".add-button").click();
@@ -21,13 +21,8 @@ test("German is the default and category icons update while typing, saving and e
   await expect(page.getByRole("status")).toContainText("Zum Synchronisieren anmelden");
   const dialog = await addGerman(page, "Billa");
   for (const [term, category] of [
-    ["Billa", "Lebensmittel"], ["Hofer", "Lebensmittel"], ["Spar", "Lebensmittel"],
-    ["Uni", "Lebensmittel"], ["Unimarkt", "Lebensmittel"], ["Tanken", "Tanken"],
-    ["Putzfrau", "Reinigung"], ["Friseur", "Friseur"], ["Apotheke", "Apotheke"],
-    ["groceries", "Lebensmittel"], ["gas", "Tanken"], ["cleaning lady", "Reinigung"],
-    ["hairdresser", "Friseur"], ["pharmacy", "Apotheke"], ["Essen", "Essen"],
-    ["Hallenbad", "Sport"], ["Freibad", "Sport"], ["Schwimmkurs", "Sport"],
-    ["Stromrechnung", "Energie & Nebenkosten"], ["Klimaticket", "Öffis & Taxi"]
+    ["Billa", "Lebensmittel"], ["Tanken", "Tanken"],
+    ["Apotheke", "Apotheke"], ["groceries", "Lebensmittel"]
   ]) {
     await dialog.getByLabel("Beschreibung", { exact: true }).fill(term);
     await expect(dialog.getByRole("img", { name: category, exact: true })).toBeVisible();

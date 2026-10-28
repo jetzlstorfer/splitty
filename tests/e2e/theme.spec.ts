@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 async function expectTheme(page: Page, theme: "light" | "dark") {
   await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
@@ -18,7 +18,7 @@ for (const initial of ["light", "dark"] as const) {
     const description = page.getByRole("textbox", { name: "Beschreibung", exact: true });
     await description.fill("Theme change regression");
 
-    for (const theme of [opposite, initial]) {
+    for (const theme of [opposite, initial] as const) {
       await page.emulateMedia({ colorScheme: theme });
       await expectTheme(page, theme);
       await expect(description).toHaveValue("Theme change regression");
@@ -30,7 +30,7 @@ for (const initial of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme: opposite });
     await page.goto(`/?scoutTheme=${initial}`);
     await expectTheme(page, initial);
-    for (const theme of [initial, opposite]) {
+    for (const theme of [initial, opposite] as const) {
       await page.emulateMedia({ colorScheme: theme });
       await expectTheme(page, initial);
     }

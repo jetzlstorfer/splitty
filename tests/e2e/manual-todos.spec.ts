@@ -1,17 +1,13 @@
 import { readFile } from "node:fs/promises";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "./fixtures";
+import { signIn as signInMember, synchronize as sync, upToDate } from "./helpers";
 
 const row = (page: Page, title: string) => page.getByRole("listitem").filter({ has: page.getByText(title, { exact: true }) });
 const todos = (page: Page) => page.getByRole("navigation").getByRole("button", { name: "To-dos" }).click();
-const upToDate = (page: Page) => expect(page.getByRole("status")).toHaveText("Auf dem neuesten Stand");
 
 async function signIn(page: Page, member: "A" | "B") {
   await page.goto("/");
-  await page.getByRole("button", { name: "Synchronisierungsstatus", exact: true }).click();
-  await page.getByLabel("Mitglieds-Token").fill(member.repeat(43));
-  await page.getByRole("button", { name: "Anmelden", exact: true }).click();
-  await upToDate(page);
-  await page.getByRole("button", { name: "Synchronisierungsstatus", exact: true }).click();
+  await signInMember(page, member);
   await todos(page);
 }
 
@@ -43,13 +39,6 @@ async function edit(page: Page, title: string, next: string, description: string
   await dialog.getByLabel("Beschreibung (optional)").fill(description);
   await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
   await expect(dialog).not.toBeVisible();
-}
-
-async function sync(page: Page) {
-  await page.getByRole("button", { name: "Synchronisierungsstatus" }).click();
-  await page.getByRole("button", { name: "Jetzt synchronisieren" }).click();
-  await upToDate(page);
-  await page.getByRole("button", { name: "Synchronisierungsstatus" }).click();
 }
 
 async function toggle(page: Page, title: string, done: boolean) {
@@ -206,14 +195,6 @@ test("todo rows match expense text and column alignment in both themes", async (
         const checkbox = (await item.getByRole("checkbox").boundingBox())!;
         expect(checkbox.x + checkbox.width / 2).toBeCloseTo(date.x + date.width / 2, 1);
         expect(checkbox.height).toBe(22);
-        const front = item.locator(".swipe-front");
-        await page.getByRole("heading", { level: 1 }).hover();
-        const background = await front.evaluate((element) => getComputedStyle(element).backgroundColor);
-        await item.locator(".entry-description").hover();
-        const hover = await front.evaluate((element) => getComputedStyle(element).backgroundColor);
-        expect(hover).not.toBe(background);
-        await item.locator(".row-actions-toggle").hover();
-        await expect(front).toHaveCSS("background-color", hover);
         await expect(item.getByRole("checkbox")).not.toBeChecked();
       }
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

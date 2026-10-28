@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 async function addExpense(page: Page, description: string, amount: string, date: string, paidBy = "a") {
   await page.getByRole("navigation").getByRole("button", { name: "Expenses", exact: true }).click();

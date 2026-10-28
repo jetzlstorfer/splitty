@@ -93,16 +93,23 @@ Table Storage and operations may incur charges. Review current regional pricing 
 ```powershell
 npm run lint
 npm test
+npm run check:e2e
 npm run build
 npm run build:api
 ```
 
-The API integration and browser tests use synthetic households. To run the browser suite, start the local Table emulator in a separate terminal, then run:
+The API integration and browser tests use synthetic households. After building, run the browser suite with:
 
 ```powershell
-npx playwright install chromium
+npx playwright install chromium webkit
 npm run test:e2e
 ```
+
+Browser fixtures automatically start private Table emulators and production previews
+on available loopback ports. Every test gets a fresh household; no existing local
+servers, settings, credentials, or data are reused. Chromium runs the main suite;
+WebKit runs a small mobile/PWA smoke suite. See [development](docs/development.md#checks)
+for focused commands and coverage ownership.
 
 See [browser validation](.github/skills/browser-validation/SKILL.md) and [offline-sync validation](.github/skills/offline-sync-validation/SKILL.md) for focused test setup. See [Copilot instructions](.github/copilot-instructions.md) for repository conventions.
 

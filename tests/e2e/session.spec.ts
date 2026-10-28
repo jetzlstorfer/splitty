@@ -1,24 +1,14 @@
 import { rm } from "node:fs/promises";
-import { expect, test, type BrowserContext, type Page } from "@playwright/test";
-
-async function settings(page: Page) {
-  await page.getByRole("navigation").getByRole("button", { name: /^(Settings|Einstellungen)$/ }).click();
-}
+import { expect, test, type BrowserContext, type Page } from "./fixtures";
+import { signIn as signInMember, useEnglish } from "./helpers";
 
 async function syncDetails(page: Page) {
   await page.getByRole("button", { name: "Sync status", exact: true }).click();
 }
 
 async function signIn(page: Page) {
-  await page.goto("/");
-  await settings(page);
-  await page.getByLabel("App-Sprache", { exact: true }).selectOption("en");
-  await syncDetails(page);
-  await page.getByLabel("Member token").fill("A".repeat(43));
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(page.getByText("Signed in as Alex.", { exact: true })).toBeVisible();
-  await expect(page.getByRole("status")).toHaveText("Up to date");
-  await syncDetails(page);
+  await useEnglish(page);
+  await signInMember(page);
 }
 
 const sessionCookie = async (context: BrowserContext, baseURL?: string) =>

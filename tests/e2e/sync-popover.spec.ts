@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
+import { synchronize as sync, useEnglish as english } from "./helpers";
 
 test.use({ hasTouch: true });
 
@@ -7,14 +8,7 @@ const popover = (page: Page) => page.getByRole("dialog", { name: "Synchronizatio
 const detail = (page: Page, label: string) => popover(page).locator(".sync-details > div").filter({ has: page.getByText(label, { exact: true }) }).locator("dd");
 const upToDate = (page: Page) => expect(page.locator(".sync-status")).toHaveText("Up to date");
 
-async function english(page: Page) {
-  await page.goto("/", { waitUntil: "domcontentloaded" });
-  await page.getByRole("navigation").getByRole("button", { name: "Einstellungen", exact: true }).click();
-  await page.getByLabel("App-Sprache", { exact: true }).selectOption("en");
-  await page.getByRole("navigation").getByRole("button", { name: "Expenses", exact: true }).click();
-}
-
-async function signIn(page: Page, member = "A") {
+async function signIn(page: Page, member: "A" | "B" = "A") {
   await indicator(page).click();
   await popover(page).getByLabel("Member token").fill(member.repeat(43));
   await popover(page).getByRole("button", { name: "Sign in", exact: true }).click();
@@ -22,51 +16,47 @@ async function signIn(page: Page, member = "A") {
   await expect(popover(page).getByText(`Signed in as ${member === "A" ? "Alex" : "Sam"}.`, { exact: true })).toBeVisible();
 }
 
-async function sync(page: Page) {
-  await indicator(page).click();
-  await popover(page).getByRole("button", { name: "Sync now" }).click();
-  await upToDate(page);
-  await indicator(page).click();
-}
-
 test("the cloud is the only sync entry point across tabs, widths and themes, with keyboard and touch dismissal", async ({ page }, info) => {
   await english(page);
   await expect(page.locator(".sync-status")).toHaveText("Sign in to sync");
+  for (const tab of ["Expenses", "To-dos", "Search", "Statistics", "Settings"]) {
+    await page.getByRole("navigation").getByRole("button", { name: tab, exact: true }).click();
+    await expect(page.locator("main .sync-status, main .sync-summary")).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Synchronization", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Sync now" })).toHaveCount(0);
+    await expect(page.getByLabel("Member token")).not.toBeVisible();
+    await indicator(page).click();
+    await expect(popover(page).locator(".sync-summary")).toHaveText("Sign in to sync");
+    await expect(detail(page, "Connection")).toHaveText("Online");
+    await expect(detail(page, "Changes waiting to sync")).toHaveText("0");
+    await expect(detail(page, "Last sync this session")).toHaveText("Not yet synced");
+    await indicator(page).click();
+  }
+  await expect(page.locator(".sync-status")).toHaveCSS("clip", "rect(0px, 0px, 0px, 0px)");
+  await indicator(page).focus();
+  await page.keyboard.press("Enter");
+  await expect(indicator(page)).toHaveAttribute("aria-expanded", "true");
+  await page.keyboard.press("Tab");
+  await expect(popover(page).getByRole("button", { name: "Close", exact: true })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(popover(page).getByRole("button", { name: "Sync now" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(popover(page).getByLabel("Member token")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(popover(page)).not.toBeVisible();
+  await expect(indicator(page)).toBeFocused();
+  await expect(indicator(page)).toHaveAttribute("aria-expanded", "false");
   for (const width of [320, 393, 1280]) {
     await page.setViewportSize({ width, height: 900 });
     for (const theme of ["light", "dark"]) {
       await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
-      for (const tab of ["Expenses", "To-dos", "Search", "Statistics", "Settings"]) {
-        await page.getByRole("navigation").getByRole("button", { name: tab, exact: true }).click();
-        await expect(page.locator("main .sync-status, main .sync-summary")).toHaveCount(0);
-        await expect(page.getByRole("heading", { name: "Synchronization", exact: true })).toHaveCount(0);
-        await expect(page.getByRole("button", { name: "Sync now" })).toHaveCount(0);
-        await expect(page.getByLabel("Member token")).not.toBeVisible();
-        await indicator(page).focus();
-        await page.keyboard.press("Enter");
-        await expect(indicator(page)).toHaveAttribute("aria-expanded", "true");
-        await expect(popover(page).locator(".sync-summary")).toHaveText("Sign in to sync");
-        await expect(detail(page, "Connection")).toHaveText("Online");
-        await expect(detail(page, "Changes waiting to sync")).toHaveText("0");
-        await expect(detail(page, "Last sync this session")).toHaveText("Not yet synced");
-        await page.keyboard.press("Tab");
-        await expect(popover(page).getByRole("button", { name: "Close", exact: true })).toBeFocused();
-        await page.keyboard.press("Tab");
-        await expect(popover(page).getByRole("button", { name: "Sync now" })).toBeFocused();
-        await page.keyboard.press("Tab");
-        await expect(popover(page).getByLabel("Member token")).toBeFocused();
-        const bounds = (await popover(page).boundingBox())!;
-        expect(bounds.x).toBeGreaterThanOrEqual(0);
-        expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
-        expect(bounds.y + bounds.height).toBeLessThanOrEqual(900);
-        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-        await page.keyboard.press("Escape");
-        await expect(popover(page)).not.toBeVisible();
-        await expect(indicator(page)).toBeFocused();
-        await expect(indicator(page)).toHaveAttribute("aria-expanded", "false");
-      }
       await indicator(page).tap();
       await expect(popover(page)).toBeVisible();
+      const bounds = (await popover(page).boundingBox())!;
+      expect(bounds.x).toBeGreaterThanOrEqual(0);
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+      expect(bounds.y + bounds.height).toBeLessThanOrEqual(900);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await page.screenshot({ path: info.outputPath(`sync-${theme}-${width}.png`) });
       await popover(page).getByRole("button", { name: "Close", exact: true }).tap();
       await expect(popover(page)).not.toBeVisible();

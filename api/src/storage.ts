@@ -26,8 +26,9 @@ let connected: { connection: string; promise: Promise<{ ledger: TableClient; aut
 export async function tables(config: Config): Promise<{ ledger: TableClient; auth: TableClient }> {
   if (!connected || connected.connection !== config.connection) {
     const promise = (async () => {
-      const ledger = TableClient.fromConnectionString(config.connection, "SplittyLedger");
-      const auth = TableClient.fromConnectionString(config.connection, "SplittyAuth");
+      const options = { allowInsecureConnection: config.local };
+      const ledger = TableClient.fromConnectionString(config.connection, "SplittyLedger", options);
+      const auth = TableClient.fromConnectionString(config.connection, "SplittyAuth", options);
       await Promise.all([ledger.createTable(), auth.createTable()]);
       return { ledger, auth };
     })();

@@ -1,11 +1,5 @@
-import { expect, test, type BrowserContext, type Locator, type Page } from "@playwright/test";
-
-async function useEnglish(page: Page) {
-  await page.goto("/");
-  await page.getByRole("button", { name: "Einstellungen", exact: true }).click();
-  await page.getByLabel("App-Sprache", { exact: true }).selectOption("en");
-  await page.getByRole("button", { name: "Expenses", exact: true }).click();
-}
+import { expect, test, type BrowserContext, type Locator, type Page } from "./fixtures";
+import { signIn, useEnglish } from "./helpers";
 
 test.beforeEach(async ({ page }) => { await useEnglish(page); });
 
@@ -29,12 +23,8 @@ async function addTodo(page: Page, title: string) {
   await save(page);
 }
 
-async function login(page: Page, token: string) {
-  await page.getByRole("button", { name: "Sync status", exact: true }).click();
-  await page.getByLabel("Member token").fill(token);
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByText("Signed in as", { exact: false })).toBeVisible();
-  await page.getByRole("button", { name: "Sync status", exact: true }).click();
+async function login(page: Page, member: "A" | "B") {
+  await signIn(page, member);
   await page.getByRole("button", { name: "Expenses", exact: true }).click();
 }
 
@@ -332,6 +322,7 @@ test("expense and todo rows align and highlight their full width including the t
           }
           await page.getByRole("heading", { level: 1 }).hover();
           await expect(front).toHaveCSS("background-color", background);
+          if (tab === "To-dos") await expect(row.getByRole("checkbox")).not.toBeChecked();
         }
       }
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -437,8 +428,8 @@ test("member-token sign-in and two devices converge after an offline change", as
   try {
     await page.goto("/"); await partner.goto("/");
     await useEnglish(partner);
-    await login(page, "A".repeat(43));
-    await login(partner, "B".repeat(43));
+    await login(page, "A");
+    await login(partner, "B");
     await offlineReady(page);
     await page.context().setOffline(true);
     await addExpense(page, "Shared across devices", "18");

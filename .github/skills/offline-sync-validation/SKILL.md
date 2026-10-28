@@ -75,19 +75,26 @@ Reuse existing store helpers; do not introduce a parallel persistence path.
 
    Add model, derivation, importer, or backup tests only when those paths change.
    On other platforms, use the appropriate path separators.
-7. For API/storage changes, start an isolated Azurite instance as described in
-   [browser validation](../browser-validation/SKILL.md), then run:
+7. For API/storage changes, start a separate task-owned Azurite instance using
+   [the development setup](../../../docs/development.md#local-app-and-sync), with
+   an isolated scratch location and a free port, then run:
 
    ```powershell
    $env:RUN_AZURE_TESTS = "1"
    npm test -- tests\api.integration.test.ts
    ```
 
-   Restore the previous environment value afterward. Without this flag the
+   If using a non-default port, set `TABLE_STORAGE_CONNECTION_STRING` to that
+   emulator. Do not reuse another developer's emulator. Restore previous
+   environment values afterward. Without this flag the
    integration suite is skipped; a skipped run is not integration evidence.
 8. Run the affected two-device/offline browser regressions using the
    [browser validation procedure](../browser-validation/SKILL.md). Build before
-   running the production preview. Run `npm run build:api` if backend code changes,
+   running the production preview. Browser fixtures automatically own private
+   emulators, preview servers, and a fresh household for each test; do not start
+   their servers manually. Use independent contexts for separate devices and
+   pages in one context for shared-IndexedDB tab regressions. Run
+   `npm run build:api` if backend code changes,
    and lint the changes using the repository's existing tooling.
 
 ## Completion

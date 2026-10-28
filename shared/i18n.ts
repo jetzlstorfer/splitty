@@ -36,6 +36,7 @@ export const german = {
   "Cancel": "Abbrechen",
   "Restore backup": "Backup wiederherstellen",
   "Saving…": "Wird gespeichert…",
+  "Loading…": "Wird geladen…",
   "Save": "Speichern",
   "Delete entry": "Eintrag löschen",
   "Delete this entry for both of you? This will sync when you are online.": "Diesen Eintrag für euch beide löschen? Die Änderung wird synchronisiert, sobald du online bist.",

@@ -149,10 +149,10 @@ input::placeholder { color: var(--cp-text-soft); }
 .empty-state { text-align: center; padding: 32px 12px; border-top: 1px solid var(--cp-border); }
 .empty-state h2 { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
 .empty-state p { color: var(--cp-text-muted); font-size: 14px; max-width: 300px; margin: 0 auto 16px; }
-.todo-clear-state { margin: 20px 0; padding: 28px 16px; border: 1px solid var(--cp-highlight); border-radius: 18px; background: linear-gradient(135deg, var(--cp-accent-soft), var(--cp-surface)); }
-.todo-clear-icon { display: grid; place-items: center; width: 56px; height: 56px; margin: 0 auto 16px; border-radius: 50%; background: var(--cp-surface); color: var(--cp-accent-text); }
-.todo-clear-state > p { margin-bottom: 0; }
-.todo-clear-state .todo-clear-hint { margin-top: 16px; font-size: 12px; }
+.todo-clear-state, .expense-welcome { margin: 20px 0; padding: 28px 16px; border: 1px solid var(--cp-highlight); border-radius: 18px; background: linear-gradient(135deg, var(--cp-accent-soft), var(--cp-surface)); }
+.todo-clear-icon, .expense-welcome-icon { display: grid; place-items: center; width: 56px; height: 56px; margin: 0 auto 16px; border-radius: 50%; background: var(--cp-surface); color: var(--cp-accent-text); }
+.todo-clear-state > p, .expense-welcome > p { margin-bottom: 0; }
+.todo-clear-state .todo-clear-hint, .expense-welcome .expense-welcome-hint { margin-top: 16px; font-size: 12px; }
 .month-heading { color: var(--cp-text-muted); background: var(--cp-surface-soft); font-size: 12px; margin: 16px -16px 0; padding: 8px 16px; font-weight: 500; border-block: 1px solid var(--cp-border); }
 .swipe-row { position: relative; overflow: hidden; border-bottom: 1px solid var(--cp-border); }
 .swipe-actions { position: absolute; inset: 0 0 0 auto; width: 160px; display: flex; }
@@ -405,6 +405,11 @@ input:disabled { opacity: .55; cursor: default; }
   .entry-description small { font-size: 12px; }
   .entry-balance small { font-size: 11px; }
   .expense-row, .todo-row { gap: 16px; }
+}
+@media (max-width: 639px) {
+  .balance-card:not(.is-settled) { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 12px; }
+  .balance-card:not(.is-settled) .balance-summary { display: contents; }
+  .balance-card:not(.is-settled) .balance-summary > p { grid-column: 1 / -1; }
 }
 @media (max-width: 359px) {
   .page-heading { margin-block: 12px 8px; }

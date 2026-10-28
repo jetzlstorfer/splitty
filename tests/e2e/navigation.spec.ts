@@ -203,7 +203,7 @@ test("search owns import, filtering, pagination and editing without filtering Ex
   await page.goto("/");
   const nav = page.getByRole("navigation", { name: "Hauptnavigation" });
   await expect(nav.getByRole("button")).toHaveText(["Ausgaben", "To-dos", "Suche", "Statistik", "Einstellungen"]);
-  await expect(page.getByRole("heading", { name: "Noch keine Ausgaben" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Gemeinsam. Fair geteilt.", exact: true })).toBeVisible();
   await expect(page.getByRole("searchbox")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Import/ })).toHaveCount(0);
   await expect(page.locator(".add-button")).toBeVisible();

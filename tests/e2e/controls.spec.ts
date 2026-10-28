@@ -39,7 +39,7 @@ test.describe("touch controls", () => {
       await expect(page.locator(".control-dialog")).toHaveCSS("background-color", background);
       await fits(page);
       await page.getByRole("option").nth(1).tap();
-      await expect(page.getByLabel("This device belongs to")).toHaveText("Your wife");
+      await expect(page.getByLabel("This device belongs to")).toHaveText("Your spouse");
 
       const form = await expense(page);
       await form.getByLabel("Description", { exact: true }).fill("Themed groceries");

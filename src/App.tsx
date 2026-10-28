@@ -188,7 +188,7 @@ function ExpenseForm({ entry, settlement, preferences: p, close, saved }: {
         <div className="split-summary">
           <span>{t(settlement ? "Payment from" : "Paid by")}</span>
           <Select<Member> label={t("Paid by")} value={paidBy} onChange={setPaidBy} options={[{ value: "a", label: payer(p, "a") }, { value: "b", label: payer(p, "b") }]} />
-          {settlement && <span>{paidBy !== p.member ? t("to you") : other === t("Your wife") ? t("to your wife") : t("to {name}", { name: other })}</span>}
+          {settlement && <span>{paidBy !== p.member ? t("to you") : other === t("Your spouse") ? t("to your spouse") : t("to {name}", { name: other })}</span>}
         </div>
         {!settlement && <>
           <button type="button" className="split-button" onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>
@@ -655,7 +655,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
                   {saveFeedback?.settled && <Sparkles className="settled-sparkles" size={18} />}
                 </span>
                 <p>{t("You are all settled up")}</p>
-              </div> : <p>{balance < 0 && other === t("Your wife") ? t("You owe your wife") : t(balance > 0 ? "{name} owes you" : "You owe {name}", { name: other })}</p>}
+              </div> : <p>{balance < 0 && other === t("Your spouse") ? t("You owe your spouse") : t(balance > 0 ? "{name} owes you" : "You owe {name}", { name: other })}</p>}
               <div className={`balance-amount ${balance < 0 ? "owed" : balance === 0 ? "settled" : ""}`}>{money(Math.abs(balance))}</div>
               {balance === 0 && <small className="settled-note">{t("All square. Nicely done.")}</small>}
             </div>
@@ -670,7 +670,12 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
         </>}
         <section className="ledger-section" aria-label={t(tab === "search" ? "Search results" : "Expenses")}>
           {tab === "search" && <div className="section-title"><h2>{t("Search results")}<span>{number(shown.length)}</span></h2></div>}
-          {!shown.length ? <div className="empty-state"><h2>{t(query ? "No matching expenses" : "No expenses yet")}</h2>{query && <p>{t("Try a different description, category or date.")}</p>}</div> :
+          {!shown.length ? tab === "expenses" ? <div className="empty-state expense-welcome">
+            <span className="expense-welcome-icon" aria-hidden="true"><Receipt size={30} /></span>
+            <h2>{t("Together, fairly split")}</h2>
+            <p>{t("Track shared expenses, split them your way and see who owes whom. Add your first expense to get started.")}</p>
+            <p className="expense-welcome-hint">{t("Saved on this device, even offline. Sign in via Sync to share across devices.")}</p>
+          </div> : <div className="empty-state"><h2>{t(query ? "No matching expenses" : "No expenses yet")}</h2>{query && <p>{t("Try a different description, category or date.")}</p>}</div> :
             <div className="expense-list">{shown.slice(0, limit).map((entry, index) => {
               const month = new Date(`${entry.date}T12:00:00`).toLocaleDateString(locale, { month: "long", year: "numeric" });
               const heading = index === 0 || entry.date.slice(0, 7) !== shown[index - 1].date.slice(0, 7);

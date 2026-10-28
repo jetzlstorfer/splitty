@@ -18,7 +18,8 @@ import SwipeableRow from "./SwipeableRow";
 import { householdTodos, type HouseholdTodo } from "./todos";
 import { ConfirmationProvider, DateField, Form, Select, Sheet, dateValue as today, useConfirm } from "./Controls";
 
-const Statistics = lazy(() => import("./StatisticsPage"));
+const loadStatistics = () => import("./StatisticsPage");
+const Statistics = lazy(loadStatistics);
 
 interface Snapshot {
   entries: Entry[]; todos: Todo[]; pending: number; preferences: Preferences;
@@ -411,6 +412,10 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const [update, setUpdate] = useState<(() => Promise<void>) | null>(null);
   const [saveFeedback, setSaveFeedback] = useState<{ entry: Entry; settled: boolean } | null>(null);
   const [logoPulse, setLogoPulse] = useState({ sequence: 0, active: false });
+
+  useEffect(() => {
+    loadStatistics().catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (!logoPulse.active) return;

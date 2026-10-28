@@ -305,6 +305,7 @@ test("header and footer fade into safe areas and retain themed blur while scroll
 });
 
 test("compact mobile layout measures density at 320px and 393px and keeps all five tabs usable", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width: 320, height: 740 });
   await page.goto("/");
   await importExpenses(page, 8);
@@ -312,18 +313,26 @@ test("compact mobile layout measures density at 320px and 393px and keeps all fi
   await expect(page.getByRole("status")).toContainText("Zum Synchronisieren anmelden");
   for (const [width, height, minimumRows] of [[320, 740, 5], [393, 851, 6]]) {
     await page.setViewportSize({ width, height });
-    const layout = await page.locator(".expense-row").evaluateAll((rows) => {
-      const actionTop = document.querySelector(".expense-action")!.getBoundingClientRect().top;
-      return {
-        firstRowTop: rows[0].getBoundingClientRect().top,
-        visibleRows: rows.filter((row) => row.getBoundingClientRect().bottom <= actionTop).length,
-        rowHeights: rows.map((row) => row.getBoundingClientRect().height)
-      };
-    });
-    expect(layout.firstRowTop).toBeLessThan(320);
-    expect(layout.visibleRows, `${width}x${height} density`).toBeGreaterThanOrEqual(minimumRows);
-    expect(Math.min(...layout.rowHeights)).toBeGreaterThanOrEqual(44);
+    for (const font of ["", "Arial, sans-serif"]) {
+      await page.evaluate(async (font) => {
+        document.body.style.fontFamily = font;
+        await document.fonts.ready;
+      }, font);
+      const layout = await page.locator(".expense-row").evaluateAll((rows) => {
+        const actionTop = document.querySelector(".expense-action")!.getBoundingClientRect().top;
+        return {
+          font: getComputedStyle(document.body).fontFamily, actionTop,
+          firstRowTop: rows[0].getBoundingClientRect().top,
+          visibleRows: rows.filter((row) => row.getBoundingClientRect().bottom <= actionTop).length,
+          rowHeights: rows.map((row) => row.getBoundingClientRect().height)
+        };
+      });
+      expect(layout.firstRowTop).toBeLessThan(320);
+      expect(layout.visibleRows, `${width}x${height} density: ${JSON.stringify(layout)}`).toBeGreaterThanOrEqual(minimumRows);
+      expect(Math.min(...layout.rowHeights)).toBeGreaterThanOrEqual(44);
+    }
   }
+  await page.evaluate(() => { document.body.style.fontFamily = ""; });
 
   for (const [width, height] of [[320, 740], [393, 851], [851, 393], [1280, 900]]) {
     await page.setViewportSize({ width, height });

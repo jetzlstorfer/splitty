@@ -406,6 +406,7 @@ input:disabled { opacity: .55; cursor: default; }
   .expense-row, .todo-row { gap: 16px; }
 }
 @media (max-width: 359px) {
+  .page-heading { margin-block: 12px 8px; }
   .statistics-card { padding-inline: 10px; }
   .statistics-chart { gap: 0; }
   .entry-icon { width: 28px; }

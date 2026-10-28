@@ -6,6 +6,10 @@ Each device stores its ledger and pending mutations in IndexedDB. Saving is tran
 
 The header's cloud indicator opens the synchronization popover on every page, including while syncing or offline. It contains the current status and errors, connection state, combined expense/to-do queue count, last successful sync in the current session, sign-in/out, manual sync, and conflict resolution for both record types. No page or Settings section repeats a sync status line; a single screen-reader live region beside the indicator announces status changes even when the popover is closed. Escape, the close button, or an outside click dismisses the popover.
 
+Sign-in validation is shown inline in the selected app language, not in a native
+browser validation bubble. A successful conflict-resolution retry clears its
+previous action error; unresolved conflicts and sync failures remain visible.
+
 The API stores versioned records and an ordered change log in Azure Table Storage. Writes use stable operation IDs and expected revisions; atomic commits record the mutation, its change-log entry, and an operation receipt. Retried writes do not duplicate an expense. Clients pull changes by sequence rather than client timestamps. Pending local edits are preserved; stale writes become explicit conflicts instead of silently replacing either side. Deletions are versioned tombstones.
 
 Expenses and manual to-dos have separate IndexedDB stores, outboxes, cursors, and change streams. Insurance reminders are derived from health and pharmacy expenses, and their submitted state is part of the expense. Manual household to-dos never affect expenses or balances. Money is stored and calculated as integer EUR cents.

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { expect, test, type Locator, type Page } from "./fixtures";
-import { signIn as signInMember, synchronize as sync, upToDate } from "./helpers";
+import { failNextConflictResolution, signIn as signInMember, synchronize as sync, upToDate } from "./helpers";
 import { chooseOption, confirmAction } from "./controls";
 
 const row = (page: Page, title: string) => page.getByRole("listitem").filter({ has: page.getByText(title, { exact: true }) });
@@ -374,8 +374,14 @@ test("todo conflicts show both versions and allow keeping local edits or remote 
     await expect(row(a, title).getByRole("checkbox")).toBeDisabled();
     await expect(row(a, title).locator(".todo-details")).toBeDisabled();
     await expect(row(a, title).getByRole("button", { name: `To-do-Aktionen: ${title}` })).toBeDisabled();
+    await failNextConflictResolution(a, "todoConflicts");
+    await conflict.getByRole("button", { name: "Diese Version behalten" }).click();
+    await expect(a.locator(".sync-popover").getByRole("alert")).toHaveText("Ein unerwarteter Fehler ist aufgetreten. Deine gespeicherten Einträge bleiben auf diesem Gerät.");
+    await expect(conflict).toBeVisible();
     await conflict.getByRole("button", { name: "Diese Version behalten" }).click();
     await upToDate(a);
+    await expect(a.locator(".sync-popover").getByRole("alert")).toHaveCount(0);
+    await expect(a.getByRole("button", { name: "Synchronisierungsstatus" })).not.toHaveClass(/needs-attention/);
     await a.getByRole("button", { name: "Synchronisierungsstatus" }).click();
     await sync(b);
     await expect(row(b, title)).toContainText("Local details");
@@ -388,8 +394,14 @@ test("todo conflicts show both versions and allow keeping local edits or remote 
     await a.getByRole("button", { name: "Synchronisierungsstatus" }).click();
     await expect(conflict).toContainText("Another local edit");
     await expect(conflict).toContainText("Gelöscht");
+    await failNextConflictResolution(a, "todoConflicts");
+    await conflict.getByRole("button", { name: "Andere Version behalten" }).click();
+    await expect(a.locator(".sync-popover").getByRole("alert")).toHaveText("Ein unerwarteter Fehler ist aufgetreten. Deine gespeicherten Einträge bleiben auf diesem Gerät.");
+    await expect(conflict).toBeVisible();
     await conflict.getByRole("button", { name: "Andere Version behalten" }).click();
     await upToDate(a);
+    await expect(a.locator(".sync-popover").getByRole("alert")).toHaveCount(0);
+    await expect(a.getByRole("button", { name: "Synchronisierungsstatus" })).not.toHaveClass(/needs-attention/);
     await expect(row(a, title)).toHaveCount(0);
     await expect(conflict).not.toBeVisible();
   } finally {

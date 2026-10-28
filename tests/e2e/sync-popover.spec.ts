@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "./fixtures";
-import { synchronize as sync, useEnglish as english } from "./helpers";
+import { failNextConflictResolution, storedRecords, synchronize as sync, useEnglish as english } from "./helpers";
 
 test.use({ hasTouch: true });
 
@@ -102,8 +102,23 @@ test("busy sync stays inspectable and a failed sync can be retried from the popo
 });
 
 test("sign-in errors, offline queues, reload, reconnect and sign-out all live in the popover", async ({ page, context }) => {
+  let signInRequests = 0;
+  page.on("request", (request) => { if (new URL(request.url()).pathname === "/api/auth/token") signInRequests++; });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Synchronisierungsstatus", exact: true }).click();
+  const germanPopover = page.locator(".sync-popover");
+  await expect(germanPopover.locator("form")).toHaveAttribute("novalidate", "");
+  await germanPopover.getByRole("button", { name: "Anmelden", exact: true }).click();
+  await expect(germanPopover.getByRole("alert")).toHaveText("Bitte fülle dieses Feld aus.");
+  await expect(germanPopover.getByLabel("Mitglieds-Token", { exact: true })).toBeFocused();
+  expect(signInRequests).toBe(0);
   await english(page);
   await indicator(page).click();
+  await expect(popover(page).locator("form")).toHaveAttribute("novalidate", "");
+  await popover(page).getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(popover(page).getByRole("alert")).toHaveText("Please fill out this field.");
+  await expect(popover(page).getByLabel("Member token", { exact: true })).toBeFocused();
+  expect(signInRequests).toBe(0);
   await popover(page).getByLabel("Member token").fill("invalid");
   await popover(page).getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(popover(page).getByRole("alert")).toBeVisible();
@@ -123,12 +138,20 @@ test("sign-in errors, offline queues, reload, reconnect and sign-out all live in
   await page.getByRole("dialog").getByLabel("Description", { exact: true }).fill(expense);
   await page.getByRole("textbox", { name: "Amount in EUR" }).fill("10");
   await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  await expect(page.locator(".expense-row").filter({ hasText: expense })).toBeVisible();
   await page.getByRole("navigation").getByRole("button", { name: "To-dos", exact: true }).click();
   await page.getByRole("button", { name: "Add to-do", exact: true }).click();
   const todo = `Popover todo ${crypto.randomUUID()}`;
   await page.getByLabel("Title", { exact: true }).fill(todo);
   await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  await expect(page.getByText(todo, { exact: true })).toBeVisible();
+  const pending = await storedRecords(page);
+  expect(pending.outbox).toHaveLength(1);
+  expect(pending.todoOutbox).toHaveLength(1);
   await page.reload();
+  expect(await storedRecords(page)).toEqual(pending);
   await indicator(page).tap();
   await expect(popover(page).locator(".sync-summary")).toHaveText("Offline · changes stay on this device");
   await expect(detail(page, "Connection")).toHaveText("Offline");
@@ -187,9 +210,17 @@ test("expense conflicts are resolved in the popover without changing the pending
       await expect(conflict).toContainText(keepLocal ? "10.00" : "20.00");
       await expect(conflict).toContainText(keepLocal ? "15.00" : "25.00");
       await expect(a.locator("main .conflict-panel")).toHaveCount(0);
-      await conflict.getByRole("button", { name: keepLocal ? "Keep this device" : "Keep other device" }).click();
+      const resolve = conflict.getByRole("button", { name: keepLocal ? "Keep this device" : "Keep other device" });
+      await failNextConflictResolution(a, "conflicts");
+      await resolve.click();
+      await expect(popover(a).getByRole("alert")).toHaveText("An unexpected error occurred. Your saved entries remain on this device.");
+      await expect(conflict).toBeVisible();
+      await expect(detail(a, "Edits needing attention")).toHaveText("1");
+      await resolve.click();
       await expect(conflict).not.toBeVisible();
       await upToDate(a);
+      await expect(popover(a).getByRole("alert")).toHaveCount(0);
+      await expect(indicator(a)).not.toHaveClass(/needs-attention/);
       await indicator(a).click();
       await sync(b);
       for (const page of [a, b]) {

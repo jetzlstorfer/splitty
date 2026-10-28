@@ -72,6 +72,17 @@ Persistent Chromium profiles use short, task-owned OS temporary directories:
 deep paths under test results can make CacheStorage fail on Windows. Close the
 context before removing its profile.
 
+Browser tests run with two workers, keeping tests within each file sequential.
+Workers have separate process environments, emulators, and previews. The runner
+stops scheduling tests after the first failure; another in-flight test may be
+interrupted. Disable fail-fast for a full diagnostic report or select one worker
+when investigating timing issues:
+
+```powershell
+npm run test:e2e -- --max-failures=0
+npm run test:e2e -- --workers=1
+```
+
 Chromium owns the main regression suite. WebKit runs
 [the mobile/PWA smoke tests](../tests/e2e/webkit.spec.ts) and
 [the themed-control regressions](../tests/e2e/controls.spec.ts), not the
@@ -93,13 +104,17 @@ Keep coverage at the narrowest useful layer:
 - [Mobile tests](../tests/e2e/mobile.spec.ts) own shared hover/swipe interactions.
   Manual-to-do tests retain their distinct checkbox and column geometry checks.
   Navigation density checks explicitly measure five visible expense rows at
-  320x740 and six at 393x851, rather than claiming the default viewport is 320px.
+  320x740 and six at 393x851 with both native and fallback fonts, rather than
+  claiming the default viewport is 320px. Measure settled layouts rather than
+  entrance-animation frames.
 - [Persistence tests](../tests/e2e/persistence.spec.ts) cover shared-IndexedDB tabs,
   atomic local-write failures, and real waiting-worker activation with queued
   expense and to-do writes. The update test replaces the built service worker;
   it does not simulate compatibility between two different application bundles.
 - Preserve separate expense, insurance-reminder, and manual-to-do regressions:
   they do not share all stores, queues, or completion semantics.
+  Before reloading after Save, wait for the dialog to close and verify the
+  transactional queues; a completed click alone does not mean a save persisted.
 - [Isolation tests](../tests/e2e/isolation.spec.ts) deliberately repeat the same
   descriptions in sequential tests, proving that backend state cannot leak.
 

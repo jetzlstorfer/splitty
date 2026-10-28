@@ -464,6 +464,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   }, [ledger?.pending, sync]);
 
   const saved = () => { setSaveFeedback(null); setSyncStatus("Saved on this device"); void sync(); };
+  const conflictResolved = () => { setSyncActionError(""); saved(); };
   const pulseLogo = () => setLogoPulse((current) => ({ sequence: current.sequence + 1, active: true }));
 
   function navigate(next: typeof tab) {
@@ -565,14 +566,14 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
         <div className="button-row"><button className="secondary" disabled={!online || syncBusy || signInBusy || signOutBusy} onClick={() => void sync()}><RefreshCw size={16} />{t("Sync now")}</button>
           {identity && <button className="text-button" disabled={!online || syncBusy || signOutBusy} aria-busy={signOutBusy} onClick={() => void signOut()}>{t("Sign out")}</button>}</div>
         {identity ? <p className="muted">{t("Signing out does not erase this device's offline history. Use a trusted device.")}</p> :
-          <form className="sync-sign-in" onSubmit={(event) => void signIn(event)}><label>{t("Member token")}<input type="password" autoComplete="off" autoCapitalize="off" spellCheck={false} required maxLength={43} value={memberToken} onChange={(event) => setMemberToken(event.target.value)} /></label>
+          <Form className="sync-sign-in" onSubmit={(event) => void signIn(event)}><label>{t("Member token")}<input type="password" autoComplete="off" autoCapitalize="off" spellCheck={false} required maxLength={43} value={memberToken} onChange={(event) => setMemberToken(event.target.value)} /></label>
             <button className="primary" disabled={signInBusy || syncBusy || !online}>{t(signInBusy ? "Signing in…" : "Sign in")}</button>
-            <p className="muted">{t("This device stays signed in until you sign out or the member token is rotated.")}</p></form>}
+            <p className="muted">{t("This device stays signed in until you sign out or the member token is rotated.")}</p></Form>}
         {!!ledger.conflicts.length && <section className="conflict-panel" aria-label={t("Conflicting edits")}><h3>{t("Conflicting edits")}</h3><p>{t("These entries changed on another device. Choose which version to keep.")}</p>{ledger.conflicts.map((conflict) => {
           const local = ledger.entries.find((entry) => entry.id === conflict.entryId);
           return <div key={conflict.entryId}><strong>{local?.description}</strong><p>{t("This device: {local} · Other device: {remote} ({name}'s balance)", { local: local?.deleted ? t("Deleted") : money(local?.balanceA ?? 0), remote: conflict.remote?.deleted ? t("Deleted") : conflict.remote ? money(conflict.remote.balanceA) : t("Not present"), name: p.nameA })}</p><div className="button-row">
-            <button className="secondary" onClick={() => void resolveConflict(conflict.entryId, false).then(saved).catch((e: Error) => setSyncActionError(e.message))}>{t("Keep other device")}</button>
-            <button className="secondary" onClick={() => void resolveConflict(conflict.entryId, true).then(saved).catch((e: Error) => setSyncActionError(e.message))}>{t("Keep this device")}</button>
+            <button className="secondary" onClick={() => void resolveConflict(conflict.entryId, false).then(conflictResolved).catch((e: Error) => setSyncActionError(e.message))}>{t("Keep other device")}</button>
+            <button className="secondary" onClick={() => void resolveConflict(conflict.entryId, true).then(conflictResolved).catch((e: Error) => setSyncActionError(e.message))}>{t("Keep this device")}</button>
           </div></div>;
         })}</section>}
         {!!ledger.todoConflicts.length && <section className="conflict-panel" aria-label={t("Conflicting to-do edits")}><h3>{t("Conflicting to-do edits")}</h3>
@@ -580,8 +581,8 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
           {ledger.todoConflicts.map((conflict) => <div key={conflict.entryId}>
             <p className="todo-version"><strong>{t("This device")}</strong>{"\n"}{todoVersion(ledger.todos.find((todo) => todo.id === conflict.entryId))}</p>
             <p className="todo-version"><strong>{t("Other device")}</strong>{"\n"}{todoVersion(conflict.remote)}</p>
-            <div className="button-row"><button className="secondary" onClick={() => void resolveStoreConflict(conflict.entryId, false, todoStore()).then(saved).catch((e: Error) => setSyncActionError(e.message))}>{t("Keep other device")}</button>
-              <button className="secondary" onClick={() => void resolveStoreConflict(conflict.entryId, true, todoStore()).then(saved).catch((e: Error) => setSyncActionError(e.message))}>{t("Keep this device")}</button></div>
+            <div className="button-row"><button className="secondary" onClick={() => void resolveStoreConflict(conflict.entryId, false, todoStore()).then(conflictResolved).catch((e: Error) => setSyncActionError(e.message))}>{t("Keep other device")}</button>
+              <button className="secondary" onClick={() => void resolveStoreConflict(conflict.entryId, true, todoStore()).then(conflictResolved).catch((e: Error) => setSyncActionError(e.message))}>{t("Keep this device")}</button></div>
           </div>)}
         </section>}
       </SyncPopover>

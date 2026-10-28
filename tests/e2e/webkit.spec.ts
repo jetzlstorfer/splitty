@@ -21,6 +21,13 @@ test("WebKit supports native sync popovers, touch dismissal, keyboard focus and 
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog", { name: "Synchronization", exact: true })).not.toBeVisible();
   await expect(trigger).toBeFocused();
+  await openSync(page);
+  const popover = page.getByRole("dialog", { name: "Synchronization", exact: true });
+  await expect(popover.locator("form")).toHaveAttribute("novalidate", "");
+  await popover.getByRole("button", { name: "Sign in", exact: true }).tap();
+  await expect(popover.getByRole("alert")).toHaveText("Please fill out this field.");
+  await expect(popover.getByLabel("Member token", { exact: true })).toBeFocused();
+  await closeSync(page);
   await page.getByRole("button", { name: "Add expense", exact: true }).tap();
   const sheet = page.getByRole("dialog", { name: "Add an expense", exact: true });
   await expect(sheet.getByLabel("Description", { exact: true })).toBeFocused();

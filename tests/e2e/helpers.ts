@@ -38,6 +38,19 @@ export async function synchronize(page: Page) {
   await closeSync(page);
 }
 
+export async function failNextConflictResolution(page: Page, store: "conflicts" | "todoConflicts") {
+  await page.evaluate((store) => {
+    const remove = IDBObjectStore.prototype.delete;
+    IDBObjectStore.prototype.delete = function (key) {
+      if (this.name === store) {
+        IDBObjectStore.prototype.delete = remove;
+        throw new DOMException("Test storage quota exceeded.", "QuotaExceededError");
+      }
+      return remove.call(this, key);
+    };
+  }, store);
+}
+
 export async function storedRecords(page: Page) {
   return page.evaluate(async () => {
     const database = await new Promise<IDBDatabase>((resolve, reject) => {

@@ -50,6 +50,7 @@ for (const language of ["de", "en"] as const) {
   }
 
   test(`first expense replaces onboarding and uses neutral spouse labels in ${language}`, async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 740 });
     if (language === "en") await useEnglish(page);
     else await page.goto("/");
     const text = copy[language];
@@ -63,6 +64,12 @@ for (const language of ["de", "en"] as const) {
     await expect(page.locator(".expense-welcome")).toHaveCount(0);
     await expect(page.locator(".expense-row")).toContainText("Shared groceries");
     await expect(page.getByText(text.debt, { exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    const balance = page.getByRole("region", { name: language === "de" ? "Haushaltssaldo" : "Household balance" });
+    const labelBounds = await balance.getByText(text.debt, { exact: true }).boundingBox();
+    const settleBounds = await balance.getByRole("button", { name: text.settle, exact: true }).boundingBox();
+    expect(labelBounds!.y + labelBounds!.height).toBeLessThanOrEqual(settleBounds!.y);
+    expect(settleBounds!.height).toBeGreaterThanOrEqual(44);
     await page.getByRole("button", { name: text.settle, exact: true }).click();
     await expect(dialog.getByText(text.recipient, { exact: true })).toBeVisible();
     await dialog.getByRole("button", { name: text.close, exact: true }).click();

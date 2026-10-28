@@ -301,7 +301,7 @@ test("manual todos persist with optional descriptions and leave expenses unchang
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
   await page.getByRole("button", { name: "Ausgaben", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Noch keine Ausgaben" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Gemeinsam. Fair geteilt.", exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "Haushaltssaldo" })).toContainText("Alles ausgeglichen");
   await page.getByRole("button", { name: "Einstellungen", exact: true }).click();
   await chooseOption(page, page.getByLabel("App-Sprache"), "English");

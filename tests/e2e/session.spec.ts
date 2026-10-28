@@ -1,5 +1,6 @@
 import { rm } from "node:fs/promises";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { chooseOption } from "./controls";
 
 async function settings(page: Page) {
   await page.getByRole("navigation").getByRole("button", { name: /^(Settings|Einstellungen)$/ }).click();
@@ -8,7 +9,7 @@ async function settings(page: Page) {
 async function signIn(page: Page) {
   await page.goto("/");
   await settings(page);
-  await page.getByLabel("App-Sprache", { exact: true }).selectOption("en");
+  await chooseOption(page, page.getByLabel("App-Sprache", { exact: true }), "English");
   await page.getByLabel("Member token").fill("A".repeat(43));
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page.getByText("Signed in as Alex.", { exact: true })).toBeVisible();

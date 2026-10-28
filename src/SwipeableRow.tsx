@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { useConfirm } from "./Controls";
 
 const actionWidth = 160;
 
@@ -11,6 +12,8 @@ export default function SwipeableRow({ children, description, disabled, open, se
   actionsLabel: string; editLabel: string; deleteLabel: string; deleteConfirmation: string;
 }) {
   const root = useRef<HTMLDivElement>(null);
+  const confirm = useConfirm();
+  const confirming = useRef(false);
   const actionsId = useId();
   const gesture = useRef<{ id: number; x: number; y: number; start: number; offset: number; direction: "horizontal" | "vertical" | null } | null>(null);
   const suppressClick = useRef(false);
@@ -21,7 +24,7 @@ export default function SwipeableRow({ children, description, disabled, open, se
   useEffect(() => {
     if (!open) return;
     const dismiss = (event: globalThis.PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
+      if (!confirming.current && !root.current?.contains(event.target as Node)) setOpen(false);
     };
     document.addEventListener("pointerdown", dismiss);
     return () => document.removeEventListener("pointerdown", dismiss);
@@ -60,7 +63,7 @@ export default function SwipeableRow({ children, description, disabled, open, se
   return <div ref={root} className="swipe-row" onKeyDown={(event) => {
     if (event.key === "Escape") { setOpen(false); root.current?.querySelector<HTMLButtonElement>(".row-actions-toggle")?.focus(); }
   }} onBlur={(event) => {
-    if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+    if (!confirming.current && !event.currentTarget.contains(event.relatedTarget)) setOpen(false);
   }}>
     <div className={`swipe-front${drag !== null ? " dragging" : ""}`} aria-disabled={blocked}
       style={{ transform: `translateX(${drag ?? (open ? -actionWidth : 0)}px)` }}>
@@ -84,8 +87,12 @@ export default function SwipeableRow({ children, description, disabled, open, se
       <button className="row-edit-action" aria-label={`${editLabel}: ${description}`} disabled={blocked} onClick={() => { setOpen(false); edit(); }}>
         <Pencil size={20} aria-hidden="true" /><span>{editLabel}</span>
       </button>
-      <button className="row-delete-action" aria-label={`${deleteLabel}: ${description}`} disabled={blocked} onClick={async () => {
-        if (!window.confirm(deleteConfirmation)) return;
+      <button className="row-delete-action" aria-label={`${deleteLabel}: ${description}`} disabled={blocked} onClick={async (event) => {
+        event.currentTarget.focus();
+        confirming.current = true;
+        const accepted = await confirm({ title: deleteLabel, description: deleteConfirmation, action: deleteLabel, dangerous: true });
+        confirming.current = false;
+        if (!accepted) return;
         setBusy(true);
         try { await remove(); setOpen(false); }
         catch (error) { onError(error); }

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { chooseOption, confirmAction } from "./controls";
 
 async function holdSyncPull(page: Page, path: "sync" | "todo-sync", status: 200 | 503 = 200) {
   let release = () => {};
@@ -22,7 +23,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     await page.goto("/");
     const nav = page.getByRole("navigation");
     await nav.getByRole("button", { name: "Einstellungen", exact: true }).click();
-    await page.getByLabel("App-Sprache", { exact: true }).selectOption("en");
+    await chooseOption(page, page.getByLabel("App-Sprache", { exact: true }), "English");
     await nav.getByRole("button", { name: "Expenses", exact: true }).click();
     const motion = reducedMotion === "no-preference";
     await expect(page.locator(".balance-card")).toHaveCSS("animation-name", motion ? "rise-in" : "none");
@@ -193,7 +194,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     await page.goto("/");
     const nav = page.getByRole("navigation");
     await nav.getByRole("button", { name: "Einstellungen", exact: true }).click();
-    await page.getByLabel("App-Sprache", { exact: true }).selectOption("en");
+    await chooseOption(page, page.getByLabel("App-Sprache", { exact: true }), "English");
     await nav.getByRole("button", { name: "Expenses", exact: true }).click();
     await context.setOffline(true);
     const icon = page.locator(".topbar .brand-mark");
@@ -232,7 +233,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     await expect(icon).not.toHaveClass(/is-saving/);
     await page.getByRole("button", { name: "Settle up", exact: true }).click();
     await dialog.getByRole("textbox", { name: "Amount in EUR" }).fill("6");
-    await dialog.getByLabel("Paid by", { exact: true }).selectOption("b");
+    await chooseOption(page, dialog.getByLabel("Paid by", { exact: true }), 1);
     await save();
     await expect(icon).not.toHaveClass(/is-saving/);
 
@@ -257,8 +258,8 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     await expect(icon).not.toHaveClass(/is-saving/);
     await page.getByRole("button", { name: "To-do actions: Call dentist edited", exact: true }).click();
     await page.getByRole("button", { name: "Edit to-do: Call dentist edited", exact: true }).click();
-    page.once("dialog", (confirmation) => confirmation.accept());
     await dialog.getByRole("button", { name: "Delete to-do", exact: true }).click();
+    await confirmAction(page, "Delete to-do");
     await expect(dialog).not.toBeVisible();
     await expect(page.getByRole("listitem")).toHaveCount(0);
     await expect(icon).not.toHaveClass(/is-saving/);
@@ -359,7 +360,7 @@ test("search owns import, filtering, pagination and editing without filtering Ex
   await expect(page.locator(".add-button")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Import/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Sicherung herunterladen", exact: true })).toBeVisible();
-  await page.getByLabel("App-Sprache", { exact: true }).selectOption("en");
+  await chooseOption(page, page.getByLabel("App-Sprache", { exact: true }), "English");
   await expect(page.getByRole("navigation").getByRole("button")).toHaveText(["Expenses", "To-dos", "Search", "Statistics", "Settings"]);
   await page.getByRole("button", { name: "Search", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Search", exact: true })).toBeVisible();

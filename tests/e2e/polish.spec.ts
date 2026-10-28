@@ -1,9 +1,10 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { chooseOption } from "./controls";
 
 async function useEnglish(page: Page) {
   await page.goto("/");
   await page.getByRole("navigation").getByRole("button", { name: "Einstellungen", exact: true }).click();
-  await page.getByLabel("App-Sprache", { exact: true }).selectOption("en");
+  await chooseOption(page, page.getByLabel("App-Sprache", { exact: true }), "English");
   await page.getByRole("navigation").getByRole("button", { name: "Expenses", exact: true }).click();
 }
 
@@ -25,7 +26,7 @@ async function pay(page: Page, amount: string) {
   await page.getByRole("button", { name: "Settle up", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await dialog.getByRole("textbox", { name: "Amount in EUR" }).fill(amount);
-  await dialog.getByLabel("Paid by", { exact: true }).selectOption("b");
+  await chooseOption(page, dialog.getByLabel("Paid by", { exact: true }), 1);
   await save(page);
 }
 
@@ -192,7 +193,7 @@ test("German local-save and settled copy follows the device language", async ({ 
   await expect(page.locator(".save-feedback")).toHaveText("Ausgabe auf diesem Gerät gespeichert");
   await page.getByRole("button", { name: "Ausgleichen", exact: true }).click();
   await dialog.getByRole("textbox", { name: "Betrag in EUR" }).fill("6");
-  await dialog.getByLabel("Bezahlt von", { exact: true }).selectOption("b");
+  await chooseOption(page, dialog.getByLabel("Bezahlt von", { exact: true }), 1);
   await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
   await expect(dialog).not.toBeVisible();
   await expect(page.locator(".save-feedback")).toHaveText("Zahlung auf diesem Gerät gespeichert");

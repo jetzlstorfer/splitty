@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { confirmAction } from "./controls";
 
 async function signIn(page: Page, member: "A" | "B" = "A") {
   await page.goto("/");
@@ -72,7 +73,7 @@ test("doctor specialties map to Gesundheit and create insurance to-dos", async (
     await page.getByRole("button", { name: `To-do-Aktionen: ${description}`, exact: true }).click();
     await page.getByRole("button", { name: `Ausgabe öffnen: ${description}`, exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Eintrag bearbeiten" });
-    await expect(dialog.getByLabel("Kategorie", { exact: true })).toHaveValue("auto");
+    await expect(dialog.getByLabel("Kategorie", { exact: true })).toHaveText("Automatisch");
     await expect(dialog.getByRole("status")).toContainText("Gesundheit");
     await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
   }
@@ -165,8 +166,8 @@ for (const change of ["insurance completion", "deletion"]) {
         await expect(todo(b).getByRole("checkbox")).toBeChecked();
       } else {
         await expense(b).click();
-        b.once("dialog", (dialog) => dialog.accept());
         await b.getByRole("button", { name: "Eintrag löschen", exact: true }).click();
+        await confirmAction(b, "Eintrag löschen");
         await expect(expense(b)).toHaveCount(0);
       }
       await expect(b.getByRole("status")).toHaveText("Auf dem neuesten Stand");

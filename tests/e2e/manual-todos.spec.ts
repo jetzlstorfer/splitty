@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { chooseOption, confirmAction } from "./controls";
 
 const row = (page: Page, title: string) => page.getByRole("listitem").filter({ has: page.getByText(title, { exact: true }) });
 const todos = (page: Page) => page.getByRole("navigation").getByRole("button", { name: "To-dos" }).click();
@@ -57,8 +58,8 @@ async function toggle(page: Page, title: string, done: boolean) {
 async function remove(page: Page, title: string) {
   await page.getByRole("button", { name: `To-do-Aktionen: ${title}`, exact: true }).click();
   await page.getByRole("button", { name: `To-do bearbeiten: ${title}`, exact: true }).click();
-  page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "To-do löschen", exact: true }).click();
+  await confirmAction(page, "To-do löschen");
   await expect(row(page, title)).toHaveCount(0);
 }
 
@@ -112,7 +113,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     }
 
     await page.getByRole("navigation").getByRole("button", { name: "Einstellungen", exact: true }).click();
-    await page.getByLabel("App-Sprache", { exact: true }).selectOption("en");
+    await chooseOption(page, page.getByLabel("App-Sprache", { exact: true }), "English");
     await todos(page);
     await expect(clear.getByRole("heading", { level: 2 })).toHaveText("All caught up!");
     await expect(clear).toContainText("Nothing left to chase. Enjoy your day.");
@@ -319,7 +320,7 @@ test("manual todos persist with optional descriptions and leave expenses unchang
   await expect(page.getByRole("heading", { name: "Noch keine Ausgaben" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Haushaltssaldo" })).toContainText("Alles ausgeglichen");
   await page.getByRole("button", { name: "Einstellungen", exact: true }).click();
-  await page.getByLabel("App-Sprache").selectOption("en");
+  await chooseOption(page, page.getByLabel("App-Sprache"), "English");
   await todos(page);
   await page.getByRole("button", { name: "Add to-do", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Add to-do" }).getByLabel("Description (optional)")).toBeVisible();
@@ -465,10 +466,10 @@ test("backups round-trip manual todos including descriptions and completion", as
     const restored = await context.newPage();
     await restored.goto("/");
     await restored.getByRole("button", { name: "Einstellungen", exact: true }).click();
-    restored.once("dialog", (dialog) => dialog.accept());
     await restored.getByLabel("Fehlende Einträge aus einer Sicherung wiederherstellen").setInputFiles({
       name: "backup.json", mimeType: "application/json", buffer: Buffer.from(contents)
     });
+    await confirmAction(restored, "Backup wiederherstellen");
     await todos(restored);
     await expect(row(restored, "Backup task")).toContainText("Details to preserve");
     await expect(row(restored, "Backup task").getByRole("checkbox")).toBeChecked();

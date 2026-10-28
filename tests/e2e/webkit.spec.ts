@@ -1,18 +1,24 @@
 import { expect, test } from "./fixtures";
-import { closeSync, openSync, signIn, synchronize, upToDate, useEnglish } from "./helpers";
+import { closeSync, expectSyncBackdrop, openSync, signIn, synchronize, upToDate, useEnglish } from "./helpers";
 
 test("WebKit supports native sync popovers, touch dismissal, keyboard focus and the mobile expense sheet", async ({ page }) => {
   await useEnglish(page);
   for (const width of [320, 393]) {
     await page.setViewportSize({ width, height: 851 });
-    await page.getByRole("button", { name: "Sync status", exact: true }).tap();
-    const popover = page.getByRole("dialog", { name: "Synchronization", exact: true });
-    await expect(popover).toBeVisible();
-    const bounds = (await popover.boundingBox())!;
-    expect(bounds.x).toBeGreaterThanOrEqual(0);
-    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
-    await page.touchscreen.tap(4, 70);
-    await expect(popover).not.toBeVisible();
+    for (const theme of ["light", "dark"]) {
+      await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
+      const wordmark = await page.locator(".wordmark").screenshot();
+      await page.getByRole("button", { name: "Sync status", exact: true }).tap();
+      const popover = page.getByRole("dialog", { name: "Synchronization", exact: true });
+      await expect(popover).toBeVisible();
+      await expectSyncBackdrop(page);
+      expect((await page.locator(".wordmark").screenshot()).equals(wordmark), "The header must stay visually unchanged").toBe(true);
+      const bounds = (await popover.boundingBox())!;
+      expect(bounds.x).toBeGreaterThanOrEqual(0);
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+      await page.touchscreen.tap(4, 70);
+      await expect(popover).not.toBeVisible();
+    }
   }
   const trigger = page.getByRole("button", { name: "Sync status", exact: true });
   await trigger.focus();

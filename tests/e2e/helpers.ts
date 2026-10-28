@@ -11,6 +11,33 @@ export async function useEnglish(page: Page) {
 export const syncIndicator = (page: Page) =>
   page.getByRole("button", { name: /^(Sync status|Synchronisierungsstatus)$/ });
 
+export async function expectSyncBackdrop(page: Page) {
+  const backdrop = await page.locator(".sync-popover").evaluate((popover) => {
+    const style = getComputedStyle(popover, "::backdrop");
+    const overlay = document.createElement("span");
+    overlay.style.backgroundColor = "var(--cp-overlay)";
+    popover.append(overlay);
+    const expectedTint = getComputedStyle(overlay).backgroundColor;
+    overlay.remove();
+    return {
+      tint: style.backgroundColor,
+      expectedTint,
+      blur: style.getPropertyValue("backdrop-filter") || style.getPropertyValue("-webkit-backdrop-filter"),
+      pointerEvents: style.pointerEvents
+    };
+  });
+  expect(backdrop.tint).toBe(backdrop.expectedTint);
+  expect(backdrop.blur).toBe("blur(4px)");
+  expect(backdrop.pointerEvents).toBe("none");
+  await expect.poll(() => page.locator(".sync-popover").evaluate((popover) => {
+    const headerBottom = popover.closest("header")!.getBoundingClientRect().bottom;
+    return parseFloat(getComputedStyle(popover, "::backdrop").top) - headerBottom;
+  })).toBeCloseTo(0, 1);
+  const gap = await page.locator(".sync-popover").evaluate((popover) =>
+    popover.getBoundingClientRect().top - popover.closest("header")!.getBoundingClientRect().bottom);
+  expect(gap).toBeCloseTo(8, 1);
+}
+
 export async function openSync(page: Page) {
   if (await syncIndicator(page).getAttribute("aria-expanded") !== "true") await syncIndicator(page).click();
 }

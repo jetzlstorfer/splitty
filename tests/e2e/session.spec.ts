@@ -1,26 +1,25 @@
-import { rm } from "node:fs/promises";
-import { expect, test, type BrowserContext, type Page } from "@playwright/test";
-import { chooseOption } from "./controls";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { expect, test, type BrowserContext, type Page } from "./fixtures";
+import { signIn as signInMember, useEnglish } from "./helpers";
 
-async function settings(page: Page) {
-  await page.getByRole("navigation").getByRole("button", { name: /^(Settings|Einstellungen)$/ }).click();
+async function syncDetails(page: Page) {
+  await page.getByRole("button", { name: "Sync status", exact: true }).click();
 }
 
 async function signIn(page: Page) {
-  await page.goto("/");
-  await settings(page);
-  await chooseOption(page, page.getByLabel("App-Sprache", { exact: true }), "English");
-  await page.getByLabel("Member token").fill("A".repeat(43));
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(page.getByText("Signed in as Alex.", { exact: true })).toBeVisible();
-  await expect(page.getByRole("status")).toHaveText("Up to date");
+  await useEnglish(page);
+  await signInMember(page);
 }
 
 const sessionCookie = async (context: BrowserContext, baseURL?: string) =>
   (await context.cookies(baseURL)).find((item) => item.name === "splitty-local");
 
 test("recovers when the browser drops the session cookie but keeps offline data", async ({ browser, baseURL }, info) => {
-  const profile = info.outputPath("browser-profile");
+  test.setTimeout(120_000);
+  // Chromium's nested CacheStorage paths exceed Windows limits under test-results.
+  const profile = await mkdtemp(join(tmpdir(), "splitty-session-"));
   const launch = () => browser.browserType().launchPersistentContext(profile, {
     baseURL, channel: info.project.use.channel, viewport: { width: 393, height: 851 },
     isMobile: true, hasTouch: true
@@ -39,17 +38,26 @@ test("recovers when the browser drops the session cookie but keeps offline data"
     expect(await page.evaluate(() => document.cookie)).not.toContain("splitty-local");
 
     // Android Chrome has been observed dropping only the cookie; IndexedDB survives.
-    await context.clearCookies();
+    await expect.poll(() => page.evaluate(async () => {
+      const registration = await navigator.serviceWorker.getRegistration();
+      return {
+        active: registration?.active?.state ?? null,
+        installing: registration?.installing?.state ?? null,
+        waiting: registration?.waiting?.state ?? null
+      };
+    }), { timeout: 15_000 }).toMatchObject({ active: "activated" });
     await page.evaluate(async () => { await navigator.serviceWorker.ready; });
+    await context.clearCookies();
     await page.reload();
     await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
-    await settings(page);
+    await syncDetails(page);
     await expect(page.getByText("Signed in as Alex.", { exact: true })).toBeVisible();
     await expect(page.getByRole("status")).toHaveText("Up to date");
     expect((await sessionCookie(context, baseURL))?.value).toBe(cookie!.value);
 
     await context.setOffline(true);
     await expect(page.getByRole("status")).toHaveText("Offline · changes stay on this device");
+    await syncDetails(page);
     await page.getByRole("navigation").getByRole("button", { name: "Expenses", exact: true }).click();
     await page.getByRole("button", { name: "Add expense", exact: true }).click();
     await page.getByLabel("Description", { exact: true }).fill(expense);
@@ -69,9 +77,10 @@ test("recovers when the browser drops the session cookie but keeps offline data"
     await context.clearCookies();
     page = await context.newPage();
     await page.goto("/");
-    await settings(page);
+    await syncDetails(page);
     await expect(page.getByText("Signed in as Alex.", { exact: true })).toBeVisible();
     await expect(page.getByRole("status")).toHaveText("Up to date");
+    await syncDetails(page);
     await page.getByRole("navigation").getByRole("button", { name: "Expenses", exact: true }).click();
     const balance = await page.locator(".balance-amount").innerText();
 
@@ -90,16 +99,16 @@ test("recovers when the browser drops the session cookie but keeps offline data"
 
     // Signing out without a cookie still revokes this device and forgets its key.
     await context.clearCookies();
-    await settings(page);
+    await syncDetails(page);
     await page.getByRole("button", { name: "Sign out", exact: true }).click();
     await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
     await context.addCookies([cookie!]);
     await page.reload();
-    await settings(page);
+    await syncDetails(page);
     await expect(page.getByRole("status")).toHaveText("Sign in to sync");
     await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
     await other.reload();
-    await settings(other);
+    await syncDetails(other);
     await expect(other.getByText("Signed in as Alex.", { exact: true })).toBeVisible();
   } finally {
     await receiver?.close();

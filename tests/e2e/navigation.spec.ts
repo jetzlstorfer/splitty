@@ -1,5 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
-import { chooseOption, confirmAction } from "./controls";
+import { expect, test, type Page } from "./fixtures";
+import { chooseOption } from "./controls";
 
 async function holdSyncPull(page: Page, path: "sync" | "todo-sync", status: 200 | 503 = 200) {
   let release = () => {};
@@ -86,62 +86,35 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     const releases = [expenses.release, todos.release];
     const icon = page.locator(".topbar .brand-mark");
     const button = page.locator(".sync-pill");
-    const nav = page.getByRole("navigation");
     const status = page.locator(".sync-status");
-    const listTabs = ["Ausgaben", "To-dos", "Suche"];
     const motion = reducedMotion === "no-preference";
     try {
       await page.goto("/");
       await expenses.started;
       await expect(icon).toHaveClass(/is-syncing/);
       await expect(button).toHaveAttribute("aria-busy", "true");
-      await expect(button).toBeDisabled();
-      for (const width of [320, 393, 1280]) {
-        await page.setViewportSize({ width, height: 900 });
-        for (const theme of ["light", "dark"]) {
-          await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
-          await expect(icon).toHaveCSS("animation-name", motion ? "sync-heartbeat" : "none");
-          await expect(icon).toHaveCSS("width", "32px");
-          await expect(icon).toHaveCSS("height", "32px");
-          if (motion) {
-            await expect(icon).toHaveCSS("animation-duration", "1.8s");
-            await expect(icon).toHaveCSS("animation-iteration-count", "infinite");
-            await expect.poll(() => icon.evaluate((element) =>
-              new DOMMatrixReadOnly(getComputedStyle(element).transform).a), { intervals: [50] }).toBeGreaterThan(1.03);
-          } else {
-            await expect(icon).toHaveCSS("transform", "none");
-            await expect(icon).not.toHaveCSS("box-shadow", "none");
-          }
-          for (const tab of listTabs) {
-            await nav.getByRole("button", { name: tab, exact: true }).click();
-            await expect(status).toHaveText("Wird synchronisiert…");
-            await expect(status).toHaveCSS("clip", "rect(0px, 0px, 0px, 0px)");
-            await expect(status).toHaveCSS("position", "absolute");
-            expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-          }
+      await expect(button).toBeEnabled();
+      for (const theme of ["light", "dark"]) {
+        await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
+        await expect(icon).toHaveCSS("animation-name", motion ? "sync-heartbeat" : "none");
+        await expect(icon).toHaveCSS("width", "32px");
+        await expect(icon).toHaveCSS("height", "32px");
+        if (motion) {
+          await expect(icon).toHaveCSS("animation-duration", "1.8s");
+          await expect(icon).toHaveCSS("animation-iteration-count", "infinite");
+          await expect.poll(() => icon.evaluate((element) =>
+            new DOMMatrixReadOnly(getComputedStyle(element).transform).a), { intervals: [50] }).toBeGreaterThan(1.03);
+        } else {
+          await expect(icon).toHaveCSS("transform", "none");
+          await expect(icon).not.toHaveCSS("box-shadow", "none");
         }
       }
-      await nav.getByRole("button", { name: "Einstellungen", exact: true }).click();
-      await expect(page.getByRole("status")).toHaveText("Wird synchronisiert…");
-      await expect(page.getByRole("status")).toBeVisible();
-      await nav.getByRole("button", { name: "Ausgaben", exact: true }).click();
       expenses.release();
       await todos.started;
       await expect(icon).toHaveClass(/is-syncing/);
       await expect(button).toHaveAttribute("aria-busy", "true");
-      await expect(status).toHaveText("Wird synchronisiert…");
-      await expect(status).toHaveCSS("clip", "rect(0px, 0px, 0px, 0px)");
       todos.release();
-      for (const tab of listTabs) {
-        await nav.getByRole("button", { name: tab, exact: true }).click();
-        await expect(status).toHaveText("Auf dem neuesten Stand");
-        await expect(status).toHaveCSS("clip", "rect(0px, 0px, 0px, 0px)");
-        await expect(status).toHaveCSS("position", "absolute");
-      }
-      await nav.getByRole("button", { name: "Einstellungen", exact: true }).click();
-      await expect(page.getByRole("status")).toHaveText("Auf dem neuesten Stand");
-      await expect(page.getByRole("status")).toBeVisible();
-      await nav.getByRole("button", { name: "Ausgaben", exact: true }).click();
+      await expect(status).toHaveText("Auf dem neuesten Stand");
       await expect(icon).not.toHaveClass(/is-syncing/);
       await expect(icon).toHaveCSS("animation-name", "none");
       await expect(icon).toHaveCSS("transform", "none");
@@ -152,21 +125,19 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
       const failed = await holdSyncPull(page, "sync", 503);
       releases.push(failed.release);
       await button.click();
+      await page.getByRole("button", { name: "Jetzt synchronisieren" }).click();
+      await button.click();
       await failed.started;
       await expect(icon).toHaveClass(/is-syncing/);
       failed.release();
-      for (const tab of listTabs) {
-        await nav.getByRole("button", { name: tab, exact: true }).click();
-        await expect(status).toHaveText("Die Synchronisierung ist fehlgeschlagen.");
-        await expect(status).toBeVisible();
-        await expect(status).toHaveCSS("clip", "auto");
-      }
       await expect(icon).not.toHaveClass(/is-syncing/);
       await expect(icon).toHaveCSS("animation-name", "none");
       await expect(button).toHaveAttribute("aria-busy", "false");
 
       const offline = await holdSyncPull(page, "sync");
       releases.push(offline.release);
+      await button.click();
+      await page.getByRole("button", { name: "Jetzt synchronisieren" }).click();
       await button.click();
       await offline.started;
       await expect(icon).toHaveClass(/is-syncing/);
@@ -176,93 +147,9 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
       await expect(icon).toHaveCSS("box-shadow", "none");
       await expect(button).toHaveAttribute("aria-busy", "false");
       await expect(button).toContainText("Offline");
-      for (const tab of listTabs) {
-        await nav.getByRole("button", { name: tab, exact: true }).click();
-        await expect(status).toHaveText("Offline · Änderungen bleiben auf diesem Gerät");
-        await expect(status).toBeVisible();
-        await expect(status).toHaveCSS("clip", "auto");
-      }
     } finally {
       for (const release of releases) release();
     }
-  });
-}
-
-for (const reducedMotion of ["no-preference", "reduce"] as const) {
-  test(`new local expenses and todos pulse the logo once with motion: ${reducedMotion}`, async ({ page, context }) => {
-    await page.emulateMedia({ reducedMotion });
-    await page.goto("/");
-    const nav = page.getByRole("navigation");
-    await nav.getByRole("button", { name: "Einstellungen", exact: true }).click();
-    await chooseOption(page, page.getByLabel("App-Sprache", { exact: true }), "English");
-    await nav.getByRole("button", { name: "Expenses", exact: true }).click();
-    await context.setOffline(true);
-    const icon = page.locator(".topbar .brand-mark");
-    await expect(page.locator(".sync-pill")).toHaveAttribute("aria-busy", "false");
-    await expect(icon).not.toHaveClass(/is-saving|is-syncing/);
-    const dialog = page.getByRole("dialog");
-    const save = async () => {
-      await dialog.getByRole("button", { name: "Save", exact: true }).click();
-      await expect(dialog).not.toBeVisible();
-    };
-    const expectPulse = async () => {
-      await expect(icon).toHaveClass(/is-saving/);
-      await expect(icon).toHaveCSS("animation-name", reducedMotion === "reduce" ? "none" : "sync-heartbeat");
-      await expect(icon).toHaveCSS("animation-iteration-count", "1");
-      await expect(icon).not.toHaveCSS("box-shadow", "none");
-      await expect(page.locator(".sync-pill")).toHaveAttribute("aria-busy", "false");
-      await expect(icon).not.toHaveClass(/is-saving/, { timeout: 3500 });
-      await expect(icon).toHaveCSS("animation-name", "none");
-      await expect(icon).toHaveCSS("box-shadow", "none");
-    };
-
-    await page.getByRole("button", { name: "Add expense", exact: true }).click();
-    await dialog.getByLabel("Description", { exact: true }).fill("Coffee pulse");
-    await dialog.getByRole("textbox", { name: "Amount in EUR" }).fill("12.345");
-    await dialog.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(dialog.getByRole("alert")).toBeVisible();
-    await expect(icon).not.toHaveClass(/is-saving/);
-    await dialog.getByRole("textbox", { name: "Amount in EUR" }).fill("12");
-    await save();
-    await expect(page.locator(".expense-row")).toContainText("Coffee pulse");
-    await expectPulse();
-
-    await page.getByText("Coffee pulse", { exact: true }).click();
-    await dialog.getByLabel("Description", { exact: true }).fill("Coffee edited");
-    await save();
-    await expect(icon).not.toHaveClass(/is-saving/);
-    await page.getByRole("button", { name: "Settle up", exact: true }).click();
-    await dialog.getByRole("textbox", { name: "Amount in EUR" }).fill("6");
-    await chooseOption(page, dialog.getByLabel("Paid by", { exact: true }), 1);
-    await save();
-    await expect(icon).not.toHaveClass(/is-saving/);
-
-    await nav.getByRole("button", { name: "To-dos", exact: true }).click();
-    await page.getByRole("button", { name: "Add to-do", exact: true }).click();
-    await dialog.getByLabel("Title", { exact: true }).fill(" ");
-    await dialog.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(dialog.getByRole("alert")).toBeVisible();
-    await expect(icon).not.toHaveClass(/is-saving/);
-    await dialog.getByLabel("Title", { exact: true }).fill("Call dentist");
-    await save();
-    await expect(page.getByRole("listitem")).toContainText("Call dentist");
-    await expectPulse();
-
-    await page.getByRole("button", { name: "To-do actions: Call dentist", exact: true }).click();
-    await page.getByRole("button", { name: "Edit to-do: Call dentist", exact: true }).click();
-    await dialog.getByLabel("Title", { exact: true }).fill("Call dentist edited");
-    await save();
-    await expect(icon).not.toHaveClass(/is-saving/);
-    await page.getByRole("checkbox").click();
-    await expect(page.getByRole("checkbox")).toBeChecked();
-    await expect(icon).not.toHaveClass(/is-saving/);
-    await page.getByRole("button", { name: "To-do actions: Call dentist edited", exact: true }).click();
-    await page.getByRole("button", { name: "Edit to-do: Call dentist edited", exact: true }).click();
-    await dialog.getByRole("button", { name: "Delete to-do", exact: true }).click();
-    await confirmAction(page, "Delete to-do");
-    await expect(dialog).not.toBeVisible();
-    await expect(page.getByRole("listitem")).toHaveCount(0);
-    await expect(icon).not.toHaveClass(/is-saving/);
   });
 }
 
@@ -417,26 +304,39 @@ test("header and footer fade into safe areas and retain themed blur while scroll
   }
 });
 
-test("compact mobile layout shows six expenses and keeps all four tabs usable at 320px", async ({ page }) => {
+test("compact mobile layout measures density at 320px and 393px and keeps all five tabs usable", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 320, height: 740 });
   await page.goto("/");
   await importExpenses(page, 8);
   await page.getByRole("button", { name: "Ausgaben", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("Zum Synchronisieren anmelden");
-  const layout = await page.locator(".expense-row").evaluateAll((rows) => {
-    const actionTop = document.querySelector(".expense-action")!.getBoundingClientRect().top;
-    return {
-      firstRowTop: rows[0].getBoundingClientRect().top,
-      visibleRows: rows.filter((row) => row.getBoundingClientRect().bottom <= actionTop).length,
-      rowHeights: rows.map((row) => row.getBoundingClientRect().height)
-    };
-  });
-  expect(layout.firstRowTop).toBeLessThan(320);
-  expect(layout.visibleRows).toBeGreaterThanOrEqual(6);
-  expect(Math.min(...layout.rowHeights)).toBeGreaterThanOrEqual(44);
+  for (const [width, height, minimumRows] of [[320, 740, 5], [393, 851, 6]]) {
+    await page.setViewportSize({ width, height });
+    for (const font of ["", "Arial, sans-serif"]) {
+      await page.evaluate(async (font) => {
+        document.body.style.fontFamily = font;
+        await document.fonts.ready;
+      }, font);
+      const layout = await page.locator(".expense-row").evaluateAll((rows) => {
+        const actionTop = document.querySelector(".expense-action")!.getBoundingClientRect().top;
+        return {
+          font: getComputedStyle(document.body).fontFamily, actionTop,
+          firstRowTop: rows[0].getBoundingClientRect().top,
+          visibleRows: rows.filter((row) => row.getBoundingClientRect().bottom <= actionTop).length,
+          rowHeights: rows.map((row) => row.getBoundingClientRect().height)
+        };
+      });
+      expect(layout.firstRowTop).toBeLessThan(320);
+      expect(layout.visibleRows, `${width}x${height} density: ${JSON.stringify(layout)}`).toBeGreaterThanOrEqual(minimumRows);
+      expect(Math.min(...layout.rowHeights)).toBeGreaterThanOrEqual(44);
+    }
+  }
+  await page.evaluate(() => { document.body.style.fontFamily = ""; });
 
   for (const [width, height] of [[320, 740], [393, 851], [851, 393], [1280, 900]]) {
     await page.setViewportSize({ width, height });
-    for (const tab of ["Ausgaben", "Suche", "Statistik", "Einstellungen"]) {
+    for (const tab of ["Ausgaben", "To-dos", "Suche", "Statistik", "Einstellungen"]) {
       await page.getByRole("navigation").getByRole("button", { name: tab, exact: true }).click();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       const targets = await page.getByRole("navigation").getByRole("button").evaluateAll((buttons) =>

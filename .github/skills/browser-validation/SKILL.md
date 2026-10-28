@@ -25,34 +25,22 @@ developer's servers, credentials, or saved household data.
 3. Run `npm run build` before Playwright. Browser tests use the production preview,
    not the Vite development server; service-worker offline reloads depend on the
    production build. Rebuild after app changes before rerunning browser tests.
-4. Check listeners before starting services. Defaults are frontend `5173`, API
-   `7071`, and Azurite Table Storage `10002`. Start an isolated table emulator using
-   the README command and a task-owned scratch directory. Confirm it responds
-   over HTTP; an Azurite response such as `400` still proves the listener is up.
-   Playwright starts and stops its own frontend/API with synthetic member tokens
-   and a unique household. Do not supply production credentials or real exports.
-5. If a port is occupied, identify its owner. Never kill or reuse an unknown
-   process, and do not set `reuseExistingServer: true` merely to bypass the check.
-   If only the frontend port is occupied:
-   - Pick a free loopback port and create a temporary config next to the existing
-     config, importing it and spreading the original configuration into one object.
-   - Replace `use.baseURL`, the preview command's `--port`, its readiness URL, and
-     the API server environment's `APP_ORIGIN` together. Preserve the remaining
-     settings, synthetic household, strict port check, and server lifecycle.
-   - Replace the `webServer` array explicitly. Do not use multi-argument
-     `defineConfig(original, overrides)` for this: it can append server arrays.
-   - Leave the API target consistent with [Vite's proxy](../../../vite.config.ts).
-     The development API binds to `7071` and the emulator defaults to `10002`;
-     changing only the frontend port cannot solve a collision on either.
-     If these ports are unavailable, report the blocker rather than touching
-     another process or silently testing an unrelated server.
+4. Import `test` and `expect` from [the browser fixtures](../../../tests/e2e/fixtures.ts).
+   They start private worker-owned Table emulators and production previews on
+   available loopback ports, serving the real API handler. Each test receives a
+   fresh synthetic household. No manual servers, fixed ports, local settings, or
+   production credentials are needed; never reuse an unknown listener.
+5. Reuse installed Chromium and WebKit browsers. Install a missing browser only
+   after a validation command reports it absent. Chromium runs the main suite;
+   WebKit runs the focused mobile/PWA and themed-control specs. Use `--project=chromium` or
+   `--project=webkit` to select one. Run `npm run check:e2e` after editing tests or
+   fixtures. Preserve fixture ownership and teardown when adding contexts.
 6. Run filename selectors from the repository root, for example:
 
    ```powershell
    npm run test:e2e -- mobile.spec.ts manual-todos.spec.ts todos.spec.ts
    ```
 
-   For an isolated config, add `--config <temporary-config-name>` after `--`.
    Playwright selectors are regular expressions: use filename selectors instead
    of unescaped Windows backslash paths. Run relevant unit tests and lint when
    code changes require them; avoid rerunning unrelated suites.
@@ -71,6 +59,9 @@ developer's servers, credentials, or saved household data.
      Wait for state updates and CSS transitions using assertions, not fixed sleeps.
 8. For offline reloads, wait for `navigator.serviceWorker.ready`, reload, and
    verify that a service worker controls the page before disconnecting.
+   For persistent Chromium contexts, use a short OS temporary profile path;
+   deeply nested test-result paths can break CacheStorage on Windows. Close the
+   context before deleting its task-owned profile.
    For storage or sync changes, also follow
    [offline-sync validation](../offline-sync-validation/SKILL.md).
 9. On failure, inspect the assertion, error context, and retained trace. Fix the
@@ -81,8 +72,8 @@ developer's servers, credentials, or saved household data.
 
 - Report exact commands, passed/failed counts, viewports and interaction types
   covered, and any skipped or blocked checks.
-- Stop only processes started for this task, using their recorded handles/PIDs.
-  Playwright owns its preview/API processes; do not start competing copies.
-- Remove temporary configs and task-owned emulator data after stopping the
-  emulator. Never clear an existing user's browser storage or broad directories.
+- Fixtures own emulator/preview lifecycle, per-test household deletion, and
+  scratch cleanup. Investigate teardown failures rather than hiding them.
+  Stop only task-owned leftover processes by recorded handle/PID. Never clear an
+  existing user's browser storage or broad directories.
 - Do not claim success until the regression passes against the rebuilt app.

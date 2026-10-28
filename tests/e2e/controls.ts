@@ -1,4 +1,4 @@
-import { expect, type Locator, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "./fixtures";
 
 export async function chooseOption(page: Page, trigger: Locator, option: string | number) {
   await trigger.click();

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { chooseOption } from "./controls";
 
 for (const theme of ["light", "dark"] as const) {
@@ -47,7 +47,7 @@ for (const theme of ["light", "dark"] as const) {
         await page.screenshot({ path: info.outputPath(`update-${width}.png`) });
       }
       await expect(page.locator("html")).toHaveAttribute("data-update-calls", "0");
-      const sync = page.getByRole("button", { name: language === "de" ? "Geräte synchronisieren" : "Synchronize devices", exact: true });
+      const sync = page.getByRole("button", { name: language === "de" ? "Synchronisierungsstatus" : "Sync status", exact: true });
       await expect(sync).toBeEnabled();
       await sync.focus();
       await page.keyboard.press("Tab");

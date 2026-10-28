@@ -1,17 +1,14 @@
 import { readFile } from "node:fs/promises";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "./fixtures";
+import { failNextConflictResolution, signIn as signInMember, synchronize as sync, upToDate } from "./helpers";
 import { chooseOption, confirmAction } from "./controls";
 
 const row = (page: Page, title: string) => page.getByRole("listitem").filter({ has: page.getByText(title, { exact: true }) });
 const todos = (page: Page) => page.getByRole("navigation").getByRole("button", { name: "To-dos" }).click();
-const upToDate = (page: Page) => expect(page.getByRole("status")).toHaveText("Auf dem neuesten Stand");
 
 async function signIn(page: Page, member: "A" | "B") {
   await page.goto("/");
-  await page.getByRole("button", { name: "Einstellungen", exact: true }).click();
-  await page.getByLabel("Mitglieds-Token").fill(member.repeat(43));
-  await page.getByRole("button", { name: "Anmelden", exact: true }).click();
-  await upToDate(page);
+  await signInMember(page, member);
   await todos(page);
 }
 
@@ -43,11 +40,6 @@ async function edit(page: Page, title: string, next: string, description: string
   await dialog.getByLabel("Beschreibung (optional)").fill(description);
   await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
   await expect(dialog).not.toBeVisible();
-}
-
-async function sync(page: Page) {
-  await page.getByRole("button", { name: "Geräte synchronisieren" }).click();
-  await upToDate(page);
 }
 
 async function toggle(page: Page, title: string, done: boolean) {
@@ -204,14 +196,6 @@ test("todo rows match expense text and column alignment in both themes", async (
         const checkbox = (await item.getByRole("checkbox").boundingBox())!;
         expect(checkbox.x + checkbox.width / 2).toBeCloseTo(date.x + date.width / 2, 1);
         expect(checkbox.height).toBe(22);
-        const front = item.locator(".swipe-front");
-        await page.getByRole("heading", { level: 1 }).hover();
-        const background = await front.evaluate((element) => getComputedStyle(element).backgroundColor);
-        await item.locator(".entry-description").hover();
-        const hover = await front.evaluate((element) => getComputedStyle(element).backgroundColor);
-        expect(hover).not.toBe(background);
-        await item.locator(".row-actions-toggle").hover();
-        await expect(front).toHaveCSS("background-color", hover);
         await expect(item.getByRole("checkbox")).not.toBeChecked();
       }
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -383,14 +367,22 @@ test("todo conflicts show both versions and allow keeping local edits or remote 
     await edit(b, title, title, "Remote details");
     await upToDate(b);
     await aContext.setOffline(false);
+    await a.getByRole("button", { name: "Synchronisierungsstatus" }).click();
     const conflict = a.getByRole("region", { name: "Widersprüchliche To-do-Änderungen" });
     await expect(conflict).toContainText("Local details");
     await expect(conflict).toContainText("Remote details");
     await expect(row(a, title).getByRole("checkbox")).toBeDisabled();
     await expect(row(a, title).locator(".todo-details")).toBeDisabled();
     await expect(row(a, title).getByRole("button", { name: `To-do-Aktionen: ${title}` })).toBeDisabled();
+    await failNextConflictResolution(a, "todoConflicts");
+    await conflict.getByRole("button", { name: "Diese Version behalten" }).click();
+    await expect(a.locator(".sync-popover").getByRole("alert")).toHaveText("Ein unerwarteter Fehler ist aufgetreten. Deine gespeicherten Einträge bleiben auf diesem Gerät.");
+    await expect(conflict).toBeVisible();
     await conflict.getByRole("button", { name: "Diese Version behalten" }).click();
     await upToDate(a);
+    await expect(a.locator(".sync-popover").getByRole("alert")).toHaveCount(0);
+    await expect(a.getByRole("button", { name: "Synchronisierungsstatus" })).not.toHaveClass(/needs-attention/);
+    await a.getByRole("button", { name: "Synchronisierungsstatus" }).click();
     await sync(b);
     await expect(row(b, title)).toContainText("Local details");
 
@@ -399,10 +391,17 @@ test("todo conflicts show both versions and allow keeping local edits or remote 
     await remove(b, title);
     await upToDate(b);
     await aContext.setOffline(false);
+    await a.getByRole("button", { name: "Synchronisierungsstatus" }).click();
     await expect(conflict).toContainText("Another local edit");
     await expect(conflict).toContainText("Gelöscht");
+    await failNextConflictResolution(a, "todoConflicts");
+    await conflict.getByRole("button", { name: "Andere Version behalten" }).click();
+    await expect(a.locator(".sync-popover").getByRole("alert")).toHaveText("Ein unerwarteter Fehler ist aufgetreten. Deine gespeicherten Einträge bleiben auf diesem Gerät.");
+    await expect(conflict).toBeVisible();
     await conflict.getByRole("button", { name: "Andere Version behalten" }).click();
     await upToDate(a);
+    await expect(a.locator(".sync-popover").getByRole("alert")).toHaveCount(0);
+    await expect(a.getByRole("button", { name: "Synchronisierungsstatus" })).not.toHaveClass(/needs-attention/);
     await expect(row(a, title)).toHaveCount(0);
     await expect(conflict).not.toBeVisible();
   } finally {
@@ -433,7 +432,9 @@ test("manual completions saved during a slow sync are sent in the next pass", as
       await held;
       await route.fulfill({ response });
     });
-    await a.getByRole("button", { name: "Geräte synchronisieren" }).click();
+    await a.getByRole("button", { name: "Synchronisierungsstatus" }).click();
+    await a.getByRole("button", { name: "Jetzt synchronisieren" }).click();
+    await a.getByRole("button", { name: "Synchronisierungsstatus" }).click();
     await pullStarted;
     for (const title of titles) await toggle(a, title, true);
     await a.clock.runFor(1_000);

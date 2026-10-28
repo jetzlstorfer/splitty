@@ -1,12 +1,6 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
-import { chooseOption } from "./controls";
-
-async function useEnglish(page: Page) {
-  await page.goto("/");
-  await page.getByRole("navigation").getByRole("button", { name: "Einstellungen", exact: true }).click();
-  await chooseOption(page, page.getByLabel("App-Sprache", { exact: true }), "English");
-  await page.getByRole("navigation").getByRole("button", { name: "Expenses", exact: true }).click();
-}
+import { expect, test, type Locator, type Page } from "./fixtures";
+import { useEnglish } from "./helpers";
+import { chooseOption, confirmAction } from "./controls";
 
 async function save(page: Page) {
   const dialog = page.getByRole("dialog");
@@ -50,12 +44,28 @@ function contrast(foreground: string, background: string) {
 }
 
 for (const reducedMotion of ["no-preference", "reduce"] as const) {
-  test(`local saves and genuine settlements get feedback with motion: ${reducedMotion}`, async ({ page }) => {
+  test(`local saves, logo pulses and genuine settlements get feedback with motion: ${reducedMotion}`, async ({ page, context }) => {
     await page.emulateMedia({ reducedMotion });
     await useEnglish(page);
+    await context.setOffline(true);
+    await page.clock.install();
+    await page.clock.pauseAt(new Date(Date.now() + 1000));
     const motion = reducedMotion === "no-preference";
     const feedback = page.locator(".save-feedback");
     const mark = page.locator(".settled-mark");
+    const icon = page.locator(".topbar .brand-mark");
+    const expectPulse = async () => {
+      await expect(icon).toHaveClass(/is-saving/);
+      await expect(icon).toHaveCSS("animation-name", motion ? "sync-heartbeat" : "none");
+      await expect(icon).toHaveCSS("animation-iteration-count", "1");
+      await expect(icon).not.toHaveCSS("box-shadow", "none");
+      await expect(page.locator(".sync-pill")).toHaveAttribute("aria-busy", "false");
+    };
+    const expectNoPulse = async () => {
+      await expect(icon).not.toHaveClass(/is-saving|is-syncing/);
+      await expect(icon).toHaveCSS("animation-name", "none");
+      await expect(icon).toHaveCSS("box-shadow", "none");
+    };
     await expect(page.locator(".settled-note")).toHaveText("All square. Nicely done.");
     await expect(mark).not.toHaveClass(/celebrate/);
 
@@ -67,6 +77,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     await expect(dialog.getByRole("alert")).toBeVisible();
     await expect(feedback).toHaveCount(0);
     await expect(page.locator(".saved-row-glow")).toHaveCount(0);
+    await expectNoPulse();
     await dialog.getByRole("textbox", { name: "Amount in EUR" }).fill("12");
     await save(page);
 
@@ -76,7 +87,12 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     await expect(page.locator(".saved-row-glow")).toHaveCSS("animation-name", motion ? "saved-row-in" : "none");
     await expect(page.locator(".balance-amount")).toContainText("6.00");
     await expect(page.getByRole("button", { name: "Add expense", exact: true })).toBeFocused();
-    await expect(feedback).toHaveCount(0, { timeout: 6500 });
+    await expectPulse();
+    await page.clock.fastForward(4499);
+    await expect(feedback).toHaveCount(1);
+    await page.clock.fastForward(1);
+    await expect(feedback).toHaveCount(0);
+    await expectNoPulse();
     await expect(page.locator(".saved-row-glow")).toHaveCount(0);
 
     await page.getByText("Coffee together", { exact: true }).click();
@@ -84,10 +100,12 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     await save(page);
     await expect(page.locator(".expense-row").filter({ hasText: "Coffee with you" }).locator(".saved-row-glow")).toHaveCount(1);
     await expect(feedback).toHaveText("Expense saved on this device");
+    await expectNoPulse();
     await pay(page, "2");
     await expect(page.locator(".balance-amount")).toContainText("4.00");
     await expect(mark).toHaveCount(0);
     await expect(feedback).toHaveText("Payment saved on this device");
+    await expectNoPulse();
 
     await pay(page, "4");
     await expect(page.locator(".balance-amount")).toContainText("0.00");
@@ -96,8 +114,11 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     await expect(page.locator(".settled-sparkles")).toHaveCSS("animation-name", motion ? "settled-sparkle" : "none");
     await expect(feedback).toHaveText("Payment saved on this device");
     await expect(page.getByRole("button", { name: "Settle up", exact: true })).toBeFocused();
-    await expect(feedback).toHaveCount(0, { timeout: 6500 });
+    await expectNoPulse();
+    await page.clock.fastForward(4500);
+    await expect(feedback).toHaveCount(0);
     await expect(mark).not.toHaveClass(/celebrate/);
+    await expectNoPulse();
     await expect(page.locator(".settled-sparkles")).toHaveCount(0);
 
     await page.locator(".expense-row").filter({ hasText: "Payment" }).first().click();
@@ -106,10 +127,37 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     await expect(page.locator(".balance-amount")).toContainText("0.00");
     await expect(mark).not.toHaveClass(/celebrate/);
 
+    await page.getByRole("navigation").getByRole("button", { name: "To-dos", exact: true }).click();
+    await page.getByRole("button", { name: "Add to-do", exact: true }).click();
+    await dialog.getByLabel("Title", { exact: true }).fill(" ");
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(dialog.getByRole("alert")).toBeVisible();
+    await expectNoPulse();
+    await dialog.getByLabel("Title", { exact: true }).fill("Call dentist");
+    await save(page);
+    await expectPulse();
+    await page.clock.fastForward(1800);
+    await expectNoPulse();
+    await page.getByText("Call dentist", { exact: true }).click();
+    await dialog.getByLabel("Title", { exact: true }).fill("Call dentist edited");
+    await save(page);
+    await expectNoPulse();
+    await page.getByRole("checkbox").click();
+    await expect(page.getByRole("checkbox")).toBeChecked();
+    await expectNoPulse();
+    await page.getByText("Call dentist edited", { exact: true }).click();
+    await dialog.getByRole("button", { name: "Delete to-do", exact: true }).click();
+    await confirmAction(page, "Delete to-do");
+    await expect(dialog).not.toBeVisible();
+    await expect(page.getByRole("listitem")).toHaveCount(0);
+    await expectNoPulse();
+
     await page.getByRole("navigation").getByRole("button", { name: "Statistics", exact: true }).click();
     await expect(feedback).toHaveCount(0);
+    await context.setOffline(false);
     await page.getByRole("navigation").getByRole("button", { name: "Expenses", exact: true }).click();
     await expect(mark).not.toHaveClass(/celebrate/);
+    await page.clock.resume();
     await page.reload();
     await expect(page.locator(".balance-amount")).toContainText("0.00");
     await expect(mark).not.toHaveClass(/celebrate/);

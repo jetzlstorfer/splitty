@@ -30,6 +30,8 @@ When a new app version is ready, a prominent green card above the current page o
 
 Each device saves changes to IndexedDB first, so recording an expense does not wait for the network. When online, the app sends queued changes to the same-origin API. The API stores versioned records and an ordered change log; devices pull updates to converge. Expenses and manual to-dos have separate outboxes and sync cursors.
 
+Select the cloud indicator in the top-right corner for sync status, connection details, pending changes, and the last successful sync in the current session. This popover is also where you sign in or out, sync manually, inspect errors, and resolve conflicting expense or to-do edits. It remains available while syncing or offline; close it with Escape, its close button, or a click outside.
+
 ```mermaid
 flowchart LR
   subgraph device["Each device"]
@@ -95,18 +97,31 @@ Table Storage and operations may incur charges. Review current regional pricing 
 ```powershell
 npm run lint
 npm test
+npm run check:e2e
 npm run build
 npm run build:api
 ```
 
-The API integration and browser tests use synthetic households. To run the browser suite, start the local Table emulator in a separate terminal, then run:
+The API integration and browser tests use synthetic households. After building, run the browser suite with:
 
 ```powershell
-npx playwright install chromium
+npx playwright install chromium webkit
 npm run test:e2e
 ```
 
-For the themed-control regressions in Safari's engine, also run `npx playwright install webkit` and `npm run test:e2e -- controls.spec.ts --browser webkit`. These cover mobile touch and keyboard behavior in both themes; WebKit emulation does not replace testing on a physical iPhone.
+Browser fixtures automatically start private Table emulators and production previews
+on available loopback ports. Every test gets a fresh household; no existing local
+servers, settings, credentials, or data are reused. Chromium runs the main suite;
+WebKit runs focused mobile/PWA and themed-control tests. See [development](docs/development.md#checks)
+for focused commands and coverage ownership.
+
+The suite uses two workers and stops after the first failure. Use
+`npm run test:e2e -- --max-failures=0` to collect all failures.
+
+For just the themed-control regressions in Safari's engine, run
+`npm run test:e2e -- --project=webkit controls.spec.ts`. These cover mobile touch and
+keyboard behavior in both themes; WebKit emulation does not replace testing on a
+physical iPhone.
 
 See [browser validation](.github/skills/browser-validation/SKILL.md) and [offline-sync validation](.github/skills/offline-sync-validation/SKILL.md) for focused test setup. See [Copilot instructions](.github/copilot-instructions.md) for repository conventions.
 

@@ -101,6 +101,8 @@ Keep coverage at the narrowest useful layer:
 - [Popover tests](../tests/e2e/sync-popover.spec.ts) own sync controls, status,
   conflicts, keyboard access, and responsive geometry. Navigation tests own the
   logo's sync animation; polish tests own local-save feedback and logo pulses.
+  Header appearance comparisons disable CSS animation and retain before/after
+  crops, so incidental motion is not mistaken for backdrop blur.
 - [Mobile tests](../tests/e2e/mobile.spec.ts) own shared hover/swipe interactions.
   Manual-to-do tests retain their distinct checkbox and column geometry checks.
   Navigation density checks explicitly measure five visible expense rows at
@@ -111,6 +113,9 @@ Keep coverage at the narrowest useful layer:
   atomic local-write failures, and real waiting-worker activation with queued
   expense and to-do writes. The update test replaces the built service worker;
   it does not simulate compatibility between two different application bundles.
+  The shared-tab test holds real final pull responses and pauses debounce timers
+  so one tab can acknowledge writes after the other finishes its pass. Both
+  status and queue counts must settle without another focus event or timer.
 - Preserve separate expense, insurance-reminder, and manual-to-do regressions:
   they do not share all stores, queues, or completion semantics.
   Before reloading after Save, wait for the dialog to close and verify the

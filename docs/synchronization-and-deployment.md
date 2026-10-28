@@ -4,11 +4,14 @@
 
 Each device stores its ledger and pending mutations in IndexedDB. Saving is transactional and does not wait for a server; queued changes sync after saves, when connectivity returns, on foreground/focus, and periodically while the app is visible. The service worker caches the app shell for offline reloads.
 
-The header's cloud indicator opens the synchronization popover on every page, including while syncing or offline. It contains the current status and errors, connection state, combined expense/to-do queue count, last successful sync in the current session, sign-in/out, manual sync, and conflict resolution for both record types. No page or Settings section repeats a sync status line; a single screen-reader live region beside the indicator announces status changes even when the popover is closed. Escape, the close button, or an outside click dismisses the popover.
+The header's cloud indicator opens the synchronization popover on every page, including while syncing or offline. It contains the current status and errors, connection state, combined expense/to-do queue count, last successful sync in the current session, sign-in/out, manual sync, and conflict resolution for both record types. A theme-aware overlay dims and softly blurs the page below the header, keeping both the header and the popover clear in both themes. The overlay and popover follow the header's actual height, including safe-area padding. No page or Settings section repeats a sync status line; a single screen-reader live region beside the indicator announces status changes even when the popover is closed. Escape, the close button, or an outside click dismisses the popover.
 
 Sign-in validation is shown inline in the selected app language, not in a native
 browser validation bubble. A successful conflict-resolution retry clears its
 previous action error; unresolved conflicts and sync failures remain visible.
+If another tab acknowledges the shared queued writes, a pending-only status
+clears when both queues and conflict lists are empty; real sync errors are not
+cleared just because the queues are empty.
 
 The API stores versioned records and an ordered change log in Azure Table Storage. Writes use stable operation IDs and expected revisions; atomic commits record the mutation, its change-log entry, and an operation receipt. Retried writes do not duplicate an expense. Clients pull changes by sequence rather than client timestamps. Pending local edits are preserved; stale writes become explicit conflicts instead of silently replacing either side. Deletions are versioned tombstones.
 

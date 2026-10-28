@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { liveQuery } from "dexie";
 import {
   BarChart3, Check, ChevronDown, ClipboardCheck, Cloud, CloudAlert, CloudOff,
@@ -48,6 +48,17 @@ function SyncPopover({ online, busy, pending, attention, upToDate, status, child
   const { t, number } = useLocale();
   const id = useId();
   const [open, setOpen] = useState(false);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const popover = popoverRef.current;
+    const header = popover?.closest("header");
+    if (!popover || !header) return;
+    const align = () => popover.style.setProperty("--sync-header-bottom", `${header.getBoundingClientRect().bottom}px`);
+    align();
+    const observer = new ResizeObserver(align);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
   return <div className="sync-control">
     <button className={`sync-pill ${attention ? "needs-attention" : ""}`} popoverTarget={id}
       aria-haspopup="dialog" aria-expanded={open} aria-controls={id} aria-busy={busy} aria-label={t("Sync status")}>
@@ -56,7 +67,7 @@ function SyncPopover({ online, busy, pending, attention, upToDate, status, child
       <span>{!online ? t("Offline") : busy ? t("Syncing") : pending ? t("{count} pending", { count: number(pending) }) : t("Sync")}</span>
     </button>
     <span className="sync-status sr-only" role="status">{status}</span>
-    <div id={id} popover="auto" role="dialog" aria-labelledby={`${id}-heading`} className="sync-popover"
+    <div ref={popoverRef} id={id} popover="auto" role="dialog" aria-labelledby={`${id}-heading`} className="sync-popover"
       onToggle={(event) => setOpen(event.newState === "open")}>
       <div className="sync-popover-heading">
         <h2 id={`${id}-heading`}>{t("Synchronization")}</h2>
@@ -529,8 +540,10 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const todos = householdTodos(active, ledger.todos);
   const openTodos = todos.filter((todo) => !todo.done).length;
   const conflictCount = ledger.conflicts.length + ledger.todoConflicts.length;
-  const currentStatus = !online ? "Offline · changes stay on this device" : syncBusy ? "Syncing…" : syncStatus;
-  const upToDate = online && !syncBusy && !ledger.pending && !conflictCount && syncStatus === "Up to date";
+  // Another tab can acknowledge shared queued writes after this tab's sync finishes.
+  const idleStatus = syncStatus === "Saved locally · changes waiting to sync" && !ledger.pending && !conflictCount ? "Up to date" : syncStatus;
+  const currentStatus = !online ? "Offline · changes stay on this device" : syncBusy ? "Syncing…" : idleStatus;
+  const upToDate = online && !syncBusy && !ledger.pending && !conflictCount && idleStatus === "Up to date";
   const needsAttention = !!syncActionError || !!conflictCount ||
     !["Up to date", "Syncing…", "Saved on this device", "Saved locally · changes waiting to sync", "Offline · changes stay on this device"].includes(currentStatus);
   const todoVersion = (todo: Todo | null | undefined) => !todo ? t("Not present") : todo.deleted ? t("Deleted")

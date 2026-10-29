@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { liveQuery } from "dexie";
 import {
-  BarChart3, Check, ChevronDown, ClipboardCheck, Cloud, CloudAlert, CloudOff,
+  BarChart3, Check, ChevronDown, ClipboardCheck,
   Download, Languages, Plus, Receipt, RefreshCw, Search, Settings, Sparkles, Sun, Trash2, Upload, Users, X
 } from "lucide-react";
 import { calculateShareA, expenseBalance, parseMoney, type Entry, type Member, type SplitType } from "../shared/model";
@@ -14,6 +14,7 @@ import { ApiError, identify, signInDevice, signOutDevice, synchronize, type Iden
 import { LanguageContext, useLocale } from "./i18n";
 import { categoryLabels, detectCategory, expenseCategory, normalizeText, storedCategory, type Category } from "./categories";
 import ExpenseIcon from "./ExpenseIcon";
+import SyncIcon from "./SyncIcon";
 import SwipeableRow from "./SwipeableRow";
 import { householdTodos, type HouseholdTodo } from "./todos";
 import { ConfirmationProvider, DateField, Form, Select, Sheet, dateValue as today, useConfirm } from "./Controls";
@@ -67,10 +68,7 @@ function SyncPopover({ online, busy, pending, attention, upToDate, status, child
   return <div className="sync-control">
     <button className={`sync-pill ${attention ? "needs-attention" : ""}`} popoverTarget={id}
       aria-haspopup="dialog" aria-expanded={open} aria-controls={id} aria-busy={busy} aria-label={t("Sync status")}>
-      <span aria-hidden="true">{!online ? <CloudOff size={24} /> : !busy && attention ? <CloudAlert size={24} /> :
-        <span className="sync-icon"><Cloud size={24} />{busy
-          ? <span className="sync-check"><RefreshCw className="sync-arrows" size={10} strokeWidth={2.5} /></span>
-          : upToDate && <Check className="sync-check" size={10} strokeWidth={3} />}</span>}</span>
+      <SyncIcon state={!online ? "offline" : busy ? "syncing" : attention ? "attention" : upToDate ? "current" : "pending"} />
       <span>{!online ? t("Offline") : busy ? t("Syncing…") : pending ? t("{count} pending", { count: number(pending) })
         : attention ? t("Needs attention") : upToDate ? t("Up-to-date") : t("Saved on this device")}</span>
     </button>

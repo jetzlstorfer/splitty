@@ -109,6 +109,8 @@ p { line-height: 1.55; }
 .sync-details dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
 .sync-popover .button-row { flex-wrap: wrap; }
 .sync-popover .button-row > button { flex-basis: 120px; }
+.sync-popover > .button-row > button { flex-basis: max-content; width: auto; max-width: 100%; }
+.sync-popover > .button-row > button > svg { flex-shrink: 0; }
 .sync-popover .muted { margin: 12px 0 0; }
 .sync-sign-in { margin-top: 16px; }
 main { padding: 0 16px calc(88px + env(safe-area-inset-bottom)); }

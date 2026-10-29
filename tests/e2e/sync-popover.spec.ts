@@ -29,8 +29,8 @@ for (const language of ["en", "de"] as const) {
       for (const theme of ["light", "dark"]) {
         await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
         await expect(cloud).toHaveText(language === "en" ? "Up-to-date" : "Aktuell");
-        await expect(cloud.locator(".lucide-cloud")).toBeVisible();
-        await expect(cloud.locator(".lucide-check")).toBeVisible();
+        await expect(cloud.locator(".sync-icon")).toHaveAttribute("data-sync-state", "current");
+        await expect(cloud.locator(".sync-check")).toBeVisible();
         await expect(cloud.locator(".sync-arrows")).toHaveCount(0);
         await expect(cloud).toHaveAttribute("aria-busy", "false");
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -121,15 +121,16 @@ test("busy sync stays inspectable and a failed sync can be retried from the popo
     await expect(indicator(page)).toBeEnabled();
     await expect(indicator(page)).toHaveAttribute("aria-busy", "true");
     await expect(indicator(page)).toHaveText("Syncing…");
-    await expect(indicator(page).locator(".lucide-cloud")).toBeVisible();
+    await expect(indicator(page).locator(".sync-icon")).toHaveAttribute("data-sync-state", "syncing");
     const arrows = indicator(page).locator(".sync-arrows");
     await expect(arrows).toBeVisible();
-    await expect(indicator(page).locator(".lucide-check")).toHaveCount(0);
+    await expect(indicator(page).locator(".sync-check")).toHaveCount(0);
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await expect(arrows).toHaveCSS("animation-name", "sync-spin");
     const initialTransform = await arrows.evaluate((icon) => getComputedStyle(icon).transform);
     await expect.poll(() => arrows.evaluate((icon) => getComputedStyle(icon).transform)).not.toBe(initialTransform);
-    const cloudBounds = (await indicator(page).locator(".lucide-cloud").boundingBox())!;
+    await expect(indicator(page).locator(".sync-cloud")).toHaveCSS("transform", "none");
+    const cloudBounds = (await indicator(page).locator(".sync-cloud").boundingBox())!;
     const arrowBounds = (await arrows.boundingBox())!;
     expect(arrowBounds.x).toBeGreaterThan(cloudBounds.x);
     expect(arrowBounds.y).toBeGreaterThan(cloudBounds.y);
@@ -145,6 +146,7 @@ test("busy sync stays inspectable and a failed sync can be retried from the popo
     await expect(popover(page).locator(".sync-summary")).toHaveText("Sync request failed.");
     await expect(indicator(page)).toHaveClass(/needs-attention/);
     await expect(indicator(page)).toHaveText("Needs attention");
+    await expect(indicator(page).locator(".sync-icon")).toHaveAttribute("data-sync-state", "attention");
     await expect(arrows).toHaveCount(0);
     await expect(detail(page, "Last sync this session")).toHaveText("Not yet synced");
     await expect(page.locator("main")).not.toContainText("Sync request failed.");
@@ -153,7 +155,7 @@ test("busy sync stays inspectable and a failed sync can be retried from the popo
     await expect(detail(page, "Last sync this session").locator("time")).toHaveAttribute("datetime", /^\d{4}-/);
     await expect(indicator(page)).not.toHaveClass(/needs-attention/);
     await expect(indicator(page)).toHaveText("Up-to-date");
-    await expect(indicator(page).locator(".lucide-check")).toBeVisible();
+    await expect(indicator(page).locator(".sync-check")).toBeVisible();
   } finally { release(); }
 });
 
@@ -190,6 +192,7 @@ test("sign-in errors, offline queues, reload, reconnect and sign-out all live in
   await upToDate(page);
   await context.setOffline(true);
   await expect(indicator(page)).toHaveText("Offline");
+  await expect(indicator(page).locator(".sync-icon")).toHaveAttribute("data-sync-state", "offline");
   await page.getByRole("button", { name: "Add expense", exact: true }).click();
   const expense = `Popover expense ${crypto.randomUUID()}`;
   await page.getByRole("dialog").getByLabel("Description", { exact: true }).fill(expense);

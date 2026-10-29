@@ -12,6 +12,8 @@ concurrency:
 jobs:
   check:
     uses: ./.github/workflows/check.yml
+    with:
+      upload-build: true
   deploy:
     needs: check
     runs-on: ubuntu-latest
@@ -30,13 +32,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            api/package-lock.json
-      - run: npm ci && npm ci --prefix api
-      - run: npm run lint
-      - run: npm test && npm run build && npm run build:api
-      - run: npm prune --omit=dev --prefix api
+          cache-dependency-path: api/package-lock.json
+      - name: Download checked builds
+        uses: actions/download-artifact@v8
+        with:
+          name: deployment-build
+      - run: npm ci --omit=dev --prefix api
       - name: Publish prebuilt frontend and managed Functions
         uses: Azure/static-web-apps-deploy@v1
         with:

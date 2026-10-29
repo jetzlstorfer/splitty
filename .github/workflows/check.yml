@@ -2,6 +2,11 @@ name: Check
 on:
   pull_request:
   workflow_call:
+    inputs:
+      upload-build:
+        description: Upload checked frontend and API builds for deployment
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -36,3 +41,12 @@ jobs:
           RUN_AZURE_TESTS: "1"
       - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:e2e
+      - name: Upload checked builds
+        if: ${{ inputs.upload-build }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: deployment-build
+          path: |
+            dist
+            api/dist
+          if-no-files-found: error

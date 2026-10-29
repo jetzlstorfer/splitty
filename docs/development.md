@@ -85,11 +85,13 @@ npm run test:e2e -- --workers=1
 
 Chromium owns the main regression suite. WebKit runs
 [the mobile/PWA smoke tests](../tests/e2e/webkit.spec.ts) and
-[the themed-control regressions](../tests/e2e/controls.spec.ts), not the
+[the themed-control regressions](../tests/e2e/controls.spec.ts), plus
+[sync action layout checks](../tests/e2e/sync-popover-layout.spec.ts), not the
 Chromium-specific touch/CDP matrix. Use filename selectors and projects to focus a run:
 
 ```powershell
 npm run test:e2e -- --project=chromium sync-popover.spec.ts
+npm run test:e2e -- sync-popover-layout.spec.ts
 npm run test:e2e -- --project=webkit
 npm run test:e2e -- isolation.spec.ts persistence.spec.ts --repeat-each=2
 ```
@@ -103,6 +105,11 @@ Keep coverage at the narrowest useful layer:
   logo's sync animation; polish tests own local-save feedback and logo pulses.
   Header appearance comparisons disable CSS animation and retain before/after
   crops, so incidental motion is not mistaken for backdrop blur.
+  Sync action layout checks run in Chromium and mobile WebKit in German and
+  English, light and dark mode, across phone widths from 320 to 440 CSS pixels
+  (including the iPhone 17's 402x874 viewport), landscape, tablet, and desktop.
+  They measure the full label inside button padding, preserve icon size and
+  touch targets, and check overflow, manual sync, sign-out, and dismissal.
 - [Mobile tests](../tests/e2e/mobile.spec.ts) own shared hover/swipe interactions.
   Manual-to-do tests retain their distinct checkbox and column geometry checks.
   Navigation density checks explicitly measure five visible expense rows at

@@ -37,6 +37,8 @@ Resources are not provisioned automatically. Deploy the Bicep template to a reso
 
 Both automatic and manual deployments depend on the full reusable [Check workflow](../.github/workflows/check.yml), including lint, unit tests, TypeScript checks, builds, API integration tests, and Playwright browser tests. If checks fail or are cancelled, the deployment job is skipped.
 
+After all checks pass, the check job uploads the frontend and API build output as an artifact for that workflow run, using the repository's artifact retention policy. The deployment job downloads those same builds and installs only the API's production dependencies; it does not repeat lint, tests, or builds. Pull-request checks do not upload deployment artifacts. The Azurite integration test run remains separate because the normal unit-test run skips it.
+
 For an existing Static Web App, configure `MEMBER_A_TOKEN` and `MEMBER_B_TOKEN` with the generated values and keep `LOCAL_DEVELOPMENT=false`. A custom domain must use the exact HTTPS origin in `APP_ORIGIN` (no trailing slash); the API and frontend must share that origin.
 
 Member tokens act like passwords: anyone holding one can access the household. In production, sign-in exchanges the reusable token for a server-side session in an HttpOnly, Secure, SameSite cookie that lasts 400 days. The token itself is not stored in browser storage. Rotate tokens through Azure settings to revoke existing sessions. Signing out revokes the server session but deliberately keeps the device's local ledger.

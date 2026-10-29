@@ -67,9 +67,12 @@ function SyncPopover({ online, busy, pending, attention, upToDate, status, child
   return <div className="sync-control">
     <button className={`sync-pill ${attention ? "needs-attention" : ""}`} popoverTarget={id}
       aria-haspopup="dialog" aria-expanded={open} aria-controls={id} aria-busy={busy} aria-label={t("Sync status")}>
-      <span aria-hidden="true">{!online ? <CloudOff size={16} /> : attention ? <CloudAlert size={16} /> :
-        <span className="sync-icon"><Cloud size={16} />{upToDate && <Check className="sync-check" size={9} strokeWidth={4} />}</span>}</span>
-      <span>{!online ? t("Offline") : busy ? t("Syncing") : pending ? t("{count} pending", { count: number(pending) }) : t("Sync")}</span>
+      <span aria-hidden="true">{!online ? <CloudOff size={24} /> : !busy && attention ? <CloudAlert size={24} /> :
+        <span className="sync-icon"><Cloud size={24} />{busy
+          ? <span className="sync-check"><RefreshCw className="sync-arrows" size={10} strokeWidth={2.5} /></span>
+          : upToDate && <Check className="sync-check" size={10} strokeWidth={3} />}</span>}</span>
+      <span>{!online ? t("Offline") : busy ? t("Syncing…") : pending ? t("{count} pending", { count: number(pending) })
+        : attention ? t("Needs attention") : upToDate ? t("Up-to-date") : t("Saved on this device")}</span>
     </button>
     <span className="sync-status sr-only" role="status">{status}</span>
     <div ref={popoverRef} id={id} popover="auto" role="dialog" aria-labelledby={`${id}-heading`} className="sync-popover"

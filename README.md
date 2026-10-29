@@ -32,7 +32,7 @@ When a new app version is ready, a prominent green card above the current page o
 
 Each device saves changes to IndexedDB first, so recording an expense does not wait for the network. When online, the app sends queued changes to the same-origin API. The API stores versioned records and an ordered change log; devices pull updates to converge. Expenses and manual to-dos have separate outboxes and sync cursors.
 
-Select the cloud indicator in the top-right corner for sync status, connection details, pending changes, and the last successful sync in the current session. This popover is also where you sign in or out, sync manually, inspect errors, and resolve conflicting expense or to-do edits. It remains available while syncing or offline; close it with Escape, its close button, or a click outside.
+Select the cloud indicator in the top-right corner for sync status, connection details, pending changes, and the last successful sync in the current session. It shows **Up-to-date** (**Aktuell** in German) with a check inside the cloud only when everything is synced. During synchronization, two arrows spin inside the cloud (static when reduced motion is preferred). Offline, pending changes, and states needing attention have distinct labels instead. This popover is also where you sign in or out, sync manually, inspect errors, and resolve conflicting expense or to-do edits. It remains available while syncing or offline; close it with Escape, its close button, or a click outside.
 
 ```mermaid
 flowchart LR

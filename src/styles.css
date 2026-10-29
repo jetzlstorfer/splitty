@@ -134,7 +134,7 @@ h1 { font-size: 24px; line-height: 1.25; font-weight: 650; letter-spacing: -.6px
 .ledger-section { margin-top: 16px; }
 .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .sync-icon { position: relative; display: inline-flex; }
-.sync-check { position: absolute; left: 50%; top: 55%; transform: translate(-50%, -50%); }
+.sync-check { position: absolute; display: inline-flex; left: 50%; top: 60%; transform: translate(-50%, -50%); }
 .section-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .section-title h2 { font-size: 17px; margin: 0; font-weight: 600; }
 .section-title h2 span { font-size: 12px; margin-left: 8px; color: var(--cp-text-soft); font-weight: 400; }
@@ -422,6 +422,10 @@ input:disabled { opacity: .55; cursor: default; }
   .entry-balance small { font-size: 10px; }
 }
 @media (prefers-reduced-motion: no-preference) {
+  .sync-arrows { animation: sync-spin 1.2s linear infinite; }
+  @keyframes sync-spin {
+    to { transform: rotate(360deg); }
+  }
   .brand-mark.is-syncing, .brand-mark.is-saving { animation: sync-heartbeat 1.8s ease-in-out; }
   .brand-mark.is-syncing { animation-iteration-count: infinite; }
   button { transition: background-color .18s ease, color .18s ease, border-color .18s ease, box-shadow .18s ease, opacity .18s ease; }

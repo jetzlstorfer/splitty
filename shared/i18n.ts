@@ -69,6 +69,8 @@ export const german = {
   "Some edits need your attention": "Einige Änderungen müssen überprüft werden",
   "Saved locally · changes waiting to sync": "Lokal gespeichert · Synchronisierung ausstehend",
   "Up to date": "Auf dem neuesten Stand",
+  "Up-to-date": "Aktuell",
+  "Needs attention": "Bitte prüfen",
   "Sign in to sync": "Zum Synchronisieren anmelden",
   "Offline · changes stay on this device": "Offline · Änderungen bleiben auf diesem Gerät",
   "Signed out · local history remains on this device": "Abgemeldet · der lokale Verlauf bleibt auf diesem Gerät",

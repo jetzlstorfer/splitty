@@ -16,9 +16,33 @@ async function signIn(page: Page, member: "A" | "B" = "A") {
   await expect(popover(page).getByText(`Signed in as ${member === "A" ? "Alex" : "Sam"}.`, { exact: true })).toBeVisible();
 }
 
+for (const language of ["en", "de"] as const) {
+  test(`the healthy cloud indicator shows the localized up-to-date state in ${language}`, async ({ page }) => {
+    await page.route("**/api/me", (route) => route.fulfill({ json: { member: "a", nameA: "Alex", nameB: "Sam" } }));
+    await page.route(/\/api\/(?:todo-)?sync\?/, (route) =>
+      route.fulfill({ json: { entries: [], cursor: 0, more: false } }));
+    if (language === "en") await english(page);
+    else await page.goto("/");
+    const cloud = page.getByRole("button", { name: language === "en" ? "Sync status" : "Synchronisierungsstatus", exact: true });
+    for (const width of [320, 393, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      for (const theme of ["light", "dark"]) {
+        await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
+        await expect(cloud).toHaveText(language === "en" ? "Up-to-date" : "Aktuell");
+        await expect(cloud.locator(".lucide-cloud")).toBeVisible();
+        await expect(cloud.locator(".lucide-check")).toBeVisible();
+        await expect(cloud.locator(".sync-arrows")).toHaveCount(0);
+        await expect(cloud).toHaveAttribute("aria-busy", "false");
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      }
+    }
+  });
+}
+
 test("the cloud is the only sync entry point across tabs, widths and themes, with keyboard and touch dismissal", async ({ page }, info) => {
   await english(page);
   await expect(page.locator(".sync-status")).toHaveText("Sign in to sync");
+  await expect(indicator(page)).toHaveText("Needs attention");
   for (const tab of ["Expenses", "To-dos", "Search", "Statistics", "Settings"]) {
     await page.getByRole("navigation").getByRole("button", { name: tab, exact: true }).click();
     await expect(page.locator("main .sync-status, main .sync-summary")).toHaveCount(0);
@@ -96,18 +120,40 @@ test("busy sync stays inspectable and a failed sync can be retried from the popo
     await started;
     await expect(indicator(page)).toBeEnabled();
     await expect(indicator(page)).toHaveAttribute("aria-busy", "true");
+    await expect(indicator(page)).toHaveText("Syncing…");
+    await expect(indicator(page).locator(".lucide-cloud")).toBeVisible();
+    const arrows = indicator(page).locator(".sync-arrows");
+    await expect(arrows).toBeVisible();
+    await expect(indicator(page).locator(".lucide-check")).toHaveCount(0);
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await expect(arrows).toHaveCSS("animation-name", "sync-spin");
+    const initialTransform = await arrows.evaluate((icon) => getComputedStyle(icon).transform);
+    await expect.poll(() => arrows.evaluate((icon) => getComputedStyle(icon).transform)).not.toBe(initialTransform);
+    const cloudBounds = (await indicator(page).locator(".lucide-cloud").boundingBox())!;
+    const arrowBounds = (await arrows.boundingBox())!;
+    expect(arrowBounds.x).toBeGreaterThan(cloudBounds.x);
+    expect(arrowBounds.y).toBeGreaterThan(cloudBounds.y);
+    expect(arrowBounds.x + arrowBounds.width).toBeLessThan(cloudBounds.x + cloudBounds.width);
+    expect(arrowBounds.y + arrowBounds.height).toBeLessThan(cloudBounds.y + cloudBounds.height);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await expect(arrows).toHaveCSS("animation-name", "none");
+    await expect(arrows).toBeVisible();
     await indicator(page).click();
     await expect(popover(page).locator(".sync-summary")).toHaveText("Syncing…");
     await expect(popover(page).getByRole("button", { name: "Sync now" })).toBeDisabled();
     release();
     await expect(popover(page).locator(".sync-summary")).toHaveText("Sync request failed.");
     await expect(indicator(page)).toHaveClass(/needs-attention/);
+    await expect(indicator(page)).toHaveText("Needs attention");
+    await expect(arrows).toHaveCount(0);
     await expect(detail(page, "Last sync this session")).toHaveText("Not yet synced");
     await expect(page.locator("main")).not.toContainText("Sync request failed.");
     await popover(page).getByRole("button", { name: "Sync now" }).click();
     await expect(popover(page).locator(".sync-summary")).toHaveText("Up to date");
     await expect(detail(page, "Last sync this session").locator("time")).toHaveAttribute("datetime", /^\d{4}-/);
     await expect(indicator(page)).not.toHaveClass(/needs-attention/);
+    await expect(indicator(page)).toHaveText("Up-to-date");
+    await expect(indicator(page).locator(".lucide-check")).toBeVisible();
   } finally { release(); }
 });
 
@@ -143,6 +189,7 @@ test("sign-in errors, offline queues, reload, reconnect and sign-out all live in
   await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
   await upToDate(page);
   await context.setOffline(true);
+  await expect(indicator(page)).toHaveText("Offline");
   await page.getByRole("button", { name: "Add expense", exact: true }).click();
   const expense = `Popover expense ${crypto.randomUUID()}`;
   await page.getByRole("dialog").getByLabel("Description", { exact: true }).fill(expense);

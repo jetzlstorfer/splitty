@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo
 import { liveQuery } from "dexie";
 import {
   BarChart3, Check, ChevronDown, ClipboardCheck,
-  Download, Languages, Plus, Receipt, RefreshCw, Search, Settings, Sparkles, Sun, Trash2, Upload, Users, X
+  Download, GripVertical, Languages, Plus, Receipt, RefreshCw, Search, Settings, Sparkles, Sun, Trash2, Upload, Users, X
 } from "lucide-react";
 import { calculateShareA, expenseBalance, parseMoney, type Entry, type Member, type SplitType } from "../shared/model";
 import { translate } from "../shared/i18n";
@@ -16,7 +16,7 @@ import { categoryLabels, detectCategory, expenseCategory, normalizeText, storedC
 import ExpenseIcon from "./ExpenseIcon";
 import SyncIcon from "./SyncIcon";
 import SwipeableRow from "./SwipeableRow";
-import { householdTodos, type HouseholdTodo } from "./todos";
+import { householdTodos, reorderTodos, type HouseholdTodo } from "./todos";
 import { ConfirmationProvider, DateField, Form, Select, Sheet, dateValue as today, useConfirm } from "./Controls";
 
 const loadStatistics = () => import("./StatisticsPage");
@@ -288,6 +288,7 @@ function TodoForm({ todo, close, saved }: { todo?: Todo; close: () => void; save
       const timestamp = new Date().toISOString();
       await queueTodos([deleted && todo ? { ...todo, deleted: true } : {
         id: todo?.id ?? crypto.randomUUID(), title, description, done: todo?.done ?? false,
+        ...(todo?.position !== undefined ? { position: todo.position } : {}),
         createdAt: todo?.createdAt ?? timestamp, updatedAt: timestamp, revision: todo?.revision ?? 0, deleted: false
       }]);
       saved(); close();
@@ -309,16 +310,92 @@ function TodoForm({ todo, close, saved }: { todo?: Todo; close: () => void; save
   </Sheet>;
 }
 
-function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, toggleManual, remove, onError }: {
+function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, toggleManual, reorder, remove, onError }: {
   todos: HouseholdTodo[]; conflicts: Conflict<Todo>[];
   openCount: number; blocked: Set<string>;
   open: (entry: Entry) => void; toggle: (entry: Entry, submitted: boolean) => void;
   edit: (todo: Todo) => void; toggleManual: (todo: Todo, done: boolean) => void;
+  reorder: (changes: Todo[]) => Promise<void>;
   remove: (item: HouseholdTodo) => Promise<void>; onError: (error: unknown) => void;
 }) {
   const { t, number, money, locale } = useLocale();
   const [swipedTodo, setSwipedTodo] = useState<string | null>(null);
+  const [preview, setPreview] = useState<string[] | null>(null);
+  const [dragging, setDragging] = useState<string | null>(null);
+  const draggingRef = useRef<string | null>(null);
+  const pendingDrag = useRef<{ id: string; pointer: number; x: number; y: number } | null>(null);
+  const stopDrag = useRef<(() => void) | null>(null);
+  useEffect(() => () => stopDrag.current?.(), []);
+  const [announcement, setAnnouncement] = useState("");
+  const openList = useRef<HTMLUListElement>(null);
+  const focusAfterMove = useRef<string | null>(null);
+  const reorderHint = useId();
   const manualBlocked = new Set(conflicts.map((conflict) => conflict.entryId));
+  const openManual = todos.flatMap((item) => item.kind === "manual" && !item.done ? [item.todo] : []);
+  const canReorder = openManual.length > 1 && openManual.every((todo) => !manualBlocked.has(todo.id));
+  useEffect(() => {
+    if (draggingRef.current) return;
+    setPreview(null);
+    if (focusAfterMove.current) {
+      openList.current?.querySelector<HTMLButtonElement>(`[data-reorder-id="${CSS.escape(focusAfterMove.current)}"]`)?.focus();
+      focusAfterMove.current = null;
+    }
+  }, [todos]);
+
+  function startDrag(id: string | null) { draggingRef.current = id; setDragging(id); }
+
+  function beginDrag(todo: Todo, pointerId: number) {
+    let order = openManual.map((item) => item.id);
+    setSwipedTodo(null);
+    setPreview(order);
+    startDrag(todo.id);
+    const onMove = (event: globalThis.PointerEvent) => {
+      if (event.pointerId !== pointerId) return;
+      const others = [...(openList.current?.querySelectorAll<HTMLElement>("[data-manual-id]") ?? [])]
+        .filter((element) => element.dataset.manualId !== todo.id);
+      const index = others.findIndex((element) => { const rect = element.getBoundingClientRect(); return event.clientY < rect.top + rect.height / 2; });
+      const next = others.map((element) => element.dataset.manualId!);
+      next.splice(index === -1 ? next.length : index, 0, todo.id);
+      if (next.join() !== order.join()) { order = next; setPreview(next); }
+    };
+    // Window listeners survive React moving the dragged row, which drops pointer capture.
+    const end = (event: globalThis.PointerEvent) => {
+      if (event.pointerId !== pointerId) return;
+      stopDrag.current?.();
+      startDrag(null);
+      if (event.type === "pointercancel") setPreview(null);
+      else move(todo, order.indexOf(todo.id));
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+    stopDrag.current = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      stopDrag.current = null;
+    };
+  }
+
+  function move(todo: Todo, to: number) {
+    const from = openManual.findIndex((item) => item.id === todo.id);
+    const changes = reorderTodos(openManual, from, to);
+    if (!changes.length) { setPreview(null); return; }
+    const order = openManual.filter((item) => item.id !== todo.id).map((item) => item.id);
+    order.splice(to, 0, todo.id);
+    setPreview(order);
+    setAnnouncement(t("Moved {title} to position {position} of {total}.", { title: todo.title, position: number(to + 1), total: number(openManual.length) }));
+    reorder(changes).catch((error: unknown) => { setPreview(null); focusAfterMove.current = null; onError(error); });
+  }
+
+  function orderedGroup(group: HouseholdTodo[]) {
+    if (!preview) return group;
+    const rank = new Map(preview.map((id, index) => [id, index]));
+    const manual = group.filter((item) => item.kind === "manual" && !item.done)
+      .sort((a, b) => (rank.get(a.kind === "manual" ? a.todo.id : "") ?? 0) - (rank.get(b.kind === "manual" ? b.todo.id : "") ?? 0));
+    return [...manual, ...group.filter((item) => item.kind !== "manual" || item.done)];
+  }
+
   return <section className="todos-page"><header className="page-heading"><h1>{t("To-dos")}<span className="entry-count">{number(openCount)}</span></h1></header>
     <div aria-live="polite" aria-atomic="true">
       {openCount === 0 && <div className="empty-state todo-clear-state">
@@ -328,15 +405,19 @@ function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, to
         {!todos.length && <p className="todo-clear-hint">{t("Add your own to-dos here. Doctor and pharmacy expenses also appear automatically for insurance submission.")}</p>}
       </div>}
     </div>
+    <p className="sr-only" aria-live="polite">{announcement}</p>
+    <p id={reorderHint} hidden>{t("Drag, or use the arrow keys, to change the order.")}</p>
     {[false, true].map((done) => {
-        const group = todos.filter((todo) => todo.done === done);
+        const group = orderedGroup(todos.filter((todo) => todo.done === done));
         return !!group.length && <section key={String(done)} className="todo-group" aria-label={t(done ? "Done" : "Open to-dos")}>
           {done && <div className="section-title"><h2>{t("Done")}<span>{number(group.length)}</span></h2></div>}
-          <ul className="todo-list">{group.map((item) => {
+          <ul className="todo-list" ref={done ? undefined : openList}>{group.map((item) => {
             if (item.kind === "manual") {
               const { todo } = item;
               const id = `manual-${todo.id}`;
-              return <li key={id} className={`todo-item manual-todo ${done ? "done" : ""}`}>
+              const reorderable = !done && canReorder;
+              return <li key={id} className={`todo-item manual-todo ${done ? "done" : ""}${dragging === todo.id ? " reordering" : ""}`}
+                data-manual-id={done ? undefined : todo.id}>
                 <SwipeableRow description={todo.title} disabled={manualBlocked.has(todo.id)} open={swipedTodo === id}
                   setOpen={(open) => setSwipedTodo(open ? id : null)} edit={() => edit(todo)} remove={() => remove(item)} onError={onError}
                   actionsLabel={t("To-do actions")} editLabel={t("Edit to-do")} deleteLabel={t("Delete to-do")}
@@ -347,6 +428,34 @@ function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, to
                       <span className="entry-icon"><ClipboardCheck size={20} /></span>
                       <span className="entry-description"><strong>{todo.title}</strong>{todo.description && <small>{todo.description}</small>}</span>
                     </button>
+                    {reorderable && <button type="button" className="reorder-handle icon-button" data-reorder-id={todo.id}
+                      aria-label={`${t("Reorder to-do")}: ${todo.title}`} aria-describedby={reorderHint}
+                      onPointerDown={(event) => {
+                        if (!event.isPrimary || event.button !== 0) return;
+                        pendingDrag.current = { id: todo.id, pointer: event.pointerId, x: event.clientX, y: event.clientY };
+                      }}
+                      onPointerMove={(event) => {
+                        const pending = pendingDrag.current;
+                        if (pending?.id !== todo.id || pending.pointer !== event.pointerId) return;
+                        const dx = event.clientX - pending.x, dy = event.clientY - pending.y;
+                        if (Math.max(Math.abs(dx), Math.abs(dy)) <= 8) return;
+                        pendingDrag.current = null;
+                        // Horizontal gestures stay with the swipe row; vertical ones reorder.
+                        if (Math.abs(dy) > Math.abs(dx)) beginDrag(todo, event.pointerId);
+                      }}
+                      onPointerUp={() => { pendingDrag.current = null; }}
+                      onPointerCancel={() => { pendingDrag.current = null; }}
+                      onKeyDown={(event) => {
+                        const offset = event.key === "ArrowUp" ? -1 : event.key === "ArrowDown" ? 1 : 0;
+                        if (!offset) return;
+                        event.preventDefault();
+                        const to = openManual.findIndex((item) => item.id === todo.id) + offset;
+                        if (to < 0 || to >= openManual.length) return;
+                        focusAfterMove.current = todo.id;
+                        move(todo, to);
+                      }}>
+                      <GripVertical size={20} aria-hidden="true" />
+                    </button>}
                   </div>
                 </SwipeableRow>
               </li>;
@@ -377,6 +486,7 @@ function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, to
       })}
   </section>;
 }
+
 
 export default function App() {
   const ledger = useLedger();
@@ -635,6 +745,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
       {tab === "todos" ? <TodoList todos={todos} openCount={openTodos} blocked={conflictIds} open={setForm}
         conflicts={ledger.todoConflicts}
         edit={setTodoForm}
+        reorder={async (changes) => { await queueTodos(changes); saved(); }}
         remove={async (item) => {
           if (item.kind === "manual") await queueTodos([{ ...item.todo, deleted: true }]);
           else await queueEntries([{ ...item.entry, deleted: true }]);

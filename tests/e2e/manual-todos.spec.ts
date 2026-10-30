@@ -310,6 +310,76 @@ test("manual todos persist with optional descriptions and leave expenses unchang
   await expect(page.getByRole("dialog", { name: "Add to-do" }).getByLabel("Description (optional)")).toBeVisible();
 });
 
+test("open manual todos reorder by mouse, touch, and keyboard and share the order with the household", async ({ browser }) => {
+  const aContext = await browser.newContext({ serviceWorkers: "block", hasTouch: true });
+  const bContext = await browser.newContext({ serviceWorkers: "block" });
+  const a = await aContext.newPage(), b = await bContext.newPage();
+  const order = (page: Page) => page.locator(".manual-todo:not(.done) .entry-description strong");
+  const handle = (page: Page, title: string) => page.getByRole("button", { name: `To-do verschieben: ${title}`, exact: true });
+  try {
+    await signIn(a, "A");
+    await signIn(b, "B");
+    await expect(a.locator(".reorder-handle")).toHaveCount(0);
+    for (const title of ["First", "Second", "Third"]) await add(a, title);
+    await addInsuranceExpense(a);
+    await expect(order(a)).toHaveText(["Third", "Second", "First"]);
+
+    const firstBox = (await handle(a, "First").boundingBox())!, thirdBox = (await row(a, "Third").boundingBox())!;
+    await a.mouse.move(firstBox.x + firstBox.width / 2, firstBox.y + firstBox.height / 2);
+    await a.mouse.down();
+    await a.mouse.move(firstBox.x + firstBox.width / 2, thirdBox.y + 5, { steps: 8 });
+    await expect(row(a, "First")).toHaveClass(/reordering/);
+    await a.mouse.up();
+    await expect(order(a)).toHaveText(["First", "Third", "Second"]);
+    await expect(row(a, "First").getByRole("checkbox")).not.toBeChecked();
+    await expect(a.getByRole("button", { name: "To-do-Aktionen: First", exact: true })).toHaveAttribute("aria-expanded", "false");
+    await expect(a.locator(".todo-item").nth(3)).toContainText("Apotheke");
+
+    const session = await aContext.newCDPSession(a);
+    const secondBox = (await handle(a, "Second").boundingBox())!, firstRow = (await row(a, "First").boundingBox())!;
+    const x = secondBox.x + secondBox.width / 2;
+    await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y: secondBox.y + secondBox.height / 2 }] });
+    for (let step = 1; step <= 8; step++) {
+      const y = secondBox.y + secondBox.height / 2 + (firstRow.y + 5 - secondBox.y - secondBox.height / 2) * step / 8;
+      await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y }] });
+    }
+    await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await expect(order(a)).toHaveText(["Second", "First", "Third"]);
+    expect(await a.evaluate(() => window.scrollY)).toBe(0);
+
+    await handle(a, "Third").focus();
+    await a.keyboard.press("ArrowUp");
+    await expect(order(a)).toHaveText(["Second", "Third", "First"]);
+    await expect(handle(a, "Third")).toBeFocused();
+    await expect(a.getByText("Third auf Position 2 von 3 verschoben.")).toBeAttached();
+
+    const topBox = (await handle(a, "Second").boundingBox())!, lastRow = (await row(a, "First").boundingBox())!;
+    await a.mouse.move(topBox.x + topBox.width / 2, topBox.y + topBox.height / 2);
+    await a.mouse.down();
+    await a.mouse.move(topBox.x + topBox.width / 2, lastRow.y + lastRow.height - 5, { steps: 10 });
+    await a.mouse.up();
+    await expect(order(a)).toHaveText(["Third", "First", "Second"]);
+
+    await upToDate(a);
+    await sync(b);
+    await expect(order(b)).toHaveText(["Third", "First", "Second"]);
+    await toggle(b, "Second", true);
+    await expect(handle(b, "Second")).toHaveCount(0);
+    await toggle(b, "Second", false);
+    await expect(order(b)).toHaveText(["Third", "First", "Second"]);
+    await edit(b, "Second", "Second edited", "Keeps its place");
+    await expect(order(b)).toHaveText(["Third", "First", "Second edited"]);
+    await upToDate(b);
+    await sync(a);
+    await a.reload();
+    await todos(a);
+    await expect(order(a)).toHaveText(["Third", "First", "Second edited"]);
+  } finally {
+    await aContext.close();
+    await bContext.close();
+  }
+});
+
 test("both household members share offline creation, edits, completion, reopening, and deletion", async ({ browser }) => {
   const aContext = await browser.newContext({ serviceWorkers: "block" });
   const bContext = await browser.newContext({ serviceWorkers: "block" });

@@ -493,3 +493,6 @@ input:disabled { opacity: .55; cursor: default; }
     to { transform: scaleX(1); }
   }
 }
+.reorder-handle { flex: 0 0 32px; align-self: center; min-width: 32px; min-height: 44px; padding: 4px; color: var(--cp-text-soft); cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+.todo-item.reordering { position: relative; z-index: 2; box-shadow: 0 6px 18px rgb(0 0 0 / .18); }
+.todo-item.reordering .reorder-handle { cursor: grabbing; }

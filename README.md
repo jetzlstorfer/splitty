@@ -23,6 +23,7 @@ The empty expenses screen introduces splitting, balances, and offline saving, wi
 
 Insurance reminders are derived from health and pharmacy expenses; manual to-dos remain separate from the ledger and never affect balances.
 Like expense rows, to-do rows open their details when selected. Use the checkbox at the left to complete or reopen a to-do; insurance reminders open the associated expense.
+Open manual to-dos appear above insurance reminders. Drag a manual to-do by its grip handle, or focus the handle and use the arrow keys, to reorder it; the order syncs to the whole household. New to-dos appear at the top.
 
 Dropdowns, date selection, confirmations, and validation messages use Splitty's theme in both light and dark mode. Dates can also be typed as `YYYY-MM-DD`. The device keyboard, file picker, and permission prompts remain system-provided.
 

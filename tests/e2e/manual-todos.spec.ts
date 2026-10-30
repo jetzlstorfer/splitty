@@ -310,6 +310,30 @@ test("manual todos persist with optional descriptions and leave expenses unchang
   await expect(page.getByRole("dialog", { name: "Add to-do" }).getByLabel("Description (optional)")).toBeVisible();
 });
 
+test("completing to-dos bursts confetti for manual and insurance items unless motion is reduced", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.goto("/");
+  await todos(page);
+  await add(page, "Call dentist");
+  await row(page, "Call dentist").getByRole("checkbox").click();
+  const manualBurst = row(page, "Call dentist").locator(".todo-confetti");
+  await expect(manualBurst).toBeVisible();
+  await expect(manualBurst.locator("i").first()).toHaveCSS("animation-name", "todo-confetti-burst");
+
+  await addInsuranceExpense(page);
+  const insurance = page.getByRole("listitem").filter({ hasText: "Ausgabe: Apotheke" });
+  await insurance.getByRole("checkbox").click();
+  const insuranceBurst = insurance.locator(".todo-confetti");
+  await expect(insuranceBurst).toBeVisible();
+  await expect(insuranceBurst.locator("i").first()).toHaveCSS("animation-name", "todo-confetti-burst");
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await add(page, "Quiet completion");
+  const quiet = row(page, "Quiet completion");
+  await quiet.getByRole("checkbox").click();
+  await expect(quiet.locator(".todo-confetti")).toBeHidden();
+});
+
 test("open manual todos reorder by mouse, touch, and keyboard and share the order with the household", async ({ browser }) => {
   const aContext = await browser.newContext({ serviceWorkers: "block", hasTouch: true });
   const bContext = await browser.newContext({ serviceWorkers: "block" });

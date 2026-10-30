@@ -95,7 +95,7 @@ The Azure resources are described in [`infra/main.bicep`](infra/main.bicep); dep
 3. Configure the Static Web App deployment secret `AZURE_STATIC_WEB_APPS_API_TOKEN` in the GitHub `production` environment.
 4. Push or merge to `main` to run [Deploy to Azure](.github/workflows/deploy.yml), then sign in on each device.
 
-Automatic and manual deployments run the full [Check workflow](.github/workflows/check.yml) first, including API integration and browser tests. Deployment only starts after all checks pass.
+Pull requests run the full [Check workflow](.github/workflows/check.yml), including API integration and browser tests. Automatic deployments on `main` repeat lint, unit tests, TypeScript checks, builds, and API integration tests, but skip browser installation and tests. Manual deployments run the full suite. Deployment only starts after all enabled checks pass. Use pull requests for changes to `main`: direct pushes also skip browser tests.
 
 Table Storage and operations may incur charges. Review current regional pricing and configure budget alerts; alerts are not spending limits.
 

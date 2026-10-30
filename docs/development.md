@@ -147,7 +147,8 @@ Keep coverage at the narrowest useful layer:
 - [Isolation tests](../tests/e2e/isolation.spec.ts) deliberately repeat the same
   descriptions in sequential tests, proving that backend state cannot leak.
 
-The CI workflow runs lint, unit tests, E2E type-checking, frontend and API builds,
-emulator-backed API tests, and both browser projects. For focused UI and offline
+PR checks and manual deployments run lint, unit tests, E2E type-checking, frontend
+and API builds, emulator-backed API tests, and both browser projects. Automatic
+deployments on `main` skip browser installation and tests. For focused UI and offline
 workflows, see [browser validation](../.github/skills/browser-validation/SKILL.md)
 and [offline-sync validation](../.github/skills/offline-sync-validation/SKILL.md).

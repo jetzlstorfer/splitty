@@ -3,6 +3,10 @@ on:
   pull_request:
   workflow_call:
     inputs:
+      run-e2e:
+        description: Install browsers and run the Playwright suite
+        type: boolean
+        default: true
       upload-build:
         description: Upload checked frontend and API builds for deployment
         type: boolean
@@ -40,7 +44,9 @@ jobs:
         env:
           RUN_AZURE_TESTS: "1"
       - run: npx playwright install --with-deps chromium webkit
+        if: ${{ github.event_name == 'pull_request' || inputs.run-e2e }}
       - run: npm run test:e2e
+        if: ${{ github.event_name == 'pull_request' || inputs.run-e2e }}
       - name: Upload checked builds
         if: ${{ inputs.upload-build }}
         uses: actions/upload-artifact@v7

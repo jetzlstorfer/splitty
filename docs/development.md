@@ -125,6 +125,10 @@ Keep coverage at the narrowest useful layer:
   touch targets, and check overflow, manual sync, sign-out, and dismissal.
 - [Mobile tests](../tests/e2e/mobile.spec.ts) own shared hover/swipe interactions.
   Manual-to-do tests retain their distinct checkbox and column geometry checks.
+  To-do motion tests measure finger tracking, neighboring-row movement, drop
+  settling and touch cancellation in Chromium, plus keyboard reordering and
+  reduced-motion behavior across phone/desktop widths and both themes in
+  Chromium and WebKit.
   Navigation density checks explicitly measure five visible expense rows at
   320x740 and six at 393x851 with both native and fallback fonts, rather than
   claiming the default viewport is 320px. Measure settled layouts rather than

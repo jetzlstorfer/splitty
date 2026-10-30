@@ -186,14 +186,15 @@ input::placeholder { color: var(--cp-text-soft); }
 .bottom-nav > button { display: flex; gap: 4px; flex-direction: column; align-items: center; justify-content: center; padding: 6px 4px; background: none; color: var(--cp-text-soft); font-size: 11px; min-width: 0; min-height: 52px; -webkit-tap-highlight-color: transparent; }
 .nav-badge { display: inline-block; margin-left: 4px; min-width: 16px; padding: 0 4px; border-radius: 8px; background: var(--cp-accent-text); color: var(--cp-surface); font-size: 10px; line-height: 16px; font-weight: 600; }
 .todo-group { margin-bottom: 20px; }
-.todo-list { list-style: none; margin: 0; padding: 0; }
+.todo-list { position: relative; list-style: none; margin: 0; padding: 0; }
+.todo-item { position: relative; }
 .todo-row { padding: 0; }
 .todo-confetti { display: none; position: absolute; z-index: 2; left: 12px; top: 50%; width: 1px; height: 1px; pointer-events: none; }
 .todo-check { flex: 0 0 25px; align-self: stretch; display: flex; align-items: center; justify-content: center; min-height: 44px; margin: 0; cursor: pointer; }
 .todo-check input { width: 22px; height: 22px; min-height: 22px; padding: 0; flex: none; margin: 0; accent-color: var(--cp-accent); }
 .todo-details { flex: 1; align-self: stretch; display: flex; align-items: center; gap: inherit; min-width: 0; min-height: 64px; padding: 10px 0; text-align: left; background: none; border-radius: 0; touch-action: pan-y pinch-zoom; }
 .reorder-handle { flex: 0 0 32px; align-self: center; min-width: 32px; min-height: 44px; padding: 4px; color: var(--cp-text-soft); cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
-.todo-item.reordering { position: relative; z-index: 2; box-shadow: 0 6px 18px rgb(0 0 0 / .18); }
+.todo-item.reordering { z-index: 2; box-shadow: 0 6px 18px rgb(0 0 0 / .18); border-radius: 12px; }
 .todo-item.reordering .reorder-handle { cursor: grabbing; }
 .todo-item.done .entry-description strong { text-decoration: line-through; color: var(--cp-text-soft); }
 .manual-todo .entry-description strong { white-space: normal; overflow-wrap: anywhere; }

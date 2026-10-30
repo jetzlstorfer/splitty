@@ -329,11 +329,57 @@ function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, to
   useEffect(() => () => stopDrag.current?.(), []);
   const [announcement, setAnnouncement] = useState("");
   const openList = useRef<HTMLUListElement>(null);
+  const rowPositions = useRef(new Map<HTMLElement, number>());
+  const rowAnimations = useRef(new Map<HTMLElement, Animation>());
+  const dragPosition = useRef<{ element: HTMLElement; grabOffset: number; y: number } | null>(null);
   const focusAfterMove = useRef<string | null>(null);
   const reorderHint = useId();
   const manualBlocked = new Set(conflicts.map((conflict) => conflict.entryId));
   const openManual = todos.flatMap((item) => item.kind === "manual" && !item.done ? [item.todo] : []);
   const canReorder = openManual.length > 1 && openManual.every((todo) => !manualBlocked.has(todo.id));
+  useLayoutEffect(() => {
+    const list = openList.current;
+    const positions = new Map<HTMLElement, number>();
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (list) {
+      const listTop = list.getBoundingClientRect().top;
+      for (const element of list.querySelectorAll<HTMLElement>("[data-manual-id]")) {
+        const top = element.offsetTop;
+        positions.set(element, top);
+        if (element === dragPosition.current?.element) {
+          rowAnimations.current.get(element)?.cancel();
+          rowAnimations.current.delete(element);
+          element.style.transform = `translateY(${dragPosition.current.y - dragPosition.current.grabOffset - listTop - top}px)`;
+          continue;
+        }
+        const previous = rowPositions.current.get(element);
+        const settling = element.style.transform !== "";
+        if (previous === undefined || (previous === top && !settling)) continue;
+        // Include unfinished motion so rapid direction changes never snap a row.
+        const offset = element.getBoundingClientRect().top - listTop - top + previous - top;
+        rowAnimations.current.get(element)?.cancel();
+        element.style.transform = "";
+        rowAnimations.current.delete(element);
+        if (!reducedMotion && Math.abs(offset) > .5) {
+          const animation = element.animate([
+            { transform: `translateY(${offset}px)` }, { transform: "translateY(0)" }
+          ], { duration: 280, easing: "cubic-bezier(.22, 1, .36, 1)" });
+          rowAnimations.current.set(element, animation);
+          animation.onfinish = () => {
+            if (rowAnimations.current.get(element) === animation) rowAnimations.current.delete(element);
+          };
+        }
+      }
+    }
+    for (const [element, animation] of rowAnimations.current) {
+      if (!positions.has(element)) { animation.cancel(); rowAnimations.current.delete(element); }
+    }
+    rowPositions.current = positions;
+  });
+  useEffect(() => {
+    const animations = rowAnimations.current;
+    return () => { for (const animation of animations.values()) animation.cancel(); };
+  }, []);
   useEffect(() => {
     if (!celebratingTodo) return;
     const timeout = window.setTimeout(() => setCelebratingTodo(null), 900);
@@ -350,24 +396,39 @@ function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, to
 
   function startDrag(id: string | null) { draggingRef.current = id; setDragging(id); }
 
-  function beginDrag(todo: Todo, pointerId: number) {
+  function beginDrag(todo: Todo, pointerId: number, startY: number, currentY: number) {
+    const list = openList.current;
+    const element = list?.querySelector<HTMLElement>(`[data-manual-id="${CSS.escape(todo.id)}"]`);
+    if (!list || !element) return;
+    dragPosition.current = { element, grabOffset: startY - element.getBoundingClientRect().top, y: currentY };
+    list.setPointerCapture(pointerId);
     let order = openManual.map((item) => item.id);
     setSwipedTodo(null);
     setPreview(order);
     startDrag(todo.id);
-    const onMove = (event: globalThis.PointerEvent) => {
-      if (event.pointerId !== pointerId) return;
-      const others = [...(openList.current?.querySelectorAll<HTMLElement>("[data-manual-id]") ?? [])]
+    const updatePosition = (y: number) => {
+      const drag = dragPosition.current;
+      if (!drag) return;
+      const listTop = list.getBoundingClientRect().top;
+      const rows = [...list.querySelectorAll<HTMLElement>("[data-manual-id]")];
+      const bottom = Math.max(...rows.map((row) => row.offsetTop + row.offsetHeight));
+      const top = Math.max(0, Math.min(bottom - element.offsetHeight, y - drag.grabOffset - listTop));
+      drag.y = listTop + top + drag.grabOffset;
+      element.style.transform = `translateY(${top - element.offsetTop}px)`;
+      const others = rows
         .filter((element) => element.dataset.manualId !== todo.id);
-      const index = others.findIndex((element) => { const rect = element.getBoundingClientRect(); return event.clientY < rect.top + rect.height / 2; });
+      const index = others.findIndex((element) => y < listTop + element.offsetTop + element.offsetHeight / 2);
       const next = others.map((element) => element.dataset.manualId!);
       next.splice(index === -1 ? next.length : index, 0, todo.id);
       if (next.join() !== order.join()) { order = next; setPreview(next); }
     };
-    // Window listeners survive React moving the dragged row, which drops pointer capture.
+    const onMove = (event: globalThis.PointerEvent) => {
+      if (event.pointerId === pointerId) updatePosition(event.clientY);
+    };
     const end = (event: globalThis.PointerEvent) => {
       if (event.pointerId !== pointerId) return;
       stopDrag.current?.();
+      dragPosition.current = null;
       startDrag(null);
       if (event.type === "pointercancel") setPreview(null);
       else move(todo, order.indexOf(todo.id));
@@ -379,8 +440,10 @@ function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, to
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", end);
       window.removeEventListener("pointercancel", end);
+      if (list.hasPointerCapture(pointerId)) list.releasePointerCapture(pointerId);
       stopDrag.current = null;
     };
+    updatePosition(currentY);
   }
 
   function move(todo: Todo, to: number) {
@@ -451,7 +514,7 @@ function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, to
                         if (Math.max(Math.abs(dx), Math.abs(dy)) <= 8) return;
                         pendingDrag.current = null;
                         // Horizontal gestures stay with the swipe row; vertical ones reorder.
-                        if (Math.abs(dy) > Math.abs(dx)) beginDrag(todo, event.pointerId);
+                        if (Math.abs(dy) > Math.abs(dx)) beginDrag(todo, event.pointerId, pending.y, event.clientY);
                       }}
                       onPointerUp={() => { pendingDrag.current = null; }}
                       onPointerCancel={() => { pendingDrag.current = null; }}

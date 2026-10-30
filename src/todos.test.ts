@@ -1,7 +1,34 @@
 import { describe, expect, it } from "vitest";
 import { example, exampleTodo } from "../tests/fixtures";
 import { validateEntry } from "../shared/model";
-import { householdTodos, insuranceTodos, needsInsuranceSubmission } from "./todos";
+import { householdTodos, insuranceTodos, needsInsuranceSubmission, reorderTodos } from "./todos";
+
+describe("manual todo order", () => {
+  const todo = (id: string, createdAt: string, position?: number) =>
+    exampleTodo({ id, title: id, createdAt: `2024-03-0${createdAt}T12:00:00.000Z`, ...(position === undefined ? {} : { position }) });
+  const ids = (entries: Parameters<typeof householdTodos>[0], manual: Parameters<typeof householdTodos>[1]) =>
+    householdTodos(entries, manual).map((item) => item.kind === "manual" ? item.todo.id : `insurance:${item.entry.id}`);
+
+  it("lists unordered todos newest first, then positioned todos, then insurance reminders", () => {
+    expect(ids([example({ id: "pharmacy", description: "Apotheke", date: "2024-03-09" })], [
+      todo("b", "1", 2), todo("old", "2"), todo("a", "3", 1), todo("new", "4"), { ...todo("done", "5", 0), done: true }
+    ])).toEqual(["new", "old", "a", "b", "insurance:pharmacy", "done"]);
+  });
+  it("moves one todo between positioned neighbours without touching the others", () => {
+    const list = [todo("a", "1", 0), todo("b", "1", 1), todo("c", "1", 2)];
+    expect(reorderTodos(list, 2, 0)).toEqual([{ ...list[2], position: -1 }]);
+    expect(reorderTodos(list, 0, 2)).toEqual([{ ...list[0], position: 3 }]);
+    expect(reorderTodos(list, 0, 1)).toEqual([{ ...list[0], position: 1.5 }]);
+    expect(reorderTodos(list, 1, 1)).toEqual([]);
+  });
+  it("renumbers changed todos when neighbours are unpositioned or out of precision", () => {
+    const list = [todo("new", "2"), todo("a", "1", 0), todo("b", "1", 1)];
+    expect(reorderTodos(list, 0, 2)).toEqual([{ ...list[0], position: 2 }]);
+    expect(reorderTodos(list, 1, 0).map(({ id, position }) => [id, position])).toEqual([["new", 1], ["b", 2]]);
+    const tied = [todo("a", "1", 1), todo("b", "1", 1), todo("c", "1", 1)];
+    expect(reorderTodos(tied, 2, 1).map(({ id, position }) => [id, position])).toEqual([["a", 0], ["b", 2]]);
+  });
+});
 
 describe("insurance todos", () => {
   it("combines manual and automatic todos without changing or duplicating expenses", () => {

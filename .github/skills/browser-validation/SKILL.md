@@ -30,6 +30,11 @@ developer's servers, credentials, or saved household data.
    available loopback ports, serving the real API handler. Each test receives a
    fresh synthetic household. No manual servers, fixed ports, local settings, or
    production credentials are needed; never reuse an unknown listener.
+   For exploratory checks of populated screens, `npm run dev:seeded -- --reset
+   --port <free port>` serves a synthetic household with expenses, insurance
+   reminders, and manual to-dos (see [development](../../../docs/development.md#seeded-local-session)).
+   It uses the Vite development server, so it does not replace browser tests or
+   service-worker checks. Stop it when finished.
 5. Reuse installed Chromium and WebKit browsers. Install a missing browser only
    after a validation command reports it absent. Chromium runs the main suite;
    WebKit runs the focused mobile/PWA and themed-control specs. Use `--project=chromium` or

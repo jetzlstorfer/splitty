@@ -5,6 +5,8 @@ export interface Todo extends VersionedRecord {
   description?: string;
   done: boolean;
   createdAt: string;
+  /** Household-wide manual order; to-dos without a position are listed first, newest first. */
+  position?: number;
 }
 
 export const MAX_TODO_TITLE = 200;
@@ -23,12 +25,14 @@ export function validateTodo(value: unknown): Todo {
     || typeof todo.done !== "boolean" || typeof todo.deleted !== "boolean"
     || typeof todo.revision !== "number" || !Number.isSafeInteger(todo.revision) || todo.revision < 0
     || typeof todo.createdAt !== "string" || todo.createdAt.length > 40 || !Number.isFinite(Date.parse(todo.createdAt))
-    || typeof todo.updatedAt !== "string" || todo.updatedAt.length > 40 || !Number.isFinite(Date.parse(todo.updatedAt))) {
+    || typeof todo.updatedAt !== "string" || todo.updatedAt.length > 40 || !Number.isFinite(Date.parse(todo.updatedAt))
+    || (todo.position !== undefined && (typeof todo.position !== "number" || !Number.isFinite(todo.position) || Math.abs(todo.position) > 1e12))) {
     throw new Error("Invalid to-do fields.");
   }
   return {
     id: todo.id, title: todo.title.trim(),
     ...(typeof todo.description === "string" && todo.description.trim() ? { description: todo.description.trim() } : {}),
-    done: todo.done, createdAt: todo.createdAt, updatedAt: todo.updatedAt, revision: todo.revision, deleted: todo.deleted
+    done: todo.done, ...(typeof todo.position === "number" ? { position: todo.position } : {}),
+    createdAt: todo.createdAt, updatedAt: todo.updatedAt, revision: todo.revision, deleted: todo.deleted
   };
 }

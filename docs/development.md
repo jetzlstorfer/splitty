@@ -35,6 +35,19 @@ npm run preview -- --port 5173
 
 The service worker and offline reload behavior are enabled in production builds, not in the Vite development server. A phone needs an HTTPS deployment to install or reach the app; a computer's loopback address is not available to another device.
 
+## Seeded local session
+
+For manual testing or agent sessions with realistic data, start a self-contained stack with a synthetic household:
+
+```powershell
+npm run dev:seeded
+npm run dev:seeded -- --reset --port 5180
+```
+
+This starts a private Table emulator, the real API handler, and the Vite development server at <http://127.0.0.1:5174> by default. The first run seeds Alex and Sam with expenses with equal, exact, percentage, and single-person splits, a settlement, open and completed insurance reminders, and open and completed manual to-dos. Dates are relative to the seeding day. Sign in from the cloud icon with the synthetic token `AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA` (Alex) or `BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB` (Sam); these only work on this loopback-only stack.
+
+Data persists in the ignored `.azure\seeded` folder, so restarts keep your changes. `--reset` deletes it and seeds again; afterwards clear the browser's site data for that origin (or use a fresh profile), because a device cursor newer than the reset server is rejected. The default port keeps this data separate from `npm run dev` at port 5173. Use `--port` to run several sessions side by side. The emulator can take a minute or two to start on Windows. No `local.settings.json` is needed.
+
 ## Checks
 
 ```powershell

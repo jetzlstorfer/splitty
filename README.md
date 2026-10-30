@@ -77,6 +77,8 @@ npm run dev
 
 Generate a token with `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"`. Keep tokens private and give each member only their own. Never commit `local.settings.json`, exports, or backups.
 
+To try the app with a synthetic, pre-populated household of expenses and to-dos (no settings needed), run `npm run dev:seeded` and open <http://127.0.0.1:5174>. See [seeded local session](docs/development.md#seeded-local-session) for sign-in tokens and options.
+
 ## Import a Splitwise export
 
 Open **Search → Import** and choose a two-person EUR group export. Review the preview and final-balance check before confirming. Splitty preserves each member's signed balance contributions as exported; it does not guess original payers or split details. Re-importing a complete export skips already imported rows.

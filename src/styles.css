@@ -247,8 +247,18 @@ form > label, .panel-content > label { margin-bottom: 20px; }
 .amount-input { display: flex; align-items: center; border-bottom: 1px solid var(--cp-border-strong); }
 .amount-input > span { font-size: 32px; color: var(--cp-text-soft); padding: 0 12px; }
 .amount-input input { border: 0; background: none; font-size: 40px; font-weight: 600; padding-left: 4px; letter-spacing: -1px; }
-.split-summary { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 20px 0 12px; font-size: 13px; color: var(--cp-text-muted); }
-.split-summary .select-control { width: auto; max-width: 65%; font-size: 14px; min-height: 44px; }
+.payer-switch { min-width: 0; border: 0; padding: 0; margin: 20px 0 12px; }
+.payer-switch legend { padding: 0; margin-bottom: 8px; font-size: 12px; color: var(--cp-text-muted); font-weight: 500; }
+.payer-segments { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; border: 1px solid var(--cp-border); border-radius: 12px; background: var(--cp-surface-soft); }
+.payer-segments label { position: relative; min-width: 0; cursor: pointer; }
+.payer-segments input { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; margin: 0; }
+.payer-segments span { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 10px 8px; border: 1px solid transparent; border-radius: 8px; color: var(--cp-text-muted); font-size: 14px; overflow-wrap: anywhere; }
+.payer-segments svg { flex-shrink: 0; visibility: hidden; }
+.payer-segments input:checked + span { background: var(--cp-accent-soft); border-color: var(--cp-highlight); color: var(--cp-accent-text); font-weight: 600; }
+.payer-segments input:checked + span svg { visibility: visible; }
+.payer-segments input:focus-visible { outline: none; }
+.payer-segments input:focus-visible + span { outline: 3px solid var(--cp-accent); outline-offset: 2px; }
+.payment-recipient { margin: 0 0 20px; font-size: 13px; color: var(--cp-text-muted); }
 .split-button { display: flex; justify-content: space-between; align-items: center; width: 100%; text-align: left; background: var(--cp-accent-soft); border: 1px solid var(--cp-highlight); padding: 14px; color: var(--cp-accent-text); margin-bottom: 24px; font-size: 14px; }
 .split-button small { display: block; font-size: 11px; margin-top: 6px; color: var(--cp-text-muted); }
 .split-options { border: 1px solid var(--cp-border); border-radius: 6px; padding: 16px; margin: 0 0 24px; }

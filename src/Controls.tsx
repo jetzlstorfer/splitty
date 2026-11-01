@@ -40,7 +40,9 @@ export function Form({ children, onSubmit, ...props }: ComponentProps<"form">) {
   return <form {...props} noValidate onInvalidCapture={(event) => event.preventDefault()} onSubmit={(event) => {
     event.preventDefault();
     if (!event.currentTarget.checkValidity()) {
-      const field = event.currentTarget.querySelector<HTMLInputElement | HTMLTextAreaElement>(":invalid");
+      const field = event.currentTarget.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
+        "input:invalid, textarea:invalid, select:invalid"
+      );
       setError(field?.validity.valueMissing ? t("Please fill out this field.") : t("Enter a valid date."));
       field?.focus();
       return;

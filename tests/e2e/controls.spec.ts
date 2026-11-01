@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "./fixtures";
 import { chooseOption, confirmAction } from "./controls";
+import { useEnglish } from "./helpers";
 
 test.beforeEach(async ({ page }) => {
   await page.route("**/api/**", (route) => route.fulfill({ status: 401, json: { error: "Sign in to sync" } }));
@@ -44,6 +45,31 @@ test.describe("touch controls", () => {
       const form = await expense(page);
       await form.getByLabel("Description", { exact: true }).fill("Themed groceries");
       await form.getByLabel("Amount in EUR", { exact: true }).fill("12");
+      const payers = form.getByRole("group", { name: "Paid by", exact: true });
+      const first = payers.getByRole("radio").nth(0);
+      const second = payers.getByRole("radio").nth(1);
+      await expect(second).toBeChecked();
+      await first.tap();
+      await expect(first).toBeChecked();
+      await expect(second).not.toBeChecked();
+      await second.tap();
+      await expect(second).toBeChecked();
+      await expect(page.locator(".control-dialog")).toHaveCount(0);
+      const left = await payers.locator("label").nth(0).boundingBox();
+      const right = await payers.locator("label").nth(1).boundingBox();
+      expect(left!.y).toBe(right!.y);
+      expect(left!.width).toBeCloseTo(right!.width, 0);
+      expect(right!.x).toBeGreaterThanOrEqual(left!.x + left!.width);
+      expect(left!.height).toBeGreaterThanOrEqual(48);
+      await second.focus();
+      await page.keyboard.press("ArrowLeft");
+      await expect(first).toBeFocused();
+      await expect(first).toBeChecked();
+      await page.keyboard.press("ArrowRight");
+      await expect(second).toBeFocused();
+      await expect(second).toBeChecked();
+      await fits(page);
+      await page.screenshot({ path: info.outputPath(`expense-${theme}-${width}.png`) });
       await form.getByLabel("Date", { exact: true }).fill("2026-03-31");
       await form.getByRole("button", { name: "Choose date", exact: true }).tap();
       const calendar = page.getByRole("dialog", { name: "Choose date", exact: true });
@@ -61,7 +87,7 @@ test.describe("touch controls", () => {
       await page.getByRole("option", { name: "Groceries", exact: true }).tap();
       await expect(form.getByLabel("Category", { exact: true })).toHaveText("Groceries");
       await form.getByRole("button", { name: /Split equally/ }).tap();
-      await expect(form.getByRole("radio").first()).toHaveCSS("appearance", "none");
+      await expect(form.getByRole("radio", { name: "Equally · 50/50" })).toHaveCSS("appearance", "none");
       await form.getByRole("radio", { name: "I owe the full amount" }).check();
       await form.getByRole("button", { name: "Save", exact: true }).tap();
       await expect(form).not.toBeVisible();
@@ -97,6 +123,65 @@ test.describe("touch controls", () => {
       expect(nativeDialogs).toEqual([]);
     });
   }
+});
+
+for (const language of ["en", "de"] as const) {
+  test(`description Next and amount Done save without visiting the date in ${language}`, async ({ page }) => {
+    await page.clock.setFixedTime(new Date(2026, 10, 1, 12));
+    if (language === "en") await useEnglish(page);
+    else await page.goto("/");
+    const de = language === "de";
+    await page.getByRole("button", { name: de ? "Ausgabe hinzufügen" : "Add expense", exact: true }).click();
+    const form = page.getByRole("dialog", { name: de ? "Ausgabe hinzufügen" : "Add an expense", exact: true });
+    const description = form.getByLabel(de ? "Beschreibung" : "Description", { exact: true });
+    const amount = form.getByLabel(de ? "Betrag in EUR" : "Amount in EUR", { exact: true });
+    await expect(description).toHaveAttribute("enterkeyhint", "next");
+    await expect(amount).toHaveAttribute("enterkeyhint", "done");
+    await description.fill("Quick groceries");
+    await description.press("Enter");
+    await expect(amount).toBeFocused();
+    await expect(form).toBeVisible();
+    await amount.fill("0");
+    await amount.press("Enter");
+    await expect(form.getByRole("alert")).toContainText(de ? "größer als null" : "greater than zero");
+    await amount.fill(de ? "24,50" : "24.50");
+    await amount.press("Enter");
+    await expect(form).not.toBeVisible();
+    await expect(page.getByText("Quick groceries", { exact: true })).toBeVisible();
+    await page.reload();
+    await page.getByText("Quick groceries", { exact: true }).click();
+    const edit = page.getByRole("dialog", { name: de ? "Eintrag bearbeiten" : "Edit entry", exact: true });
+    await expect(edit.getByLabel(de ? "Datum" : "Date", { exact: true })).toHaveValue("2026-11-01");
+    await expect(edit.getByLabel(de ? "Betrag in EUR" : "Amount in EUR", { exact: true })).toHaveValue(de ? "24,50" : "24.50");
+    await expect(edit.getByRole("group", { name: de ? "Bezahlt von" : "Paid by" }).getByRole("radio").nth(0)).toBeChecked();
+  });
+}
+
+test("amount Done still validates custom shares and preserves an edited date and payer", async ({ page }) => {
+  await english(page);
+  const form = await expense(page);
+  await form.getByLabel("Description", { exact: true }).fill("Custom groceries");
+  const amount = form.getByLabel("Amount in EUR", { exact: true });
+  await amount.fill("20");
+  await form.getByRole("group", { name: "Paid by" }).getByRole("radio").nth(1).check();
+  await form.getByLabel("Date", { exact: true }).fill("2026-10-12");
+  await form.getByRole("button", { name: /Split equally/ }).click();
+  await form.getByRole("radio", { name: "By exact amount" }).check();
+  await form.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(form.getByRole("alert")).toHaveText("Please fill out this field.");
+  await expect(form.getByLabel("Your share (EUR)")).toBeFocused();
+  await amount.press("Enter");
+  await expect(form.getByRole("alert")).toHaveText("Please fill out this field.");
+  await expect(form.getByLabel("Your share (EUR)")).toBeFocused();
+  await form.getByLabel("Your share (EUR)").fill("5");
+  await amount.press("Enter");
+  await expect(form).not.toBeVisible();
+  await page.getByText("Custom groceries", { exact: true }).click();
+  const edit = page.getByRole("dialog", { name: "Edit entry", exact: true });
+  await expect(edit.getByLabel("Date", { exact: true })).toHaveValue("2026-10-12");
+  await expect(edit.getByRole("group", { name: "Paid by" }).getByRole("radio").nth(1)).toBeChecked();
+  await edit.getByRole("button", { name: /Custom split/ }).click();
+  await expect(edit.getByLabel("Your share (EUR)")).toHaveValue("5.00");
 });
 
 test("keyboard selection, calendar arithmetic, validation and nested dismissal preserve the form", async ({ page }) => {

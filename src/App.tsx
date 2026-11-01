@@ -117,6 +117,7 @@ function ExpenseForm({ entry, settlement, preferences: p, close, saved }: {
   const [expanded, setExpanded] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const amountInput = useRef<HTMLInputElement>(null);
   const [categoryChoice, setCategoryChoice] = useState<Category | "auto">(() => {
     const category = entry ? storedCategory(entry.category) : undefined;
     if (entry?.categoryMode === "manual" && category && category !== "payment") return category;
@@ -141,6 +142,7 @@ function ExpenseForm({ entry, settlement, preferences: p, close, saved }: {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (busy) return;
     setBusy(true); setError("");
     try {
       let value: Entry;
@@ -183,14 +185,28 @@ function ExpenseForm({ entry, settlement, preferences: p, close, saved }: {
   const other = p.member === "a" ? p.nameB : p.nameA;
   return <Sheet title={t(entry ? "Edit entry" : settlement ? "Settle up" : "Add an expense")} close={close} initialFocus={!entry ? "#expense-description" : undefined}>
     <Form onSubmit={submit} className="expense-form" lang={language}>
-      <div className="description-field"><label htmlFor="expense-description">{t("Description")}</label><div className="description-input" data-category={category}><ExpenseIcon category={category} size={24} /><input id="expense-description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t(settlement ? "Payment" : "Enter a description")} required maxLength={500} /></div></div>
-      <label>{t("Amount in EUR")}<div className="amount-input"><span>€</span><input aria-label={t("Amount in EUR")} inputMode="decimal" value={amount} readOnly={imported} onChange={(e) => setAmount(e.target.value)} placeholder={language === "de" ? "0,00" : "0.00"} required /></div></label>
+      <div className="description-field"><label htmlFor="expense-description">{t("Description")}</label><div className="description-input" data-category={category}><ExpenseIcon category={category} size={24} /><input id="expense-description" value={description} enterKeyHint={imported ? undefined : "next"} onKeyDown={(event) => {
+        if (!imported && event.key === "Enter" && !event.nativeEvent.isComposing) {
+          event.preventDefault(); amountInput.current?.focus();
+        }
+      }} onChange={(e) => setDescription(e.target.value)} placeholder={t(settlement ? "Payment" : "Enter a description")} required maxLength={500} /></div></div>
+      <label>{t("Amount in EUR")}<div className="amount-input"><span>€</span><input ref={amountInput} aria-label={t("Amount in EUR")} inputMode="decimal" enterKeyHint={imported ? undefined : "done"} value={amount} readOnly={imported} onKeyDown={(event) => {
+        if (!imported && event.key === "Enter" && !event.nativeEvent.isComposing) {
+          event.preventDefault();
+          if (!busy) event.currentTarget.form?.requestSubmit();
+        }
+      }} onChange={(e) => setAmount(e.target.value)} placeholder={language === "de" ? "0,00" : "0.00"} required /></div></label>
       {imported ? <p className="notice">{t("Imported balance: {amount} for {name}. The CSV does not reliably identify the original payer or split, so those amounts are preserved. Description and date can be edited.", { amount: money(entry.balanceA), name: p.nameA })}</p> : <>
-        <div className="split-summary">
-          <span>{t(settlement ? "Payment from" : "Paid by")}</span>
-          <Select<Member> label={t("Paid by")} value={paidBy} onChange={setPaidBy} options={[{ value: "a", label: payer(p, "a") }, { value: "b", label: payer(p, "b") }]} />
-          {settlement && <span>{paidBy !== p.member ? t("to you") : other === t("Your spouse") ? t("to your spouse") : t("to {name}", { name: other })}</span>}
-        </div>
+        <fieldset className="payer-switch" aria-label={t("Paid by")}>
+          <legend>{t(settlement ? "Payment from" : "Paid by")}</legend>
+          <div className="payer-segments">
+            {(["a", "b"] as const).map((member) => <label key={member}>
+              <input type="radio" name="paid-by" value={member} checked={paidBy === member} onChange={() => setPaidBy(member)} />
+              <span><Check size={18} aria-hidden="true" />{payer(p, member)}</span>
+            </label>)}
+          </div>
+        </fieldset>
+        {settlement && <p className="payment-recipient">{paidBy !== p.member ? t("to you") : other === t("Your spouse") ? t("to your spouse") : t("to {name}", { name: other })}</p>}
         {!settlement && <>
           <button type="button" className="split-button" onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>
             <span>{split === "other" ? t("All for {name}", { name: other }) : t(split === "equal" ? "Split equally" : split === "self" ? "All for you" : "Custom split")}<small>{money(shareA)} · {p.nameA} &nbsp;/&nbsp; {money(cents - shareA)} · {p.nameB}</small></span><ChevronDown size={20} />

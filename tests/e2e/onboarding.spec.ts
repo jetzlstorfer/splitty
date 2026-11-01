@@ -1,5 +1,4 @@
 import { expect, test } from "./fixtures";
-import { chooseOption } from "./controls";
 import { useEnglish } from "./helpers";
 
 const copy = {
@@ -58,7 +57,7 @@ for (const language of ["de", "en"] as const) {
     const dialog = page.getByRole("dialog");
     await dialog.getByLabel(text.description, { exact: true }).fill("Shared groceries");
     await dialog.getByRole("textbox", { name: text.amount }).fill("20");
-    await chooseOption(page, dialog.getByLabel(text.payer, { exact: true }), text.second);
+    await dialog.getByRole("group", { name: text.payer }).getByRole("radio", { name: text.second, exact: true }).check();
     await dialog.getByRole("button", { name: text.save, exact: true }).click();
     await expect(dialog).not.toBeVisible();
     await expect(page.locator(".expense-welcome")).toHaveCount(0);

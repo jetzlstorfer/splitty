@@ -1,6 +1,6 @@
 import { expect, test, type BrowserContext, type Locator, type Page } from "./fixtures";
 import { signIn, useEnglish } from "./helpers";
-import { chooseOption, confirmAction } from "./controls";
+import { confirmAction } from "./controls";
 
 test.beforeEach(async ({ page }) => { await useEnglish(page); });
 
@@ -395,13 +395,13 @@ test("mobile expense entry, custom splits, settlements and offline reload", asyn
   await save(page);
   await expect(page.locator(".balance-amount")).toContainText("28.34");
   dialog = await addExpense(page, "Partner paid", "10");
-  await chooseOption(page, dialog.getByLabel("Paid by"), 1);
+  await dialog.getByRole("group", { name: "Paid by" }).getByRole("radio").nth(1).check();
   await save(page);
   await expect(page.locator(".balance-amount")).toContainText("23.34");
   await page.getByRole("button", { name: /Settle up/ }).click();
   dialog = page.getByRole("dialog", { name: "Settle up" });
   await dialog.getByRole("textbox", { name: "Amount in EUR" }).fill("3");
-  await chooseOption(page, dialog.getByLabel("Paid by"), 1);
+  await dialog.getByRole("group", { name: "Paid by" }).getByRole("radio").nth(1).check();
   await save(page);
   await expect(page.locator(".balance-amount")).toContainText("20.34");
   await page.reload();
@@ -510,7 +510,7 @@ for (const [theme, width] of [["light", 393], ["dark", 393], ["light", 320]] as 
     await addExpense(page, "Groceries", "40");
     await save(page);
     const dialog = await addExpense(page, "Dinner together", "60");
-    await chooseOption(page, dialog.getByLabel("Paid by"), 1);
+    await dialog.getByRole("group", { name: "Paid by" }).getByRole("radio").nth(1).check();
     await save(page);
 
     const credit = theme === "light" ? "rgb(8, 127, 105)" : "rgb(84, 214, 183)";

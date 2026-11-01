@@ -8,7 +8,7 @@ async function addExpense(page: Page, description: string, amount: string, date:
   await dialog.getByLabel("Description", { exact: true }).fill(description);
   await dialog.getByRole("textbox", { name: "Amount in EUR" }).fill(amount);
   await dialog.getByLabel("Date", { exact: true }).fill(date);
-  await chooseOption(page, dialog.getByLabel("Paid by", { exact: true }), paidBy === "a" ? 0 : 1);
+  await dialog.getByRole("group", { name: "Paid by" }).getByRole("radio").nth(paidBy === "a" ? 0 : 1).check();
   await dialog.getByRole("button", { name: "Save", exact: true }).click();
   await expect(dialog).not.toBeVisible();
 }

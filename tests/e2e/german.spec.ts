@@ -134,9 +134,9 @@ test("payer labels always use household member names", async ({ page }) => {
   await page.getByRole("button", { name: "Ausgaben", exact: true }).click();
 
   const dialog = await addGerman(page, "Billa");
-  await dialog.getByLabel("Bezahlt von", { exact: true }).click();
-  await expect(page.getByRole("option")).toHaveText(["Alex", "Sam"]);
-  await page.getByRole("option", { name: "Sam", exact: true }).click();
+  const payers = dialog.getByRole("group", { name: "Bezahlt von" });
+  await expect(payers.locator("label")).toHaveText(["Alex", "Sam"]);
+  await payers.getByRole("radio", { name: "Sam", exact: true }).check();
   await saveGerman(page);
   await expect(page.locator(".expense-row .entry-description small")).toContainText("Sam hat");
 });

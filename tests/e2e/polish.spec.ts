@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from "./fixtures";
 import { useEnglish } from "./helpers";
-import { chooseOption, confirmAction } from "./controls";
+import { confirmAction } from "./controls";
 
 async function save(page: Page) {
   const dialog = page.getByRole("dialog");
@@ -20,7 +20,7 @@ async function pay(page: Page, amount: string) {
   await page.getByRole("button", { name: "Settle up", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await dialog.getByRole("textbox", { name: "Amount in EUR" }).fill(amount);
-  await chooseOption(page, dialog.getByLabel("Paid by", { exact: true }), 1);
+  await dialog.getByRole("group", { name: "Paid by" }).getByRole("radio").nth(1).check();
   await save(page);
 }
 
@@ -241,7 +241,7 @@ test("German local-save and settled copy follows the device language", async ({ 
   await expect(page.locator(".save-feedback")).toHaveText("Ausgabe auf diesem Gerät gespeichert");
   await page.getByRole("button", { name: "Ausgleichen", exact: true }).click();
   await dialog.getByRole("textbox", { name: "Betrag in EUR" }).fill("6");
-  await chooseOption(page, dialog.getByLabel("Bezahlt von", { exact: true }), 1);
+  await dialog.getByRole("group", { name: "Bezahlt von" }).getByRole("radio").nth(1).check();
   await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
   await expect(dialog).not.toBeVisible();
   await expect(page.locator(".save-feedback")).toHaveText("Zahlung auf diesem Gerät gespeichert");

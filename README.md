@@ -27,6 +27,8 @@ Open manual to-dos appear above insurance reminders. Drag a manual to-do by its 
 
 Dropdowns, date selection, confirmations, and validation messages use Splitty's theme in both light and dark mode. Dates can also be typed as `YYYY-MM-DD`. The device keyboard, file picker, and permission prompts remain system-provided.
 
+Choose who paid with the two-person switch directly in the expense form. For quick entry, use the keyboard's Next action after the description, then Done after the amount to save with today's date and the current payer and split. Date, category, and custom splits remain editable before saving.
+
 When a new app version is ready, a prominent green card above the current page offers an **Update** button. Updating keeps your saved entries.
 
 ## How sync works

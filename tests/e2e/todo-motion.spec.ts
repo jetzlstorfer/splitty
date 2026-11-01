@@ -19,7 +19,10 @@ test("reordering tracks the finger, slides neighbors and settles without changin
     const animate = Element.prototype.animate;
     Element.prototype.animate = function (...args) {
       const animation = animate.apply(this, args);
-      if (this.matches(".todo-item")) animation.pause();
+      if (this.matches(".todo-item")) {
+        animation.pause();
+        animation.currentTime = 0;
+      }
       return animation;
     };
   });
@@ -93,7 +96,10 @@ test("keyboard reorders animate across layouts and themes, but respect reduced m
     const animate = Element.prototype.animate;
     Element.prototype.animate = function (...args) {
       const animation = animate.apply(this, args);
-      if (this.matches(".todo-item")) animation.pause();
+      if (this.matches(".todo-item")) {
+        animation.pause();
+        animation.currentTime = 0;
+      }
       return animation;
     };
   });

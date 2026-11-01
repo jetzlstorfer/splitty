@@ -140,3 +140,7 @@ For the local API, emulator, and registry setup, see [development](docs/developm
 frontend and API. Routine releases must be at least seven days old at the scheduled
 check. npm security updates use a separate group and wait for neither the cooldown
 nor the monthly schedule. GitHub Actions version updates have their own monthly group.
+
+Keep frontend and API TypeScript versions aligned. TypeScript upgrades must satisfy
+the `typescript-eslint` peer dependency range; retain TypeScript 5.7 until a
+compatible compiler upgrade is validated rather than bypassing peer checks.

@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "./fixtures";
 import { chooseOption, confirmAction } from "./controls";
+import { useEnglish } from "./helpers";
 
 test.beforeEach(async ({ page }) => {
   await page.route("**/api/**", (route) => route.fulfill({ status: 401, json: { error: "Sign in to sync" } }));
@@ -127,7 +128,7 @@ test.describe("touch controls", () => {
 for (const language of ["en", "de"] as const) {
   test(`description Next and amount Done save without visiting the date in ${language}`, async ({ page }) => {
     await page.clock.setFixedTime(new Date(2026, 10, 1, 12));
-    if (language === "en") await english(page);
+    if (language === "en") await useEnglish(page);
     else await page.goto("/");
     const de = language === "de";
     await page.getByRole("button", { name: de ? "Ausgabe hinzufügen" : "Add expense", exact: true }).click();
@@ -166,6 +167,9 @@ test("amount Done still validates custom shares and preserves an edited date and
   await form.getByLabel("Date", { exact: true }).fill("2026-10-12");
   await form.getByRole("button", { name: /Split equally/ }).click();
   await form.getByRole("radio", { name: "By exact amount" }).check();
+  await form.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(form.getByRole("alert")).toHaveText("Please fill out this field.");
+  await expect(form.getByLabel("Your share (EUR)")).toBeFocused();
   await amount.press("Enter");
   await expect(form.getByRole("alert")).toHaveText("Please fill out this field.");
   await expect(form.getByLabel("Your share (EUR)")).toBeFocused();

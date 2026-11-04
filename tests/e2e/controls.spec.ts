@@ -28,6 +28,69 @@ async function fits(page: Page) {
 test.describe("touch controls", () => {
   test.use({ hasTouch: true, isMobile: true });
 
+  for (const section of [
+    { kind: "expense", row: ".expense-row", dialog: "Edit entry", text: "Row focus expense", actions: "Entry actions: Row focus expense" },
+    { kind: "manual to-do", row: ".todo-details", dialog: "Edit to-do", text: "Row focus todo", actions: "To-do actions: Row focus todo", checkbox: "Row focus todo" },
+    { kind: "insurance to-do", row: ".todo-details", dialog: "Edit entry", text: "Doctor focus", actions: "To-do actions: Doctor focus", checkbox: "Submit to insurance: Doctor focus" }
+  ]) {
+    test(`closing ${section.kind} sheets leaves no native row outline and preserves keyboard focus`, async ({ page }) => {
+      test.setTimeout(120_000);
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await useEnglish(page);
+      if (section.kind !== "manual to-do") {
+        await page.getByRole("button", { name: "Add expense", exact: true }).tap();
+        const form = page.getByRole("dialog", { name: "Add an expense", exact: true });
+        await form.getByLabel("Description", { exact: true }).fill(section.text);
+        await form.getByLabel("Amount in EUR", { exact: true }).fill("20");
+      } else {
+        await page.getByRole("navigation").getByRole("button", { name: "To-dos" }).tap();
+        await page.getByRole("button", { name: "Add to-do", exact: true }).tap();
+        await page.getByLabel("Title", { exact: true }).fill(section.text);
+      }
+      await page.getByRole("button", { name: "Save", exact: true }).tap();
+      await expect(page.getByRole("dialog")).not.toBeVisible({ timeout: 15_000 });
+      if (section.kind === "insurance to-do") await page.getByRole("navigation").getByRole("button", { name: "To-dos" }).tap();
+
+      const row = page.locator(section.row);
+      const content = page.locator(".swipe-content");
+      const edit = page.getByRole("dialog", { name: section.dialog, exact: true });
+      const actions = page.getByRole("button", { name: section.actions, exact: true });
+      for (const width of [320, 393, 1280]) {
+        await page.setViewportSize({ width, height: 900 });
+        for (const theme of ["light", "dark"]) {
+          await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
+          await row.tap();
+          await expect(edit).toBeVisible();
+          await edit.getByRole("button", { name: "Close", exact: true }).tap();
+          await expect(edit).not.toBeVisible();
+          await expect(content).toHaveCSS("outline-style", "none");
+          await expect(row).toHaveCSS("outline-style", "none");
+          expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+
+          await row.focus();
+          await page.keyboard.press("Tab");
+          await expect(actions).toBeFocused();
+          await content.focus();
+          await expect(content).toBeFocused();
+          await expect.poll(() => content.evaluate((element) => element.matches(":focus-visible"))).toBe(true);
+          await expect(content).toHaveCSS("outline-style", "none");
+
+          await row.focus();
+          await page.keyboard.press("Enter");
+          await expect(edit).toBeVisible();
+          await page.keyboard.press("Escape");
+          await expect(edit).not.toBeVisible();
+          await expect(row).toBeFocused();
+          await expect(row).toHaveCSS("outline-style", "solid");
+          await expect(row).toHaveCSS("outline-width", "3px");
+          await page.keyboard.press("Tab");
+          await expect(actions).toBeFocused();
+          if (section.checkbox) await expect(page.getByRole("checkbox", { name: section.checkbox, exact: true })).not.toBeChecked();
+        }
+      }
+    });
+  }
+
   for (const theme of ["light", "dark"]) for (const width of [320, 393, 1280]) {
     test(`${theme} app controls at ${width}px never open native pickers or confirmations`, async ({ page }, info) => {
       await page.setViewportSize({ width, height: 900 });

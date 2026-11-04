@@ -87,6 +87,7 @@ button, input, select, textarea { border-radius: 6px; }
 button { border: 0; }
 a { color: var(--cp-link); }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid var(--cp-accent); outline-offset: 3px; }
+html[data-input-mode="pointer"] .expense-row:focus-visible, html[data-input-mode="pointer"] .todo-details:focus-visible { outline: none; }
 button { color: inherit; }
 h1, h2, h3, p { margin-top: 0; }
 p { line-height: 1.55; }

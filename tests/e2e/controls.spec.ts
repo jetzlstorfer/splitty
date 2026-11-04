@@ -63,6 +63,7 @@ test.describe("touch controls", () => {
           await expect(edit).toBeVisible();
           await edit.getByRole("button", { name: "Close", exact: true }).tap();
           await expect(edit).not.toBeVisible();
+          await expect(page.locator("html")).toHaveAttribute("data-input-mode", "pointer");
           await expect(content).toHaveCSS("outline-style", "none");
           await expect(row).toHaveCSS("outline-style", "none");
           expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -77,6 +78,7 @@ test.describe("touch controls", () => {
 
           await row.focus();
           await page.keyboard.press("Enter");
+          await expect(page.locator("html")).toHaveAttribute("data-input-mode", "keyboard");
           await expect(edit).toBeVisible();
           await page.keyboard.press("Escape");
           await expect(edit).not.toBeVisible();

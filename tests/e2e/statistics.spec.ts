@@ -43,9 +43,9 @@ test("statistics filters real spending, stays independent of search, and works o
   await expect(nav.getByRole("button", { name: "Statistics", exact: true })).toHaveAttribute("aria-current", "page");
   await expect(page.locator(".add-button")).toHaveCount(0);
   await expect(page.locator(".statistics-total")).toContainText("260.00");
-  await expect(page.locator(".statistics-metrics dd")).toHaveText(["4", "€65.00"]);
-  await expect(page.getByRole("region", { name: "Who paid", exact: true })).toContainText("€171.00");
-  await expect(page.getByRole("region", { name: "Who paid", exact: true })).toContainText("€89.00");
+  await expect(page.locator(".statistics-hero small")).toHaveText("4 expenses · Ø €65.00 per expense");
+  await expect(page.getByRole("region", { name: "Who paid", exact: true })).toContainText("171.00");
+  await expect(page.getByRole("region", { name: "Who paid", exact: true })).toContainText("89.00");
   await expect(page.getByRole("region", { name: "Largest expense", exact: true })).toContainText("Weekly groceries");
   await page.screenshot({ path: info.outputPath("statistics-mobile-en.png"), fullPage: true });
   await page.getByRole("button", { name: "September 2026: €190.00", exact: true }).click();

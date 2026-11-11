@@ -1,8 +1,8 @@
 import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { liveQuery } from "dexie";
 import {
-  BarChart3, Check, ChevronDown, ClipboardCheck,
-  Download, GripVertical, Languages, Plus, Receipt, RefreshCw, Search, Settings, Sparkles, Sun, Trash2, Upload, Users, X
+  BarChart3, Check, ChevronDown, ChevronRight, ClipboardCheck,
+  Download, GripVertical, Languages, Plus, Receipt, RefreshCw, RotateCcw, Search, Settings, Smartphone, Sparkles, Sun, Trash2, Upload, X
 } from "lucide-react";
 import { calculateShareA, expenseBalance, parseMoney, type Entry, type Member, type SplitType } from "../shared/model";
 import { translate } from "../shared/i18n";
@@ -69,7 +69,7 @@ function SyncPopover({ online, busy, pending, attention, upToDate, status, child
     <button className={`sync-pill ${attention ? "needs-attention" : ""}`} popoverTarget={id}
       aria-haspopup="dialog" aria-expanded={open} aria-controls={id} aria-busy={busy} aria-label={t("Sync status")}>
       <SyncIcon state={!online ? "offline" : busy ? "syncing" : attention ? "attention" : upToDate ? "current" : "pending"} />
-      <span>{!online ? t("Offline") : busy ? t("Syncing…") : pending ? t("{count} pending", { count: number(pending) })
+      <span className={online && !attention ? "sr-only" : undefined}>{!online ? t("Offline") : busy ? t("Syncing…") : pending ? t("{count} pending", { count: number(pending) })
         : attention ? t("Needs attention") : upToDate ? t("Up-to-date") : t("Saved on this device")}</span>
     </button>
     <span className="sync-status sr-only" role="status">{status}</span>
@@ -334,7 +334,7 @@ function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, to
   reorder: (changes: Todo[]) => Promise<void>;
   remove: (item: HouseholdTodo) => Promise<void>; onError: (error: unknown) => void;
 }) {
-  const { t, number, money, locale } = useLocale();
+  const { t, number, money } = useLocale();
   const [swipedTodo, setSwipedTodo] = useState<string | null>(null);
   const [celebratingTodo, setCelebratingTodo] = useState<string | null>(null);
   const [preview, setPreview] = useState<string[] | null>(null);
@@ -481,7 +481,7 @@ function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, to
     return [...manual, ...group.filter((item) => item.kind !== "manual" || item.done)];
   }
 
-  return <section className="todos-page"><header className="page-heading"><h1>{t("To-dos")}<span className="entry-count">{number(openCount)}</span></h1></header>
+  return <section className="todos-page"><header className="page-heading"><div><h1>{t("To-dos")}</h1><p>{t("{count} open", { count: number(openCount) })}</p></div></header>
     <div aria-live="polite" aria-atomic="true">
       {openCount === 0 && <div className="empty-state todo-clear-state">
         <span className="todo-clear-icon" aria-hidden="true"><Sun size={30} /></span>
@@ -495,7 +495,7 @@ function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, to
     {[false, true].map((done) => {
         const group = orderedGroup(todos.filter((todo) => todo.done === done));
         return !!group.length && <section key={String(done)} className="todo-group" aria-label={t(done ? "Done" : "Open to-dos")}>
-          {done && <div className="section-title"><h2>{t("Done")}<span>{number(group.length)}</span></h2></div>}
+          {done && <h2 className="section-label">{t("Done")}</h2>}
           <ul className="todo-list" ref={done ? undefined : openList}>{group.map((item) => {
             if (item.kind === "manual") {
               const { todo } = item;
@@ -551,10 +551,6 @@ function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, to
             }
             const { entry } = item;
             const category = expenseCategory(entry.description, entry.category, entry.kind, entry.categoryMode);
-            const details = t("Expense: {description} · {date} · {amount}", {
-              description: entry.description, amount: money(entry.amountCents),
-              date: new Date(`${entry.date}T12:00:00`).toLocaleDateString(locale, { day: "numeric", month: "short", year: "numeric" })
-            });
             const id = `insurance-${entry.id}`;
             return <li key={id} className={`todo-item ${done ? "done" : ""}`}>
               <SwipeableRow description={entry.description} disabled={blocked.has(entry.id)} open={swipedTodo === id}
@@ -569,7 +565,7 @@ function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, to
                   {celebratingTodo === id && <TodoConfetti />}
                   <button className="todo-details" disabled={blocked.has(entry.id)} onClick={() => open(entry)}>
                     <span className="entry-icon" data-category={category}><ExpenseIcon category={category} /></span>
-                    <span className="entry-description"><strong>{t("Submit to insurance")}</strong><small>{details}</small></span>
+                    <span className="entry-description"><strong>{entry.description}</strong><small>{t("Submit to insurance · {amount}", { amount: money(entry.amountCents) })}</small></span>
                   </button>
                 </div>
               </SwipeableRow>
@@ -595,7 +591,7 @@ export default function App() {
 }
 
 function AppContent({ ledger }: { ledger: Snapshot | null }) {
-  const { t, language, locale, number, money, message, person, payer } = useLocale();
+  const { t, language, locale, number, money, amount, message, person, payer } = useLocale();
   const confirm = useConfirm();
   const [tab, setTab] = useState<"expenses" | "todos" | "search" | "statistics" | "settings">("expenses");
   const [form, setForm] = useState<"expense" | "settlement" | Entry | null>(null);
@@ -865,8 +861,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
         toggle={(entry, submitted, onCompleted) => void markSubmitted(entry, submitted).then(() => { saved(); if (submitted) onCompleted(); }).catch((e: Error) => setError(e.message))} /> : tab === "statistics" ? <Suspense fallback={<p className="loading">{t("Loading…")}</p>}><Statistics entries={ledger.entries} preferences={p} /></Suspense> : tab !== "settings" ? <>
         {tab === "expenses" ? <>
           <header className="page-heading">
-            <h1>{t("Expenses")}<span className="entry-count">{number(active.length)}</span></h1>
-            <p className="household-members">{p.nameA} & {p.nameB}</p>
+            <div><h1>{t("Expenses")}</h1><p className="household-members">{p.nameA} & {p.nameB}</p></div>
           </header>
           <section className={`balance-card ${balance === 0 ? "is-settled" : ""}`} aria-label={t("Household balance")}>
             <div className="balance-summary">
@@ -883,14 +878,15 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
             <button className="settle-button" onClick={() => setForm("settlement")}>{t("Settle up")}</button>
           </section>
         </> : <>
-          <header className="page-heading search-heading"><h1>{t("Search")}</h1><button className="text-button" onClick={() => setImporting(true)}><Upload size={18} />{t("Import")}</button></header>
-          <label className="search"><Search size={19} /><input aria-label={t("Search expenses")} type="search" placeholder={t("Search expenses")} value={search} onChange={(e) => { setSearch(e.target.value); setLimit(100); }} />{search && <button type="button" className="icon-button" aria-label={t("Clear search")} onClick={(event) => {
+          <header className="page-heading">
+            <div><h1>{t("Search")}</h1><p>{shown.length === 1 ? t("1 entry") : t("{count} entries", { count: number(shown.length) })}</p></div>
+            <button className="pill-button" onClick={() => setImporting(true)}><Upload size={16} />{t("Import")}</button>
+          </header>
+          <label className="search"><Search size={19} /><input aria-label={t("Search expenses")} type="search" placeholder={t("Description, category or date")} value={search} onChange={(e) => { setSearch(e.target.value); setLimit(100); }} />{search && <button type="button" className="icon-button" aria-label={t("Clear search")} onClick={(event) => {
             setSearch(""); setLimit(100); event.currentTarget.parentElement?.querySelector("input")?.focus();
           }}><X size={18} /></button>}</label>
-          <p className="search-hint">{t("Description, category or date")}</p>
         </>}
         <section className="ledger-section" aria-label={t(tab === "search" ? "Search results" : "Expenses")}>
-          {tab === "search" && <div className="section-title"><h2>{t("Search results")}<span>{number(shown.length)}</span></h2></div>}
           {!shown.length ? tab === "expenses" ? <div className="empty-state expense-welcome">
             <span className="expense-welcome-icon" aria-hidden="true"><Receipt size={30} /></span>
             <h2>{t("Together, fairly split")}</h2>
@@ -898,11 +894,15 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
             <p className="expense-welcome-hint">{t("Saved on this device, even offline. Sign in via Sync to share across devices.")}</p>
           </div> : <div className="empty-state"><h2>{t(query ? "No matching expenses" : "No expenses yet")}</h2>{query && <p>{t("Try a different description, category or date.")}</p>}</div> :
             <div className="expense-list">{shown.slice(0, limit).map((entry, index) => {
-              const month = new Date(`${entry.date}T12:00:00`).toLocaleDateString(locale, { month: "long", year: "numeric" });
+              const day = new Date(`${entry.date}T12:00:00`);
+              const month = day.toLocaleDateString(locale, { month: "long", ...(day.getFullYear() === new Date().getFullYear() ? {} : { year: "numeric" }) });
               const heading = index === 0 || entry.date.slice(0, 7) !== shown[index - 1].date.slice(0, 7);
               const contribution = p.member === "a" ? entry.balanceA : -entry.balanceA;
               const category = expenseCategory(entry.description, entry.category, entry.kind, entry.categoryMode);
               const payment = category === "payment";
+              const detail = entry.kind === "imported" ? t("{category} · imported", { category: t(categoryLabels[category]) })
+                : entry.kind === "settlement" ? t("Payment from {name}", { name: payer(p, entry.paidBy!) })
+                : t("{name} paid {amount}", { name: payer(p, entry.paidBy!), amount: money(entry.amountCents) });
               return <div key={entry.id}>{heading && <h3 className="month-heading">{month}</h3>}<SwipeableRow
                 description={entry.description} disabled={conflictIds.has(entry.id)} open={swipedEntry === entry.id}
                 setOpen={(open) => setSwipedEntry(open ? entry.id : null)} edit={() => setForm(entry)}
@@ -914,24 +914,43 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
                 }}>
                 <button className="expense-row" disabled={conflictIds.has(entry.id)} onClick={() => setForm(entry)}>
                 {saveFeedback?.entry.id === entry.id && <span key={saveFeedback.entry.updatedAt} className="saved-row-glow" aria-hidden="true" />}
-                <span className="date-block"><small>{new Date(`${entry.date}T12:00:00`).toLocaleDateString(locale, { month: "short" })}</small>{Number(entry.date.slice(8))}</span>
                 <span className={`entry-icon ${payment ? "payment" : ""}`} data-category={category}><ExpenseIcon category={category} /></span>
-                <span className="entry-description"><strong>{entry.description}</strong><small>{entry.kind === "imported" ? t("{category} · imported", { category: t(categoryLabels[category]) }) : t("{name} paid {amount}", { name: payer(p, entry.paidBy!), amount: money(entry.amountCents) })}</small></span>
-                <span className={`entry-balance ${contribution < 0 ? "owed" : contribution > 0 ? "lent" : ""}`}><small>{t(contribution === 0 ? "no balance change" : payment ? "balance change" : contribution > 0 ? "you lent" : "you borrowed")}</small><strong>{money(Math.abs(contribution))}</strong></span>
+                <span className="entry-description"><strong>{entry.description}</strong><small>{day.toLocaleDateString(locale, { day: "numeric", month: "short" })} · {detail}</small></span>
+                <span className={`entry-balance ${contribution < 0 ? "owed" : contribution > 0 ? "lent" : ""}`}>
+                  <span className="sr-only">{t(contribution === 0 ? "no balance change" : payment ? "balance change" : contribution > 0 ? "you lent" : "you borrowed")}{contribution !== 0 && ` ${money(Math.abs(contribution))}`}</span>
+                  <span aria-hidden="true">{contribution === 0 ? "–" : `${contribution > 0 ? "+" : "\u2212"}${amount(Math.abs(contribution))}`}</span>
+                </span>
                 </button>
               </SwipeableRow></div>;
             })}{shown.length > limit && <button className="secondary load-more" onClick={() => setLimit(limit + 100)}>{t("Show more ({count})", { count: number(shown.length - limit) })}</button>}</div>}
         </section>
-      </> : <section className="settings-page"><header className="page-heading"><h1>{t("Settings")}</h1></header>
-        <section className="settings-card"><h2><Languages size={20} />{t("Language")}</h2>
-          <label>{t("App language")}<Select label={t("App language")} value={language} onChange={(value) => void updatePreferences({ language: value }).catch((e: Error) => setError(e.message))}
-            options={[{ value: "de", label: "Deutsch", lang: "de" }, { value: "en", label: "English", lang: "en" }]} /></label>
+      </> : <section className="settings-page"><header className="page-heading"><div><h1>{t("Settings")}</h1><p>{p.nameA} & {p.nameB}</p></div></header>
+        <section className="settings-card"><h2 className="section-label">{t("Language")}</h2>
+          <label className="settings-row"><span className="settings-tile" aria-hidden="true"><Languages size={19} /></span><span className="entry-description"><strong>{t("App language")}</strong></span>
+            <Select label={t("App language")} value={language} onChange={(value) => void updatePreferences({ language: value }).catch((e: Error) => setError(e.message))}
+              options={[{ value: "de", label: "Deutsch", lang: "de" }, { value: "en", label: "English", lang: "en" }]} /></label>
         </section>
-        <section className="settings-card"><h2><Users size={20} />{t("Household")}</h2><label>{t("First person")}<input defaultValue={p.nameA} key={`a-${p.nameA}`} maxLength={60} readOnly={!!identity} onBlur={(e) => { if (e.target.value.trim() && e.target.value.trim() !== p.nameA) void updatePreferences({ nameA: e.target.value.trim() }).catch((err: Error) => setError(err.message)); }} /></label><label>{t("Second person")}<input defaultValue={p.nameB} key={`b-${p.nameB}`} maxLength={60} readOnly={!!identity} onBlur={(e) => { if (e.target.value.trim() && e.target.value.trim() !== p.nameB) void updatePreferences({ nameB: e.target.value.trim() }).catch((err: Error) => setError(err.message)); }} /></label>
-          {!identity && <label>{t("This device belongs to")}<Select<Member> label={t("This device belongs to")} value={p.member} onChange={(value) => void updatePreferences({ member: value }).catch((err: Error) => setError(err.message))} options={[{ value: "a", label: p.nameA }, { value: "b", label: p.nameB }]} /></label>}
-          <p className="muted">{t("EUR and an equal split are always the default. Signed-in names come from your household configuration.")}</p>
+        <section className="settings-card"><h2 className="section-label">{t("Household")}</h2>
+          {(["a", "b"] as const).map((member) => {
+            const name = member === "a" ? p.nameA : p.nameB, key = member === "a" ? "nameA" : "nameB";
+            return <div className="settings-row" key={member}><span className={`avatar payer-${member}`} aria-hidden="true">{name.trim().charAt(0).toUpperCase() || "?"}</span>
+              <span className="entry-description settings-name-field"><input id={`household-name-${member}`} className="settings-name" defaultValue={name} key={`${member}-${name}`} maxLength={60} readOnly={!!identity}
+                onBlur={(e) => { const value = e.target.value.trim(); if (value && value !== name) void updatePreferences({ [key]: value }).catch((err: Error) => setError(err.message)); }} />
+                <label htmlFor={`household-name-${member}`}>{t(member === "a" ? "First person" : "Second person")}</label></span></div>;
+          })}
+          {!identity && <label className="settings-row"><span className="settings-tile" aria-hidden="true"><Smartphone size={19} /></span><span className="entry-description"><strong>{t("This device belongs to")}</strong></span>
+            <Select<Member> label={t("This device belongs to")} value={p.member} onChange={(value) => void updatePreferences({ member: value }).catch((err: Error) => setError(err.message))} options={[{ value: "a", label: p.nameA }, { value: "b", label: p.nameB }]} /></label>}
+          <p className="settings-note">{t("EUR and an equal split are always the default. Signed-in names come from your household configuration.")}</p>
         </section>
-        <section className="settings-card"><h2><Download size={20} />{t("Backups")}</h2><button className="secondary" onClick={backup}><Download size={17} />{t("Download a backup")}</button><FilePicker label={t("Restore missing entries from a backup")} accept=".json,application/json" choose={(file) => void restore(file)} /><p className="muted">{t("Backups include expenses and manual to-dos. Offline data lives in this browser; sync or back up before clearing site data or changing devices.")}</p></section>
+        <section className="settings-card"><h2 className="section-label">{t("Backups")}</h2>
+          <button className="settings-row" onClick={backup} aria-label={t("Download a backup")} aria-describedby="backup-download-hint"><span className="settings-tile" aria-hidden="true"><Download size={19} /></span>
+            <span className="entry-description"><strong>{t("Download a backup")}</strong><small id="backup-download-hint">{t("Expenses and your own to-dos")}</small></span><ChevronRight className="settings-chevron" size={18} aria-hidden="true" /></button>
+          <label className="settings-row"><span className="settings-tile" aria-hidden="true"><RotateCcw size={19} /></span>
+            <span className="entry-description"><strong>{t("Restore from backup")}</strong><small>{t("Only missing entries are added")}</small></span><ChevronRight className="settings-chevron" size={18} aria-hidden="true" />
+            <input type="file" className="sr-only" aria-label={t("Restore missing entries from a backup")} accept=".json,application/json" onChange={(event) => {
+              const file = event.target.files?.[0]; event.target.value = ""; void restore(file);
+            }} /></label>
+          <p className="settings-note">{t("Backups include expenses and manual to-dos. Offline data lives in this browser; sync or back up before clearing site data or changing devices.")}</p></section>
       </section>}
     </main>
     {(tab === "expenses" || tab === "todos") && <div className="expense-action">

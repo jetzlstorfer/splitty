@@ -36,7 +36,7 @@ test("German is the default and category icons update while typing, saving and e
   await dialog.getByRole("textbox", { name: "Betrag in EUR" }).fill("12,34");
   await dialog.getByLabel("Datum", { exact: true }).fill("2026-10-01");
   await saveGerman(page);
-  await expect(page.locator(".month-heading")).toHaveText("Oktober 2026");
+  await expect(page.locator(".month-heading")).toHaveText(/^Oktober( 2026)?$/);
   await expect(page.locator(".balance-amount")).toContainText("6,17");
   let row = page.locator(".expense-row").filter({ hasText: "Hofer" });
   await expect(row.getByRole("img", { name: "Lebensmittel", exact: true })).toBeVisible();

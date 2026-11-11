@@ -3,7 +3,7 @@ import { chooseOption } from "./controls";
 
 for (const theme of ["light", "dark"] as const) {
   for (const language of ["de", "en"] as const) {
-    test(`update card matches the statistics hero in ${theme} mode and ${language}`, async ({ page }, info) => {
+    test(`update card keeps the dark accent style in ${theme} mode and ${language}`, async ({ page }, info) => {
       await page.emulateMedia({ colorScheme: theme });
       await page.goto("/");
       const nav = page.getByRole("navigation");
@@ -30,10 +30,10 @@ for (const theme of ["light", "dark"] as const) {
       await expect(heading).toHaveCSS("font-weight", "700");
       await expect(heading).toHaveCSS("font-size", "24px");
       await expect(heading.locator('svg[aria-hidden="true"]')).toBeVisible();
-      const hero = page.getByRole("region", { name: language === "de" ? "Ausgabenübersicht" : "Spending overview", exact: true });
-      for (const property of ["background-image", "background-color", "color", "border-radius"]) {
-        await expect(card).toHaveCSS(property, await hero.evaluate((element, key) => getComputedStyle(element).getPropertyValue(key), property));
-      }
+      await expect(card).toHaveCSS("background-color", "rgb(18, 61, 51)");
+      await expect(card).toHaveCSS("background-image", /radial-gradient/);
+      await expect(card).toHaveCSS("color", "rgb(255, 255, 255)");
+      await expect(card).toHaveCSS("border-radius", "22px");
 
       const button = card.getByRole("button", { name: language === "de" ? "Aktualisieren" : "Update", exact: true });
       for (const width of [320, 393, 1280]) {

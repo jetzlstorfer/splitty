@@ -338,8 +338,11 @@ label.settings-row:has(input[type="file"]:focus-visible) { outline: 3px solid va
 .avatar.payer-b, .payer-b .avatar, .payer-unknown .avatar { background: var(--cp-surface-soft); color: var(--cp-text-muted); }
 .settings-row .select-control { flex: 0 1 auto; width: auto; min-height: 44px; padding: 8px 4px 8px 8px; border: 0; background: none; color: var(--cp-text-muted); font-size: 15px; }
 .settings-name-field label { display: block; margin-top: 3px; font-size: 12px; font-weight: 400; color: var(--cp-text-soft); }
-input.settings-name { min-height: 0; padding: 2px 0; border: 0; border-bottom: 1px solid transparent; border-radius: 0; background: none; color: var(--cp-text); font-size: 16px; font-weight: 500; }
+input.settings-name { min-height: 0; padding: 2px 26px 2px 0; border: 0; border-bottom: 1px solid transparent; border-radius: 0; background: none; color: var(--cp-text); font-size: 16px; font-weight: 500; }
 input.settings-name:read-write:hover, input.settings-name:read-write:focus { border-bottom-color: var(--cp-border-strong); }
+html[data-input-mode="pointer"] input.settings-name:read-only:focus-visible { outline: none; }
+.settings-name-input { position: relative; display: block; }
+.settings-name-input > svg { position: absolute; top: 50%; right: 2px; transform: translateY(-50%); color: var(--cp-text-soft); pointer-events: none; }
 .settings-chevron { flex-shrink: 0; color: var(--cp-text-soft); }
 .settings-note { margin: 4px 0 0; font-size: 12px; line-height: 1.5; color: var(--cp-text-soft); }
 .loading { display: grid; place-content: center; text-align: center; min-height: 100dvh; color: var(--cp-text-muted); }

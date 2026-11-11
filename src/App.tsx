@@ -617,6 +617,19 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const [logoPulse, setLogoPulse] = useState({ sequence: 0, active: false });
 
   useEffect(() => {
+    const root = document.documentElement;
+    const pointer = () => { root.dataset.inputMode = "pointer"; };
+    const keyboard = () => { root.dataset.inputMode = "keyboard"; };
+    document.addEventListener("pointerdown", pointer, true);
+    document.addEventListener("keydown", keyboard, true);
+    return () => {
+      document.removeEventListener("pointerdown", pointer, true);
+      document.removeEventListener("keydown", keyboard, true);
+      delete root.dataset.inputMode;
+    };
+  }, []);
+
+  useEffect(() => {
     loadStatistics().catch(() => undefined);
   }, []);
 

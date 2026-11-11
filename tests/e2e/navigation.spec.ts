@@ -229,17 +229,19 @@ test("search owns import, filtering, pagination and editing without filtering Ex
 
   await nav.getByRole("button", { name: "Ausgaben", exact: true }).click();
   await expect(rows).toHaveCount(100);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Ausgaben105");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Ausgaben");
   await expect(page.locator(".balance-amount")).toContainText("105,00");
   await nav.getByRole("button", { name: "Suche", exact: true }).click();
   await expect(search).toHaveValue("Einkauf 105");
   await expect(rows).toHaveCount(1);
+  await expect(page.locator(".page-heading p")).toHaveText("1 Eintrag");
   await search.fill("does not exist");
   await expect(page.getByRole("heading", { name: "Keine passenden Ausgaben" })).toBeVisible();
   await search.fill("2026-10-16");
   await expect(rows).toHaveCount(6);
   await search.fill("Lebensmittel");
   await expect(rows).toHaveCount(100);
+  await expect(page.locator(".page-heading p")).toHaveText("105 Einträge");
   await search.fill("   ");
   await expect(rows).toHaveCount(100);
 

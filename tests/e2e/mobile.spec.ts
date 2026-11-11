@@ -313,10 +313,13 @@ test("expense and todo rows align and highlight their full width including the t
         await page.getByRole("navigation").getByRole("button", { name: tab, exact: true }).click();
         for (const row of await page.locator(".swipe-row").all()) {
           const front = row.locator(".swipe-front");
+          const toggle = row.locator(".row-actions-toggle");
           const background = await front.evaluate((element) => getComputedStyle(element).backgroundColor);
-          for (const target of [row.locator(".entry-description"), row.locator(".row-actions-toggle")]) {
+          await expect(toggle).toHaveCSS("opacity", "0");
+          for (const target of [row.locator(".entry-description"), toggle]) {
             await target.hover();
             await expect(front).not.toHaveCSS("background-color", background);
+            await expect(toggle).toHaveCSS("opacity", "1");
             for (const child of [row.locator(".swipe-content"), row.locator(".row-actions-toggle")]) {
               const childColor = await child.evaluate((element) => getComputedStyle(element).backgroundColor);
               expect(["rgba(0, 0, 0, 0)", await front.evaluate((element) => getComputedStyle(element).backgroundColor)]).toContain(childColor);
@@ -324,6 +327,10 @@ test("expense and todo rows align and highlight their full width including the t
           }
           await page.getByRole("heading", { level: 1 }).hover();
           await expect(front).toHaveCSS("background-color", background);
+          await expect(toggle).toHaveCSS("opacity", "0");
+          await toggle.focus();
+          await expect(toggle).toHaveCSS("opacity", "1");
+          await toggle.blur();
           if (tab === "To-dos") await expect(row.getByRole("checkbox")).not.toBeChecked();
         }
       }

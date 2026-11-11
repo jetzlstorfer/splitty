@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo
 import { liveQuery } from "dexie";
 import {
   BarChart3, Check, ChevronDown, ChevronRight, ClipboardCheck,
-  Download, GripVertical, Languages, Plus, Receipt, RefreshCw, RotateCcw, Search, Settings, Smartphone, Sparkles, Sun, Trash2, Upload, X
+  Download, GripVertical, Languages, Lock, Pencil, Plus, Receipt, RefreshCw, RotateCcw, Search, Settings, Smartphone, Sparkles, Sun, Trash2, Upload, X
 } from "lucide-react";
 import { calculateShareA, expenseBalance, parseMoney, type Entry, type Member, type SplitType } from "../shared/model";
 import { translate } from "../shared/i18n";
@@ -934,13 +934,14 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
           {(["a", "b"] as const).map((member) => {
             const name = member === "a" ? p.nameA : p.nameB, key = member === "a" ? "nameA" : "nameB";
             return <div className="settings-row" key={member}><span className={`avatar payer-${member}`} aria-hidden="true">{name.trim().charAt(0).toUpperCase() || "?"}</span>
-              <span className="entry-description settings-name-field"><input id={`household-name-${member}`} className="settings-name" defaultValue={name} key={`${member}-${name}`} maxLength={60} readOnly={!!identity}
+              <span className="entry-description settings-name-field"><span className="settings-name-input"><input id={`household-name-${member}`} className="settings-name" defaultValue={name} key={`${member}-${name}`} maxLength={60} readOnly={!!identity} aria-describedby={identity ? "household-names-note" : undefined}
                 onBlur={(e) => { const value = e.target.value.trim(); if (value && value !== name) void updatePreferences({ [key]: value }).catch((err: Error) => setError(err.message)); }} />
+                {identity ? <Lock className="settings-name-lock" size={16} aria-hidden="true" /> : <Pencil className="settings-name-edit" size={16} aria-hidden="true" />}</span>
                 <label htmlFor={`household-name-${member}`}>{t(member === "a" ? "First person" : "Second person")}</label></span></div>;
           })}
           {!identity && <label className="settings-row"><span className="settings-tile" aria-hidden="true"><Smartphone size={19} /></span><span className="entry-description"><strong>{t("This device belongs to")}</strong></span>
             <Select<Member> label={t("This device belongs to")} value={p.member} onChange={(value) => void updatePreferences({ member: value }).catch((err: Error) => setError(err.message))} options={[{ value: "a", label: p.nameA }, { value: "b", label: p.nameB }]} /></label>}
-          <p className="settings-note">{t("EUR and an equal split are always the default. Signed-in names come from your household configuration.")}</p>
+          <p id="household-names-note" className="settings-note">{t("EUR and an equal split are always the default. Signed-in names come from your household configuration.")}</p>
         </section>
         <section className="settings-card"><h2 className="section-label">{t("Backups")}</h2>
           <button className="settings-row" onClick={backup} aria-label={t("Download a backup")} aria-describedby="backup-download-hint"><span className="settings-tile" aria-hidden="true"><Download size={19} /></span>

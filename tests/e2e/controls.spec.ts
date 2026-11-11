@@ -188,6 +188,51 @@ test.describe("touch controls", () => {
       expect(nativeDialogs).toEqual([]);
     });
   }
+
+  test("signed-out household names show an edit cue and accept touch input", async ({ page }) => {
+    await english(page);
+    const first = page.getByLabel("First person", { exact: true });
+    const cues = page.locator(".settings-name-edit");
+    await expect(cues).toHaveCount(2);
+    await expect(page.locator(".settings-name-lock")).toHaveCount(0);
+    await expect(first).toBeEditable();
+    await expect(first).not.toBeFocused();
+
+    const cue = (await cues.first().boundingBox())!;
+    await page.touchscreen.tap(cue.x + cue.width / 2, cue.y + cue.height / 2);
+    await expect(first).toBeFocused();
+
+    await first.fill("Jordan");
+    await first.press("Tab");
+    await expect(page.locator(".settings-page .page-heading p")).toHaveText("Jordan & Your spouse");
+    await expect(first).toHaveValue("Jordan");
+  });
+
+  test("signed-in household names are visibly locked, explained and ringed only for keyboard focus", async ({ page }) => {
+    await page.route("**/api/me", (route) => route.fulfill({ json: { member: "a", nameA: "Alex", nameB: "Sam" } }));
+    await page.route(/\/api\/(?:todo-)?sync\?/, (route) =>
+      route.fulfill({ json: { entries: [], cursor: 0, more: false } }));
+    await english(page);
+    const first = page.getByLabel("First person", { exact: true });
+    const second = page.getByLabel("Second person", { exact: true });
+    await expect(first).toHaveValue("Alex");
+    await expect(second).toHaveValue("Sam");
+    await expect(first).not.toBeEditable();
+    await expect(page.locator(".settings-name-lock")).toHaveCount(2);
+    await expect(page.locator(".settings-name-edit")).toHaveCount(0);
+    await expect(first).toHaveAccessibleDescription(/household configuration/);
+
+    await first.tap();
+    await expect(first).toBeFocused();
+    await expect(page.locator("html")).toHaveAttribute("data-input-mode", "pointer");
+    await expect(first).toHaveCSS("outline-style", "none");
+
+    await first.press("Tab");
+    await expect(second).toBeFocused();
+    await expect(page.locator("html")).toHaveAttribute("data-input-mode", "keyboard");
+    await expect(second).toHaveCSS("outline-style", "solid");
+    await expect(second).toHaveCSS("outline-width", "3px");
+  });
 });
 
 for (const language of ["en", "de"] as const) {

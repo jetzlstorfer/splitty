@@ -10,17 +10,18 @@ afterEach(async () => { vi.restoreAllMocks(); await database.delete(); });
 
 describe("offline ledger", () => {
   it("defaults existing devices to German without changing names or ledger data", async () => {
-    expect((await getPreferences(database)).language).toBe("de");
+    expect(await getPreferences(database)).toMatchObject({ language: "de", todoOrder: "chronological" });
     await database.preferences.put({ id: "preferences", member: "b", nameA: "Alex", nameB: "Sam", cursor: 4 });
-    expect(await getPreferences(database)).toMatchObject({ language: "de", nameA: "Alex", member: "b", cursor: 4 });
+    expect(await getPreferences(database)).toMatchObject({ language: "de", todoOrder: "chronological", nameA: "Alex", member: "b", cursor: 4 });
   });
   it("persists device language without losing concurrent profile updates or sync cursors", async () => {
     await Promise.all([
       updatePreferences({ language: "en" }, database),
+      updatePreferences({ todoOrder: "manual" }, database),
       updatePreferences({ nameA: "Alex", nameB: "Sam", member: "b" }, database)
     ]);
     await applyPage({ entries: [], cursor: 5, more: false }, database);
-    expect(await getPreferences(database)).toMatchObject({ language: "en", nameA: "Alex", nameB: "Sam", member: "b", cursor: 5 });
+    expect(await getPreferences(database)).toMatchObject({ language: "en", todoOrder: "manual", nameA: "Alex", nameB: "Sam", member: "b", cursor: 5 });
     expect(await database.outbox.count()).toBe(0);
   });
   it("atomically stores changes and a retryable outbox, including sequential edits", async () => {

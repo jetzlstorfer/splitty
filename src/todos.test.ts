@@ -6,13 +6,20 @@ import { householdTodos, insuranceTodos, needsInsuranceSubmission, reorderTodos 
 describe("manual todo order", () => {
   const todo = (id: string, createdAt: string, position?: number) =>
     exampleTodo({ id, title: id, createdAt: `2024-03-0${createdAt}T12:00:00.000Z`, ...(position === undefined ? {} : { position }) });
-  const ids = (entries: Parameters<typeof householdTodos>[0], manual: Parameters<typeof householdTodos>[1]) =>
-    householdTodos(entries, manual).map((item) => item.kind === "manual" ? item.todo.id : `insurance:${item.entry.id}`);
+  const ids = (entries: Parameters<typeof householdTodos>[0], manual: Parameters<typeof householdTodos>[1], manualOrder = false) =>
+    householdTodos(entries, manual, manualOrder).map((item) => item.kind === "manual" ? item.todo.id : `insurance:${item.entry.id}`);
 
-  it("lists unordered todos newest first, then positioned todos, then insurance reminders", () => {
+  it("lists open todos newest first regardless of saved manual positions", () => {
     expect(ids([example({ id: "pharmacy", description: "Apotheke", date: "2024-03-09" })], [
       todo("b", "1", 2), todo("old", "2"), todo("a", "3", 1), todo("new", "4"), { ...todo("done", "5", 0), done: true }
-    ])).toEqual(["new", "old", "a", "b", "insurance:pharmacy", "done"]);
+    ])).toEqual(["insurance:pharmacy", "new", "a", "old", "b", "done"]);
+  });
+  it("keeps manual to-dos reorderable while insurance reminders stay chronological", () => {
+    expect(ids([
+      example({ id: "pharmacy-old", description: "Apotheke", date: "2024-03-01" }),
+      example({ id: "doctor-new", description: "Arzt", date: "2024-03-09" })
+    ], [todo("b", "1", 2), todo("new", "4"), todo("a", "3", 1)], true))
+      .toEqual(["new", "a", "b", "insurance:doctor-new", "insurance:pharmacy-old"]);
   });
   it("moves one todo between positioned neighbours without touching the others", () => {
     const list = [todo("a", "1", 0), todo("b", "1", 1), todo("c", "1", 2)];

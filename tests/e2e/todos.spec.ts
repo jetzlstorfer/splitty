@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "./fixtures";
 import { signIn as signInMember } from "./helpers";
-import { confirmAction } from "./controls";
+import { chooseOption, confirmAction } from "./controls";
 
 async function signIn(page: Page, member: "A" | "B" = "A") {
   await page.goto("/");
@@ -9,14 +9,48 @@ async function signIn(page: Page, member: "A" | "B" = "A") {
 }
 
 async function add(page: Page, description: string) {
+  await addOn(page, description, "2026-10-01");
+}
+
+async function addOn(page: Page, description: string, date: string) {
   await page.locator(".add-button").click();
   const dialog = page.getByRole("dialog", { name: "Ausgabe hinzufügen" });
   await dialog.getByLabel("Beschreibung", { exact: true }).fill(description);
   await dialog.getByRole("textbox", { name: "Betrag in EUR" }).fill("20,00");
-  await dialog.getByLabel("Datum", { exact: true }).fill("2026-10-01");
+  await dialog.getByLabel("Datum", { exact: true }).fill(date);
   await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
 }
+
+async function addTodo(page: Page, title: string) {
+  await page.getByRole("button", { name: "To-do hinzufügen", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "To-do hinzufügen" });
+  await dialog.getByLabel("Titel", { exact: true }).fill(title);
+  await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+}
+
+test("to-dos default to newest first and can switch to a saved manual order", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("navigation", { name: "Hauptnavigation" }).getByRole("button", { name: "To-dos" }).click();
+  await addTodo(page, "Eigene Aufgabe");
+  await page.getByRole("navigation", { name: "Hauptnavigation" }).getByRole("button", { name: "To-dos" }).click();
+  await page.getByRole("navigation", { name: "Hauptnavigation" }).getByRole("button", { name: "Ausgaben" }).click();
+  await addOn(page, "Apotheke", "2099-12-31");
+  await page.getByRole("navigation", { name: "Hauptnavigation" }).getByRole("button", { name: "To-dos" }).click();
+
+  const open = page.getByRole("region", { name: "Offene To-dos" });
+  await expect(open.getByRole("listitem").nth(0)).toContainText("Apotheke");
+  await expect(open.getByRole("listitem").nth(1)).toContainText("Eigene Aufgabe");
+  await chooseOption(page, page.getByRole("button", { name: "To-do-Sortierung" }), "Manuell");
+  await expect(open.getByRole("listitem").nth(0)).toContainText("Eigene Aufgabe");
+  await expect(open.getByRole("listitem").nth(1)).toContainText("Apotheke");
+
+  await page.reload();
+  await page.getByRole("navigation", { name: "Hauptnavigation" }).getByRole("button", { name: "To-dos" }).click();
+  await expect(page.getByRole("button", { name: "To-do-Sortierung" })).toContainText("Manuell");
+  await expect(page.getByRole("region", { name: "Offene To-dos" }).getByRole("listitem").nth(0)).toContainText("Eigene Aufgabe");
+});
 
 test("doctor and pharmacy expenses create insurance to-dos that can be checked off", async ({ page }) => {
   await page.goto("/");

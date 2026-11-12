@@ -140,7 +140,7 @@ test("todo and expense add buttons share their floating position, styling, and k
       await todos(page);
       await expect(action).toHaveAccessibleName("To-do hinzufügen");
       expect(await geometry()).toEqual(expense);
-      await expect(page.locator(".todos-page .page-heading button")).toHaveCount(0);
+      await expect(page.locator(".todos-page .page-heading button")).toHaveAccessibleName("To-do-Sortierung");
       expect(await page.locator("main").evaluate((element) => getComputedStyle(element).paddingBottom)).toBe("152px");
       const navTop = await nav.evaluate((element) => element.getBoundingClientRect().top);
       expect(expense.bottom).toBeLessThanOrEqual(navTop);
@@ -344,6 +344,7 @@ test("open manual todos reorder by mouse, touch, and keyboard and share the orde
     await expect(a.locator(".reorder-handle")).toHaveCount(0);
     for (const title of ["First", "Second", "Third"]) await add(a, title);
     await addInsuranceExpense(a);
+    await chooseOption(a, a.getByRole("button", { name: "To-do-Sortierung" }), "Manuell");
     await expect(order(a)).toHaveText(["Third", "Second", "First"]);
 
     const firstBox = (await handle(a, "First").boundingBox())!, thirdBox = (await row(a, "Third").boundingBox())!;
@@ -384,6 +385,7 @@ test("open manual todos reorder by mouse, touch, and keyboard and share the orde
 
     await upToDate(a);
     await sync(b);
+    await chooseOption(b, b.getByRole("button", { name: "To-do-Sortierung" }), "Manuell");
     await expect(order(b)).toHaveText(["Third", "First", "Second"]);
     await toggle(b, "Second", true);
     await expect(handle(b, "Second")).toHaveCount(0);

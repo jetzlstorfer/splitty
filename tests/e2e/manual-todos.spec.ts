@@ -145,7 +145,7 @@ test("todo and expense add buttons share their floating position, styling, and k
       await todos(page);
       await expect(action).toHaveAccessibleName("To-do hinzufügen");
       expect(await geometry()).toEqual(expense);
-      await expect(page.locator(".todos-page .page-heading button")).toHaveAccessibleName("To-do-Sortierung");
+      await expect(page.locator(".todos-page .page-heading button")).toHaveCount(0);
       expect(await page.locator("main").evaluate((element) => getComputedStyle(element).paddingBottom)).toBe("152px");
       const navTop = await nav.evaluate((element) => element.getBoundingClientRect().top);
       expect(expense.bottom).toBeLessThanOrEqual(navTop);
@@ -344,21 +344,29 @@ test("open manual todos reorder by mouse, touch, and keyboard and share the orde
   const order = (page: Page) => page.locator(".manual-todo:not(.done) .entry-description strong");
   const handle = (page: Page, title: string) => page.getByRole("button", { name: `To-do verschieben: ${title}`, exact: true });
   try {
+    await a.emulateMedia({ reducedMotion: "reduce" });
     await signIn(a, "A");
     await signIn(b, "B");
     await expect(a.locator(".reorder-handle")).toHaveCount(0);
-    for (const title of ["First", "Second", "Third"]) await add(a, title);
+    await a.clock.setFixedTime(new Date("2024-03-01T12:00:00Z"));
+    await add(a, "First");
+    await a.clock.setFixedTime(new Date("2024-03-02T12:00:00Z"));
     await addInsuranceExpense(a);
+    await a.clock.setFixedTime(new Date("2024-03-03T12:00:00Z"));
+    await add(a, "Second");
+    await a.clock.setFixedTime(new Date("2024-03-03T13:00:00Z"));
+    await add(a, "Third");
     await upToDate(a);
-    await expect(a.locator(".reorder-handle")).toHaveCount(0);
-    await chooseOption(a, a.getByRole("button", { name: "To-do-Sortierung" }), "Manuell");
     await expect(a.locator(".reorder-handle")).toHaveCount(3);
     await expect(order(a)).toHaveText(["Third", "Second", "First"]);
+    await a.getByRole("navigation").getByRole("button", { name: "Ausgaben", exact: true }).click();
+    const balance = await a.getByRole("region", { name: "Haushaltssaldo" }).innerText();
+    await todos(a);
 
     const firstBox = (await handle(a, "First").boundingBox())!, thirdBox = (await row(a, "Third").boundingBox())!;
     await a.mouse.move(firstBox.x + firstBox.width / 2, firstBox.y + firstBox.height / 2);
     await a.mouse.down();
-    await a.mouse.move(firstBox.x + firstBox.width / 2, thirdBox.y + 5, { steps: 8 });
+    await a.mouse.move(firstBox.x + firstBox.width / 2, thirdBox.y + 5, { steps: 30 });
     await expect(row(a, "First")).toHaveClass(/reordering/);
     const firstMutation = waitForTodoMutation(a);
     await a.mouse.up();
@@ -368,19 +376,20 @@ test("open manual todos reorder by mouse, touch, and keyboard and share the orde
     await expect(order(a)).toHaveText(["First", "Third", "Second"]);
     await expect(row(a, "First").getByRole("checkbox")).not.toBeChecked();
     await expect(a.getByRole("button", { name: "To-do-Aktionen: First", exact: true })).toHaveAttribute("aria-expanded", "false");
-    await expect(a.locator(".todo-item").nth(3)).toContainText("Apotheke");
+    await expect(a.locator(".todo-item").nth(2)).toContainText("Apotheke");
 
     const session = await aContext.newCDPSession(a);
     const secondBox = (await handle(a, "Second").boundingBox())!, firstRow = (await row(a, "First").boundingBox())!;
     const x = secondBox.x + secondBox.width / 2;
     await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y: secondBox.y + secondBox.height / 2 }] });
-    for (let step = 1; step <= 8; step++) {
-      const y = secondBox.y + secondBox.height / 2 + (firstRow.y + 5 - secondBox.y - secondBox.height / 2) * step / 8;
+    for (let step = 1; step <= 30; step++) {
+      const y = secondBox.y + secondBox.height / 2 + (firstRow.y + 5 - secondBox.y - secondBox.height / 2) * step / 30;
       await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y }] });
     }
     const secondMutation = waitForTodoMutation(a);
     await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
     await expect(order(a)).toHaveText(["Second", "First", "Third"]);
+    await expect(a.locator(".todo-item").nth(2)).toContainText("Apotheke");
     expect((await secondMutation).ok()).toBe(true);
     await upToDate(a);
     await expect(order(a)).toHaveText(["Second", "First", "Third"]);
@@ -390,6 +399,7 @@ test("open manual todos reorder by mouse, touch, and keyboard and share the orde
     const thirdMutation = waitForTodoMutation(a);
     await a.keyboard.press("ArrowUp");
     await expect(order(a)).toHaveText(["Second", "Third", "First"]);
+    await expect(a.locator(".todo-item").nth(2)).toContainText("Apotheke");
     await expect(handle(a, "Third")).toBeFocused();
     await expect(a.getByText("Third auf Position 2 von 3 verschoben.")).toBeAttached();
     expect((await thirdMutation).ok()).toBe(true);
@@ -399,7 +409,7 @@ test("open manual todos reorder by mouse, touch, and keyboard and share the orde
     const topBox = (await handle(a, "Second").boundingBox())!, lastRow = (await row(a, "First").boundingBox())!;
     await a.mouse.move(topBox.x + topBox.width / 2, topBox.y + topBox.height / 2);
     await a.mouse.down();
-    await a.mouse.move(topBox.x + topBox.width / 2, lastRow.y + lastRow.height - 5, { steps: 10 });
+    await a.mouse.move(topBox.x + topBox.width / 2, lastRow.y + lastRow.height - 5, { steps: 30 });
     const fourthMutation = waitForTodoMutation(a);
     await a.mouse.up();
     await expect(order(a)).toHaveText(["Third", "First", "Second"]);
@@ -408,8 +418,12 @@ test("open manual todos reorder by mouse, touch, and keyboard and share the orde
     await expect(order(a)).toHaveText(["Third", "First", "Second"]);
 
     await sync(b);
-    await chooseOption(b, b.getByRole("button", { name: "To-do-Sortierung" }), "Manuell");
     await expect(order(b)).toHaveText(["Third", "First", "Second"]);
+    await expect(b.locator(".todo-item").nth(2)).toContainText("Apotheke");
+    await b.reload();
+    await todos(b);
+    await expect(order(b)).toHaveText(["Third", "First", "Second"]);
+    await expect(b.locator(".todo-item").nth(2)).toContainText("Apotheke");
     await toggle(b, "Second", true);
     await expect(handle(b, "Second")).toHaveCount(0);
     await toggle(b, "Second", false);
@@ -421,6 +435,9 @@ test("open manual todos reorder by mouse, touch, and keyboard and share the orde
     await a.reload();
     await todos(a);
     await expect(order(a)).toHaveText(["Third", "First", "Second edited"]);
+    await expect(a.locator(".todo-item").nth(2)).toContainText("Apotheke");
+    await a.getByRole("navigation").getByRole("button", { name: "Ausgaben", exact: true }).click();
+    await expect(a.getByRole("region", { name: "Haushaltssaldo" })).toHaveText(balance, { useInnerText: true });
   } finally {
     await aContext.close();
     await bContext.close();

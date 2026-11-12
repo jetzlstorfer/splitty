@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "./fixtures";
 import { signIn as signInMember } from "./helpers";
-import { chooseOption, confirmAction } from "./controls";
+import { confirmAction } from "./controls";
 
 async function signIn(page: Page, member: "A" | "B" = "A") {
   await page.goto("/");
@@ -30,26 +30,46 @@ async function addTodo(page: Page, title: string) {
   await expect(dialog).not.toBeVisible();
 }
 
-test("to-dos default to newest first and can switch to a saved manual order", async ({ page }) => {
+test("insurance reminders are interleaved by date and keep their slot when manual to-dos move", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("navigation", { name: "Hauptnavigation" }).getByRole("button", { name: "To-dos" }).click();
-  await addTodo(page, "Eigene Aufgabe");
-  await page.getByRole("navigation", { name: "Hauptnavigation" }).getByRole("button", { name: "To-dos" }).click();
+  await page.clock.setFixedTime(new Date("2024-03-01T12:00:00Z"));
+  await addTodo(page, "Ältere Aufgabe");
+  await page.clock.setFixedTime(new Date("2024-03-03T12:00:00Z"));
+  await addTodo(page, "Neuere Aufgabe");
   await page.getByRole("navigation", { name: "Hauptnavigation" }).getByRole("button", { name: "Ausgaben" }).click();
-  await addOn(page, "Apotheke", "2099-12-31");
+  await addOn(page, "Apotheke", "2024-03-02");
   await page.getByRole("navigation", { name: "Hauptnavigation" }).getByRole("button", { name: "To-dos" }).click();
 
   const open = page.getByRole("region", { name: "Offene To-dos" });
-  await expect(open.getByRole("listitem").nth(0)).toContainText("Apotheke");
-  await expect(open.getByRole("listitem").nth(1)).toContainText("Eigene Aufgabe");
-  await chooseOption(page, page.getByRole("button", { name: "To-do-Sortierung" }), "Manuell");
-  await expect(open.getByRole("listitem").nth(0)).toContainText("Eigene Aufgabe");
+  await expect(open.getByRole("listitem").nth(0)).toContainText("Neuere Aufgabe");
   await expect(open.getByRole("listitem").nth(1)).toContainText("Apotheke");
+  await expect(open.getByRole("listitem").nth(2)).toContainText("Ältere Aufgabe");
+  await page.getByRole("button", { name: "To-do verschieben: Ältere Aufgabe" }).focus();
+  await page.keyboard.press("ArrowUp");
+  await expect(open.getByRole("listitem").nth(0)).toContainText("Ältere Aufgabe");
+  await expect(open.getByRole("listitem").nth(1)).toContainText("Apotheke");
+  await expect(open.getByRole("listitem").nth(2)).toContainText("Neuere Aufgabe");
+  await expect.poll(() => page.evaluate(() => new Promise<number | undefined>((resolve, reject) => {
+    const opening = indexedDB.open("splitty");
+    opening.onerror = () => reject(opening.error);
+    opening.onsuccess = () => {
+      const database = opening.result;
+      const request = database.transaction("todos", "readonly").objectStore("todos").getAll();
+      request.onerror = () => { database.close(); reject(request.error); };
+      request.onsuccess = () => {
+        const older = request.result.find((todo: { title: string }) => todo.title === "Ältere Aufgabe");
+        database.close();
+        resolve(older?.position);
+      };
+    };
+  }))).toBeDefined();
 
   await page.reload();
   await page.getByRole("navigation", { name: "Hauptnavigation" }).getByRole("button", { name: "To-dos" }).click();
-  await expect(page.getByRole("button", { name: "To-do-Sortierung" })).toContainText("Manuell");
-  await expect(page.getByRole("region", { name: "Offene To-dos" }).getByRole("listitem").nth(0)).toContainText("Eigene Aufgabe");
+  await expect(open.getByRole("listitem").nth(0)).toContainText("Ältere Aufgabe");
+  await expect(open.getByRole("listitem").nth(1)).toContainText("Apotheke");
+  await expect(open.getByRole("listitem").nth(2)).toContainText("Neuere Aufgabe");
 });
 
 test("doctor and pharmacy expenses create insurance to-dos that can be checked off", async ({ page }) => {

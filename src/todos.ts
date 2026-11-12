@@ -3,7 +3,8 @@ import type { Todo } from "../shared/todo";
 import { expenseCategory } from "./categories";
 
 export interface InsuranceTodo { entry: Entry; done: boolean }
-export type HouseholdTodo = (InsuranceTodo & { kind: "insurance" }) | { kind: "manual"; todo: Todo; done: boolean };
+type ManualTodo = { kind: "manual"; todo: Todo; done: boolean };
+export type HouseholdTodo = (InsuranceTodo & { kind: "insurance" }) | ManualTodo;
 
 export function needsInsuranceSubmission(entry: Entry): boolean {
   if (entry.deleted || entry.kind === "settlement") return false;
@@ -39,17 +40,21 @@ export function reorderTodos(ordered: Todo[], from: number, to: number): Todo[] 
   return next.flatMap((todo, index) => todo.position === index ? [] : [{ ...todo, position: index }]);
 }
 
-export function householdTodos(entries: Entry[], manual: Todo[], manualOrder = false): HouseholdTodo[] {
+export function replaceManualSlots(items: HouseholdTodo[], manual: ManualTodo[]): HouseholdTodo[] {
+  let index = 0;
+  return items.map((item) => item.kind === "manual" && !item.done ? manual[index++] : item);
+}
+
+export function householdTodos(entries: Entry[], manual: Todo[]): HouseholdTodo[] {
   const visible = manual.filter((todo) => !todo.deleted);
   const insurance = insuranceTodos(entries).map((todo) => ({ ...todo, kind: "insurance" as const }));
   const date = (item: HouseholdTodo) => item.kind === "manual" ? item.todo.createdAt : item.entry.date;
   const id = (item: HouseholdTodo) => item.kind === "manual" ? item.todo.id : item.entry.id;
   const openManual = visible.filter((todo) => !todo.done).map((todo) => ({ kind: "manual" as const, todo, done: false }));
   const openInsurance = insurance.filter((todo) => !todo.done);
-  const open = manualOrder
-    ? [...openManual.sort((a, b) => compareManualTodos(a.todo, b.todo)), ...openInsurance]
-    : [...openManual, ...openInsurance]
-      .sort((a, b) => date(b).localeCompare(date(a)) || id(a).localeCompare(id(b)));
+  const chronological = [...openManual, ...openInsurance]
+    .sort((a, b) => date(b).localeCompare(date(a)) || id(a).localeCompare(id(b)));
+  const open = replaceManualSlots(chronological, openManual.sort((a, b) => compareManualTodos(a.todo, b.todo)));
   const done: HouseholdTodo[] = [
     ...insurance.filter((todo) => todo.done),
     ...visible.filter((todo) => todo.done).map((todo) => ({ kind: "manual" as const, todo, done: true }))

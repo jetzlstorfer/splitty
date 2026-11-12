@@ -1,5 +1,33 @@
-import { expect, test } from "./fixtures";
+import { expect, test, type Page } from "./fixtures";
 import { useEnglish } from "./helpers";
+import { chooseOption } from "./controls";
+
+type StoredTodo = { id: string; title: string; done: boolean; deleted?: boolean; createdAt: string; position?: number };
+
+async function savedOrder(page: Page): Promise<string[]> {
+  return page.evaluate(() => new Promise<string[]>((resolve, reject) => {
+    const opening = indexedDB.open("splitty");
+    opening.onerror = () => reject(opening.error);
+    opening.onsuccess = () => {
+      const database = opening.result;
+      const request = database.transaction("todos", "readonly").objectStore("todos").getAll();
+      request.onerror = () => { database.close(); reject(request.error); };
+      request.onsuccess = () => {
+        const todos = (request.result as StoredTodo[]).filter((todo) => !todo.deleted && !todo.done);
+        todos.sort((a, b) => Number(b.position === undefined) - Number(a.position === undefined)
+          || (a.position ?? 0) - (b.position ?? 0)
+          || b.createdAt.localeCompare(a.createdAt)
+          || a.id.localeCompare(b.id));
+        database.close();
+        resolve(todos.map((todo) => todo.title));
+      };
+    };
+  }));
+}
+
+async function expectSavedOrder(page: Page, expected: string[]) {
+  await expect.poll(() => savedOrder(page)).toEqual(expected);
+}
 
 test("reordering tracks the finger, slides neighbors and settles without changing completion", async ({ page, context, browserName }) => {
   test.skip(browserName !== "chromium", "Real touch dragging uses Chromium's input protocol.");
@@ -11,6 +39,7 @@ test("reordering tracks the finger, slides neighbors and settles without changin
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page.getByRole("dialog")).not.toBeVisible();
   }
+  await chooseOption(page, page.getByRole("button", { name: "To-do sorting" }), "Manual");
   // Freeze real layout animations so their start, midpoint and destination are measurable.
   await page.evaluate(() => {
     for (const element of document.querySelectorAll(".todo-item")) {
@@ -65,6 +94,7 @@ test("reordering tracks the finger, slides neighbors and settles without changin
     }
   });
   expect((await top.boundingBox())!.y).toBeCloseTo(middleStart.y, 0);
+  await expectSavedOrder(page, ["Middle", "Top", "Bottom"]);
   await expect(rows.locator("input:checked")).toHaveCount(0);
   expect(await page.evaluate(() => window.scrollY)).toBe(0);
 
@@ -89,6 +119,8 @@ test("keyboard reorders animate across layouts and themes, but respect reduced m
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page.getByRole("dialog")).not.toBeVisible();
   }
+  await chooseOption(page, page.getByRole("button", { name: "To-do sorting" }), "Manual");
+  const rows = page.locator(".manual-todo");
   await page.evaluate(() => {
     for (const element of document.querySelectorAll(".todo-item")) {
       for (const animation of element.getAnimations()) animation.finish();
@@ -109,10 +141,14 @@ test("keyboard reorders animate across layouts and themes, but respect reduced m
       await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
       const first = page.locator(".manual-todo").first();
       const title = await first.locator("strong").textContent();
+      const currentOrder = await rows.locator("strong").allTextContents();
+      const expectedOrder = [...currentOrder.slice(1), title!];
       const handle = page.getByRole("button", { name: `Reorder to-do: ${title}`, exact: true });
       await handle.focus();
       await page.keyboard.press("ArrowDown");
       await expect(page.locator(".manual-todo").last().locator("strong")).toHaveText(title!);
+      await expectSavedOrder(page, expectedOrder);
+      await expect(rows.locator("strong")).toHaveText(expectedOrder);
       await expect(handle).toBeFocused();
       const animations = await page.locator(".manual-todo").evaluateAll((elements) =>
         elements.map((element) => element.getAnimations().length));
@@ -127,9 +163,13 @@ test("keyboard reorders animate across layouts and themes, but respect reduced m
   }
   await page.emulateMedia({ reducedMotion: "reduce" });
   const firstTitle = await page.locator(".manual-todo").first().locator("strong").textContent();
+  const currentOrder = await page.locator(".manual-todo strong").allTextContents();
+  const expectedOrder = [...currentOrder.slice(1), firstTitle!];
   await page.locator(".reorder-handle").first().focus();
   await page.keyboard.press("ArrowDown");
   await expect(page.locator(".manual-todo").last().locator("strong")).toHaveText(firstTitle!);
+  await expectSavedOrder(page, expectedOrder);
+  await expect(page.locator(".manual-todo strong")).toHaveText(expectedOrder);
   expect(await page.locator(".manual-todo").evaluateAll((elements) =>
     elements.reduce((count, element) => count + element.getAnimations().length, 0))).toBe(0);
 });

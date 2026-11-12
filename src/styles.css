@@ -121,6 +121,8 @@ main.with-expense-action { padding-bottom: calc(152px + env(safe-area-inset-bott
 .page-heading h1 { font-size: 30px; line-height: 1.15; font-weight: 600; letter-spacing: -.7px; overflow-wrap: anywhere; }
 .page-heading p { margin: 4px 0 0; font-size: 14px; color: var(--cp-text-muted); overflow-wrap: anywhere; }
 .page-heading .pill-button { margin-top: 2px; }
+.todo-sort { flex: 0 1 160px; }
+.todo-sort .select-control { min-height: 44px; padding: 8px; font-size: 14px; }
 h1 { font-size: 24px; line-height: 1.25; font-weight: 650; letter-spacing: -.6px; margin-bottom: 0; }
 .balance-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 22px 2px 2px; }
 .balance-summary { min-width: 0; }

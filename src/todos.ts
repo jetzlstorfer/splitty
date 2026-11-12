@@ -39,18 +39,23 @@ export function reorderTodos(ordered: Todo[], from: number, to: number): Todo[] 
   return next.flatMap((todo, index) => todo.position === index ? [] : [{ ...todo, position: index }]);
 }
 
-export function householdTodos(entries: Entry[], manual: Todo[]): HouseholdTodo[] {
+export function householdTodos(entries: Entry[], manual: Todo[], manualOrder = false): HouseholdTodo[] {
   const visible = manual.filter((todo) => !todo.deleted);
   const insurance = insuranceTodos(entries).map((todo) => ({ ...todo, kind: "insurance" as const }));
   const date = (item: HouseholdTodo) => item.kind === "manual" ? item.todo.createdAt : item.entry.date;
   const id = (item: HouseholdTodo) => item.kind === "manual" ? item.todo.id : item.entry.id;
+  const openManual = visible.filter((todo) => !todo.done).map((todo) => ({ kind: "manual" as const, todo, done: false }));
+  const openInsurance = insurance.filter((todo) => !todo.done);
+  const open = manualOrder
+    ? [...openManual.sort((a, b) => compareManualTodos(a.todo, b.todo)), ...openInsurance]
+    : [...openManual, ...openInsurance]
+      .sort((a, b) => date(b).localeCompare(date(a)) || id(a).localeCompare(id(b)));
   const done: HouseholdTodo[] = [
     ...insurance.filter((todo) => todo.done),
     ...visible.filter((todo) => todo.done).map((todo) => ({ kind: "manual" as const, todo, done: true }))
   ].sort((a, b) => date(b).localeCompare(date(a)) || id(a).localeCompare(id(b)));
   return [
-    ...visible.filter((todo) => !todo.done).sort(compareManualTodos).map((todo) => ({ kind: "manual" as const, todo, done: false })),
-    ...insurance.filter((todo) => !todo.done),
+    ...open,
     ...done
   ];
 }

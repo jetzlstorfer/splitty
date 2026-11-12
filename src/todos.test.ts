@@ -6,20 +6,35 @@ import { householdTodos, insuranceTodos, needsInsuranceSubmission, reorderTodos 
 describe("manual todo order", () => {
   const todo = (id: string, createdAt: string, position?: number) =>
     exampleTodo({ id, title: id, createdAt: `2024-03-0${createdAt}T12:00:00.000Z`, ...(position === undefined ? {} : { position }) });
-  const ids = (entries: Parameters<typeof householdTodos>[0], manual: Parameters<typeof householdTodos>[1], manualOrder = false) =>
-    householdTodos(entries, manual, manualOrder).map((item) => item.kind === "manual" ? item.todo.id : `insurance:${item.entry.id}`);
+  const ids = (entries: Parameters<typeof householdTodos>[0], manual: Parameters<typeof householdTodos>[1]) =>
+    householdTodos(entries, manual).map((item) => item.kind === "manual" ? item.todo.id : `insurance:${item.entry.id}`);
 
-  it("lists open todos newest first regardless of saved manual positions", () => {
-    expect(ids([example({ id: "pharmacy", description: "Apotheke", date: "2024-03-09" })], [
-      todo("b", "1", 2), todo("old", "2"), todo("a", "3", 1), todo("new", "4"), { ...todo("done", "5", 0), done: true }
-    ])).toEqual(["insurance:pharmacy", "new", "a", "old", "b", "done"]);
+  it("interleaves reminders by date with unsorted manual to-dos", () => {
+    const expenses = [
+      example({ id: "new", description: "Arzt", date: "2024-03-05" }),
+      example({ id: "middle", description: "Apotheke", date: "2024-03-03" }),
+      example({ id: "old", description: "Arzt", date: "2024-02-28" })
+    ];
+    expect(ids(expenses, [todo("first", "4"), todo("second", "2"), { ...todo("done", "5"), done: true }]))
+      .toEqual(["insurance:new", "first", "insurance:middle", "second", "insurance:old", "done"]);
   });
-  it("keeps manual to-dos reorderable while insurance reminders stay chronological", () => {
-    expect(ids([
-      example({ id: "pharmacy-old", description: "Apotheke", date: "2024-03-01" }),
-      example({ id: "doctor-new", description: "Arzt", date: "2024-03-09" })
-    ], [todo("b", "1", 2), todo("new", "4"), todo("a", "3", 1)], true))
-      .toEqual(["new", "a", "b", "insurance:doctor-new", "insurance:pharmacy-old"]);
+  it("keeps reminders in their date-based slots when manual to-dos are reordered or added", () => {
+    const expenses = [example({ id: "middle", description: "Apotheke", date: "2024-03-03" })];
+    expect(ids(expenses, [todo("first", "4", 1), todo("second", "2", 0)]))
+      .toEqual(["second", "insurance:middle", "first"]);
+    expect(ids(expenses, [todo("first", "4", 1), todo("second", "2", 0), todo("new", "5")]))
+      .toEqual(["new", "second", "insurance:middle", "first"]);
+  });
+  it("recomputes slots for completed or deleted items and orders equal dates deterministically", () => {
+    const expenses = [
+      example({ id: "b", description: "Arzt", date: "2024-03-03" }),
+      example({ id: "a", description: "Apotheke", date: "2024-03-03" })
+    ];
+    expect(ids(expenses, [todo("first", "4", 1), todo("second", "2", 0)]))
+      .toEqual(["second", "insurance:a", "insurance:b", "first"]);
+    expect(ids([{ ...expenses[0], insuranceSubmittedAt: "2024-03-04T00:00:00.000Z" }, expenses[1]],
+      [{ ...todo("first", "4", 1), deleted: true }, todo("second", "2", 0)]))
+      .toEqual(["insurance:a", "second", "insurance:b"]);
   });
   it("moves one todo between positioned neighbours without touching the others", () => {
     const list = [todo("a", "1", 0), todo("b", "1", 1), todo("c", "1", 2)];

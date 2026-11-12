@@ -11,7 +11,6 @@ export interface Preferences {
   cursor: number;
   todoCursor?: number;
   language?: Language;
-  todoOrder?: "chronological" | "manual";
 }
 
 export interface Conflict<T = Entry> {
@@ -66,12 +65,7 @@ export async function setDeviceKey(key: string | null, database = db): Promise<v
 export async function getPreferences(database = db): Promise<Preferences> {
   const preferences: Preferences = await database.preferences.get("preferences")
     ?? { id: "preferences", member: "a", nameA: "You", nameB: "Your wife", cursor: 0 };
-  return {
-    ...preferences,
-    todoCursor: preferences.todoCursor ?? 0,
-    language: preferences.language === "en" ? "en" : "de",
-    todoOrder: preferences.todoOrder === "manual" ? "manual" : "chronological"
-  };
+  return { ...preferences, todoCursor: preferences.todoCursor ?? 0, language: preferences.language === "en" ? "en" : "de" };
 }
 
 export async function updatePreferences(changes: Partial<Omit<Preferences, "id" | "cursor" | "todoCursor">>, database = db): Promise<void> {

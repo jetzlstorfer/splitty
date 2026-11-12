@@ -1,6 +1,5 @@
 import { expect, test, type Page } from "./fixtures";
 import { useEnglish } from "./helpers";
-import { chooseOption } from "./controls";
 
 type StoredTodo = { id: string; title: string; done: boolean; deleted?: boolean; createdAt: string; position?: number };
 
@@ -39,7 +38,6 @@ test("reordering tracks the finger, slides neighbors and settles without changin
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page.getByRole("dialog")).not.toBeVisible();
   }
-  await chooseOption(page, page.getByRole("button", { name: "To-do sorting" }), "Manual");
   // Freeze real layout animations so their start, midpoint and destination are measurable.
   await page.evaluate(() => {
     for (const element of document.querySelectorAll(".todo-item")) {
@@ -119,8 +117,8 @@ test("keyboard reorders animate across layouts and themes, but respect reduced m
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page.getByRole("dialog")).not.toBeVisible();
   }
-  await chooseOption(page, page.getByRole("button", { name: "To-do sorting" }), "Manual");
   const rows = page.locator(".manual-todo");
+  await expectSavedOrder(page, ["Second", "First"]);
   await page.evaluate(() => {
     for (const element of document.querySelectorAll(".todo-item")) {
       for (const animation of element.getAnimations()) animation.finish();

@@ -16,7 +16,7 @@ import { categoryLabels, detectCategory, expenseCategory, normalizeText, storedC
 import ExpenseIcon from "./ExpenseIcon";
 import SyncIcon from "./SyncIcon";
 import SwipeableRow from "./SwipeableRow";
-import { householdTodos, reorderTodos, type HouseholdTodo } from "./todos";
+import { householdTodos, reorderTodos, replaceManualSlots, type HouseholdTodo } from "./todos";
 import { ConfirmationProvider, DateField, Form, Select, Sheet, dateValue as today, useConfirm } from "./Controls";
 
 const loadStatistics = () => import("./StatisticsPage");
@@ -326,14 +326,13 @@ function TodoForm({ todo, close, saved }: { todo?: Todo; close: () => void; save
   </Sheet>;
 }
 
-function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, toggleManual, reorder, remove, onError, sortOrder, setSortOrder }: {
+function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, toggleManual, reorder, remove, onError }: {
   todos: HouseholdTodo[]; conflicts: Conflict<Todo>[];
   openCount: number; blocked: Set<string>;
   open: (entry: Entry) => void; toggle: (entry: Entry, submitted: boolean, onCompleted: () => void) => void;
   edit: (todo: Todo) => void; toggleManual: (todo: Todo, done: boolean, onCompleted: () => void) => void;
   reorder: (changes: Todo[]) => Promise<void>;
   remove: (item: HouseholdTodo) => Promise<void>; onError: (error: unknown) => void;
-  sortOrder: "chronological" | "manual"; setSortOrder: (order: "chronological" | "manual") => void;
 }) {
   const { t, number, money } = useLocale();
   const [swipedTodo, setSwipedTodo] = useState<string | null>(null);
@@ -353,7 +352,7 @@ function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, to
   const reorderHint = useId();
   const manualBlocked = new Set(conflicts.map((conflict) => conflict.entryId));
   const openManual = todos.flatMap((item) => item.kind === "manual" && !item.done ? [item.todo] : []);
-  const canReorder = sortOrder === "manual" && openManual.length > 1 && openManual.every((todo) => !manualBlocked.has(todo.id));
+  const canReorder = openManual.length > 1 && openManual.every((todo) => !manualBlocked.has(todo.id));
   useLayoutEffect(() => {
     const list = openList.current;
     const positions = new Map<HTMLElement, number>();
@@ -477,15 +476,12 @@ function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, to
   function orderedGroup(group: HouseholdTodo[]) {
     if (!preview) return group;
     const rank = new Map(preview.map((id, index) => [id, index]));
-    const manual = group.filter((item) => item.kind === "manual" && !item.done)
-      .sort((a, b) => (rank.get(a.kind === "manual" ? a.todo.id : "") ?? 0) - (rank.get(b.kind === "manual" ? b.todo.id : "") ?? 0));
-    return [...manual, ...group.filter((item) => item.kind !== "manual" || item.done)];
+    const manual = group.filter((item): item is Extract<HouseholdTodo, { kind: "manual" }> => item.kind === "manual" && !item.done)
+      .sort((a, b) => (rank.get(a.todo.id) ?? 0) - (rank.get(b.todo.id) ?? 0));
+    return replaceManualSlots(group, manual);
   }
 
-  return <section className="todos-page"><header className="page-heading"><div><h1>{t("To-dos")}</h1><p>{t("{count} open", { count: number(openCount) })}</p></div>
-    <div className="todo-sort"><Select label={t("To-do sorting")} value={sortOrder} onChange={setSortOrder}
-      options={[{ value: "chronological", label: t("Newest first") }, { value: "manual", label: t("Manual") }]} /></div>
-  </header>
+  return <section className="todos-page"><header className="page-heading"><div><h1>{t("To-dos")}</h1><p>{t("{count} open", { count: number(openCount) })}</p></div></header>
     <div aria-live="polite" aria-atomic="true">
       {openCount === 0 && <div className="empty-state todo-clear-state">
         <span className="todo-clear-icon" aria-hidden="true"><Sun size={30} /></span>
@@ -773,8 +769,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     ? searchIndex.filter(({ text }) => !query || text.includes(query)).map(({ entry }) => entry)
     : sortedActive, [query, searchIndex, sortedActive, tab]);
   const conflictIds = useMemo(() => new Set(ledger?.conflicts.map((conflict) => conflict.entryId) ?? []), [ledger?.conflicts]);
-  const todos = useMemo(() => householdTodos(active, ledger?.todos ?? [], ledger?.preferences.todoOrder === "manual"),
-    [active, ledger?.todos, ledger?.preferences.todoOrder]);
+  const todos = useMemo(() => householdTodos(active, ledger?.todos ?? []), [active, ledger?.todos]);
   const openTodos = useMemo(() => todos.filter((todo) => !todo.done).length, [todos]);
 
   if (!ledger) return <main className="loading"><img src="/icon.svg" width="64" height="64" alt="" /><h1>Splitty</h1><p>{t("Opening your shared ledger…")}</p>{error && <p className="error" role="alert">{message(error)}</p>}</main>;
@@ -854,8 +849,6 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
       </section>}
       {tab === "todos" ? <TodoList todos={todos} openCount={openTodos} blocked={conflictIds} open={setForm}
         conflicts={ledger.todoConflicts}
-        sortOrder={p.todoOrder ?? "chronological"}
-        setSortOrder={(todoOrder) => void updatePreferences({ todoOrder }).catch((e: Error) => setError(e.message))}
         edit={setTodoForm}
         reorder={async (changes) => { await queueTodos(changes); saved(); }}
         remove={async (item) => {

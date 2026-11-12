@@ -55,6 +55,11 @@ async function remove(page: Page, title: string) {
   await expect(row(page, title)).toHaveCount(0);
 }
 
+function waitForTodoMutation(page: Page) {
+  return page.waitForResponse((response) =>
+    new URL(response.url()).pathname.endsWith("/api/todo-sync") && response.request().method() === "POST");
+}
+
 for (const reducedMotion of ["no-preference", "reduce"] as const) {
   test(`no open todos invites you to enjoy your day with motion: ${reducedMotion}`, async ({ page }, info) => {
     await page.emulateMedia({ reducedMotion });
@@ -344,7 +349,10 @@ test("open manual todos reorder by mouse, touch, and keyboard and share the orde
     await expect(a.locator(".reorder-handle")).toHaveCount(0);
     for (const title of ["First", "Second", "Third"]) await add(a, title);
     await addInsuranceExpense(a);
+    await upToDate(a);
+    await expect(a.locator(".reorder-handle")).toHaveCount(0);
     await chooseOption(a, a.getByRole("button", { name: "To-do-Sortierung" }), "Manuell");
+    await expect(a.locator(".reorder-handle")).toHaveCount(3);
     await expect(order(a)).toHaveText(["Third", "Second", "First"]);
 
     const firstBox = (await handle(a, "First").boundingBox())!, thirdBox = (await row(a, "Third").boundingBox())!;
@@ -352,7 +360,11 @@ test("open manual todos reorder by mouse, touch, and keyboard and share the orde
     await a.mouse.down();
     await a.mouse.move(firstBox.x + firstBox.width / 2, thirdBox.y + 5, { steps: 8 });
     await expect(row(a, "First")).toHaveClass(/reordering/);
+    const firstMutation = waitForTodoMutation(a);
     await a.mouse.up();
+    await expect(order(a)).toHaveText(["First", "Third", "Second"]);
+    expect((await firstMutation).ok()).toBe(true);
+    await upToDate(a);
     await expect(order(a)).toHaveText(["First", "Third", "Second"]);
     await expect(row(a, "First").getByRole("checkbox")).not.toBeChecked();
     await expect(a.getByRole("button", { name: "To-do-Aktionen: First", exact: true })).toHaveAttribute("aria-expanded", "false");
@@ -366,24 +378,35 @@ test("open manual todos reorder by mouse, touch, and keyboard and share the orde
       const y = secondBox.y + secondBox.height / 2 + (firstRow.y + 5 - secondBox.y - secondBox.height / 2) * step / 8;
       await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y }] });
     }
+    const secondMutation = waitForTodoMutation(a);
     await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await expect(order(a)).toHaveText(["Second", "First", "Third"]);
+    expect((await secondMutation).ok()).toBe(true);
+    await upToDate(a);
     await expect(order(a)).toHaveText(["Second", "First", "Third"]);
     expect(await a.evaluate(() => window.scrollY)).toBe(0);
 
     await handle(a, "Third").focus();
+    const thirdMutation = waitForTodoMutation(a);
     await a.keyboard.press("ArrowUp");
     await expect(order(a)).toHaveText(["Second", "Third", "First"]);
     await expect(handle(a, "Third")).toBeFocused();
     await expect(a.getByText("Third auf Position 2 von 3 verschoben.")).toBeAttached();
+    expect((await thirdMutation).ok()).toBe(true);
+    await upToDate(a);
+    await expect(order(a)).toHaveText(["Second", "Third", "First"]);
 
     const topBox = (await handle(a, "Second").boundingBox())!, lastRow = (await row(a, "First").boundingBox())!;
     await a.mouse.move(topBox.x + topBox.width / 2, topBox.y + topBox.height / 2);
     await a.mouse.down();
     await a.mouse.move(topBox.x + topBox.width / 2, lastRow.y + lastRow.height - 5, { steps: 10 });
+    const fourthMutation = waitForTodoMutation(a);
     await a.mouse.up();
     await expect(order(a)).toHaveText(["Third", "First", "Second"]);
-
+    expect((await fourthMutation).ok()).toBe(true);
     await upToDate(a);
+    await expect(order(a)).toHaveText(["Third", "First", "Second"]);
+
     await sync(b);
     await chooseOption(b, b.getByRole("button", { name: "To-do-Sortierung" }), "Manuell");
     await expect(order(b)).toHaveText(["Third", "First", "Second"]);

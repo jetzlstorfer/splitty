@@ -95,6 +95,8 @@ p { line-height: 1.55; }
 .topbar { position: sticky; top: 0; z-index: 5; padding: max(env(safe-area-inset-top), 4px) 16px 4px; display: flex; justify-content: space-between; align-items: center; min-height: 56px; background: var(--cp-surface); border-bottom: 1px solid transparent; }
 .wordmark { color: var(--cp-text); text-decoration: none; display: flex; align-items: center; font-size: 22px; font-weight: 650; letter-spacing: -.6px; }
 .brand-mark { width: 32px; height: 32px; margin-right: 10px; border-radius: 8px; }
+.topbar-actions { display: flex; align-items: center; gap: 4px; }
+.install-button { min-height: 44px; padding: 8px 12px; font-size: 13px; }
 .brand-mark.is-syncing, .brand-mark.is-saving { box-shadow: 0 0 0 4px var(--cp-highlight); }
 .sync-pill { display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 8px; background: none; font-size: 12px; color: var(--cp-text-muted); }
 .sync-pill:hover, .sync-pill[aria-expanded="true"] { background: var(--cp-surface-soft); }
@@ -337,6 +339,10 @@ label.settings-row:has(input[type="file"]:focus-visible) { outline: 3px solid va
 .avatar { border-radius: 50%; background: var(--cp-accent-soft); color: var(--cp-accent-text); font-size: 15px; font-weight: 600; }
 .avatar.payer-b, .payer-b .avatar, .payer-unknown .avatar { background: var(--cp-surface-soft); color: var(--cp-text-muted); }
 .settings-row .select-control { flex: 0 1 auto; width: auto; min-height: 44px; padding: 8px 4px 8px 8px; border: 0; background: none; color: var(--cp-text-muted); font-size: 15px; }
+.install-guide { padding: 20px 16px; }
+.install-guide p { color: var(--cp-text-muted); }
+.install-guide ol { padding-left: 24px; }
+.install-guide li + li { margin-top: 12px; }
 .settings-name-field label { display: block; margin-top: 3px; font-size: 12px; font-weight: 400; color: var(--cp-text-soft); }
 input.settings-name { min-height: 0; padding: 2px 26px 2px 0; border: 0; border-bottom: 1px solid transparent; border-radius: 0; background: none; color: var(--cp-text); font-size: 16px; font-weight: 500; }
 input.settings-name:read-write:hover, input.settings-name:read-write:focus { border-bottom-color: var(--cp-border-strong); }

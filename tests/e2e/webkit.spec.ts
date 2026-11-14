@@ -47,6 +47,32 @@ test("WebKit supports native sync popovers, touch dismissal, keyboard focus and 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
+test("iPhone install button explains Add to Home Screen and hides after installation", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
+    });
+  });
+  await useEnglish(page);
+  const install = page.getByRole("button", { name: "Install", exact: true });
+  await expect(install).toBeVisible();
+
+  for (const width of [320, 393]) {
+    await page.setViewportSize({ width, height: 851 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+
+  await install.tap();
+  const guide = page.getByRole("dialog", { name: "Install Splitty", exact: true });
+  await expect(guide.getByText("Tap the Share button in your browser.")).toBeVisible();
+  await expect(guide.getByText("Choose Add to Home Screen.")).toBeVisible();
+  await expect(guide.getByText("Tap Add to confirm.")).toBeVisible();
+  await page.evaluate(() => window.dispatchEvent(new Event("appinstalled")));
+  await expect(guide).not.toBeVisible();
+  await expect(install).toBeHidden();
+});
+
 test("WebKit reloads the production PWA offline and delivers its queued write after reconnect", async ({ page, context }) => {
   await useEnglish(page);
   await signIn(page);

@@ -225,7 +225,7 @@ test("manual todo swipes preserve checkboxes and support editing and offline del
   await swipe(page, row.locator(".swipe-content"), -140);
   await row.getByRole("button", { name: "Delete to-do: Swipe task" }).click();
   await confirmAction(page, "Cancel");
-  await expect(done.getByRole("checkbox")).toBeChecked();
+  await expect(row.getByRole("checkbox")).toBeChecked();
   await row.getByRole("button", { name: "Delete to-do: Swipe task" }).click();
   await confirmAction(page, "Delete to-do");
   await expect(row).toHaveCount(0);

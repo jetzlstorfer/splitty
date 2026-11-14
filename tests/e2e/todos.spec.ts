@@ -111,6 +111,31 @@ test("doctor and pharmacy expenses create insurance to-dos that can be checked o
   await expect(page.getByRole("region", { name: "Erledigt" })).toContainText("Apotheke Rezept");
 });
 
+test("manual and insurance to-dos celebrate in the open list before moving to done", async ({ page }) => {
+  await page.goto("/");
+  const nav = page.getByRole("navigation", { name: "Hauptnavigation" });
+  await nav.getByRole("button", { name: "To-dos" }).click();
+  await addTodo(page, "Manual celebration");
+
+  const open = page.getByRole("region", { name: "Offene To-dos" });
+  const done = page.getByRole("region", { name: "Erledigt" });
+  const completeWithAnimation = async (title: string) => {
+    const row = open.getByRole("listitem").filter({ hasText: title });
+    await row.getByRole("checkbox").click();
+    await expect(row).toBeVisible();
+    await expect(row.getByRole("checkbox")).toBeChecked();
+    await expect(row.locator(".todo-confetti")).toBeVisible();
+    await expect(done.getByRole("listitem").filter({ hasText: title })).toBeVisible();
+    await expect(open.getByRole("listitem").filter({ hasText: title })).toHaveCount(0);
+  };
+  await completeWithAnimation("Manual celebration");
+
+  await nav.getByRole("button", { name: "Ausgaben" }).click();
+  await add(page, "Arzt Dr. Huber");
+  await nav.getByRole("button", { name: "To-dos" }).click();
+  await completeWithAnimation("Arzt Dr. Huber");
+});
+
 test("doctor specialties map to Gesundheit and create insurance to-dos", async ({ page }) => {
   await page.goto("/");
   for (const description of ["Augenarzt", "Zahnarzt", "Zahnärztin"]) {

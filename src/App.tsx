@@ -861,7 +861,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   return <div className="app-shell">
     <header className="topbar"><a className="wordmark" href="/" aria-label={t("Splitty home")}><img key={logoPulse.sequence} className={`brand-mark ${syncBusy ? "is-syncing" : logoPulse.active ? "is-saving" : ""}`} src="/icon.svg" width="32" height="32" alt="" />Splitty</a>
       <div className="topbar-actions">
-      {!installed && (installPrompt || iosDevice) && <button className="pill-button install-button" onClick={() => void install()}><Download size={16} aria-hidden="true" />{t("Install")}</button>}
+      {!installed && (installPrompt || iosDevice) && <button className="pill-button install-button" aria-label={t("Install")} onClick={() => void install()}><Download size={16} aria-hidden="true" /><span className="install-button-label">{t("Install")}</span></button>}
       <SyncPopover online={online} busy={syncBusy} pending={ledger.pending} attention={needsAttention} upToDate={upToDate} status={message(currentStatus)}>
         <dl className="sync-details">
           <div><dt>{t("Connection")}</dt><dd>{t(online ? "Online" : "Offline")}</dd></div>

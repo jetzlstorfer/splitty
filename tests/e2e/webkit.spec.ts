@@ -58,8 +58,10 @@ test("iPhone install button explains Add to Home Screen and hides after installa
   const install = page.getByRole("button", { name: "Install", exact: true });
   await expect(install).toBeVisible();
 
-  for (const width of [320, 393]) {
+  for (const [width, labelVisible] of [[320, false], [393, true]] as const) {
     await page.setViewportSize({ width, height: 851 });
+    if (labelVisible) await expect(install.locator(".install-button-label")).toBeVisible();
+    else await expect(install.locator(".install-button-label")).toBeHidden();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   }
 

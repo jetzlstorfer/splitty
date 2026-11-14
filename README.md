@@ -17,7 +17,7 @@ The screenshots below show the expenses and to-do screens with synthetic sample 
 - Add expenses locally, split equally or enter exact and percentage shares.
 - Track settlements, balances, and searchable history.
 - Share expenses and household to-dos across two devices with member sign-in.
-- Use the installable PWA offline; queued changes sync when a device reconnects.
+- Install the PWA from the app on supported Android browsers; on iPhone, use **Install** for the browser's Add to Home Screen steps. The button disappears after installation. The app works offline; queued changes sync when a device reconnects.
 - Import German or English Splitwise CSV exports and check the final balance before confirming.
 - Categorize expenses automatically, switch between German and English, and download or restore backups.
 

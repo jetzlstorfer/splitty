@@ -208,6 +208,7 @@ test("todo rows match expense text and column alignment in both themes", async (
 });
 
 test("todo content opens details while only the checkbox completes or reopens it", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
   await todos(page);
   await add(page, "Call dentist", "Shared household details");

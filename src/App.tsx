@@ -343,8 +343,8 @@ function TodoForm({ todo, close, saved }: { todo?: Todo; close: () => void; save
 function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, toggleManual, reorder, remove, onError }: {
   todos: HouseholdTodo[]; conflicts: Conflict<Todo>[];
   openCount: number; blocked: Set<string>;
-  open: (entry: Entry) => void; toggle: (entry: Entry, submitted: boolean, onCompleted: () => void) => void;
-  edit: (todo: Todo) => void; toggleManual: (todo: Todo, done: boolean, onCompleted: () => void) => void;
+  open: (entry: Entry) => void; toggle: (entry: Entry, submitted: boolean) => void;
+  edit: (todo: Todo) => void; toggleManual: (todo: Todo, done: boolean) => void;
   reorder: (changes: Todo[]) => Promise<void>;
   remove: (item: HouseholdTodo) => Promise<void>; onError: (error: unknown) => void;
 }) {
@@ -412,7 +412,21 @@ function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, to
   }, []);
   useEffect(() => {
     if (!celebratingTodo) return;
-    const timeout = window.setTimeout(() => setCelebratingTodo(null), 900);
+    let paused = false;
+    let timeout = window.setTimeout(finish, 900);
+    function finish() {
+      if (document.querySelector("dialog[open]")) {
+        paused = true;
+        timeout = window.setTimeout(finish, 100);
+        return;
+      }
+      if (paused) {
+        paused = false;
+        timeout = window.setTimeout(finish, 900);
+        return;
+      }
+      setCelebratingTodo(null);
+    }
     return () => window.clearTimeout(timeout);
   }, [celebratingTodo]);
   useEffect(() => {
@@ -425,6 +439,15 @@ function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, to
   }, [todos]);
 
   function startDrag(id: string | null) { draggingRef.current = id; setDragging(id); }
+
+  function completeTodo(id: string, complete: () => void) {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      complete();
+      return;
+    }
+    setCelebratingTodo(id);
+    complete();
+  }
 
   function beginDrag(todo: Todo, pointerId: number, startY: number, currentY: number) {
     const list = openList.current;
@@ -507,7 +530,10 @@ function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, to
     <p className="sr-only" aria-live="polite">{announcement}</p>
     <p id={reorderHint} hidden>{t("Drag, or use the arrow keys, to change the order.")}</p>
     {[false, true].map((done) => {
-        const group = orderedGroup(todos.filter((todo) => todo.done === done));
+        const group = orderedGroup(todos.filter((todo) => {
+          const id = todo.kind === "manual" ? `manual-${todo.todo.id}` : `insurance-${todo.entry.id}`;
+          return celebratingTodo === id || swipedTodo === id ? !done : todo.done === done;
+        }));
         return !!group.length && <section key={String(done)} className="todo-group" aria-label={t(done ? "Done" : "Open to-dos")}>
           {done && <h2 className="section-label">{t("Done")}</h2>}
           <ul className="todo-list" ref={done ? undefined : openList}>{group.map((item) => {
@@ -522,12 +548,19 @@ function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, to
                   actionsLabel={t("To-do actions")} editLabel={t("Edit to-do")} deleteLabel={t("Delete to-do")}
                   deleteConfirmation={t("Delete this to-do for everyone in your household? This will sync when you are online.")}>
                   <div className="todo-row">
-                    <label className="todo-check"><input type="checkbox" aria-label={todo.title} checked={done} disabled={manualBlocked.has(todo.id)} onChange={(event) => {
+                    <label className="todo-check"><input type="checkbox" aria-label={todo.title} checked={item.done || celebratingTodo === id} disabled={manualBlocked.has(todo.id)} onChange={(event) => {
                       const completed = event.target.checked;
-                      toggleManual(todo, completed, () => { if (completed) setCelebratingTodo(id); });
+                      if (completed) completeTodo(id, () => toggleManual(todo, true));
+                      else {
+                        if (celebratingTodo === id) setCelebratingTodo(null);
+                        toggleManual(todo, false);
+                      }
                     }} /></label>
                     {celebratingTodo === id && <TodoConfetti />}
-                    <button className="todo-details" disabled={manualBlocked.has(todo.id)} onClick={() => edit(todo)}>
+                    <button id={`todo-details-${id}`} className="todo-details" disabled={manualBlocked.has(todo.id)} onClick={(event) => {
+                      event.currentTarget.focus({ preventScroll: true });
+                      edit(todo);
+                    }}>
                       <span className="entry-icon"><ClipboardCheck size={20} /></span>
                       <span className="entry-description"><strong>{todo.title}</strong>{todo.description && <small>{todo.description}</small>}</span>
                     </button>
@@ -572,12 +605,19 @@ function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, to
                 actionsLabel={t("To-do actions")} editLabel={t("Open expense")} deleteLabel={t("Delete entry")}
                 deleteConfirmation={t("Delete this entry for both of you? This will sync when you are online.")}>
                 <div className="todo-row">
-                  <label className="todo-check"><input type="checkbox" aria-label={`${t("Submit to insurance")}: ${entry.description}`} checked={done} disabled={blocked.has(entry.id)} onChange={(event) => {
+                  <label className="todo-check"><input type="checkbox" aria-label={`${t("Submit to insurance")}: ${entry.description}`} checked={item.done || celebratingTodo === id} disabled={blocked.has(entry.id)} onChange={(event) => {
                     const completed = event.target.checked;
-                    toggle(entry, completed, () => { if (completed) setCelebratingTodo(id); });
+                    if (completed) completeTodo(id, () => toggle(entry, true));
+                    else {
+                      if (celebratingTodo === id) setCelebratingTodo(null);
+                      toggle(entry, false);
+                    }
                   }} /></label>
                   {celebratingTodo === id && <TodoConfetti />}
-                  <button className="todo-details" disabled={blocked.has(entry.id)} onClick={() => open(entry)}>
+                  <button id={`todo-details-${id}`} className="todo-details" disabled={blocked.has(entry.id)} onClick={(event) => {
+                    event.currentTarget.focus({ preventScroll: true });
+                    open(entry);
+                  }}>
                     <span className="entry-icon" data-category={category}><ExpenseIcon category={category} /></span>
                     <span className="entry-description"><strong>{entry.description}</strong><small>{t("Submit to insurance · {amount}", { amount: money(entry.amountCents) })}</small></span>
                   </button>
@@ -915,8 +955,8 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
           saved();
         }}
         onError={(e) => setError(e instanceof Error ? e.message : "Could not save this to-do.")}
-        toggleManual={(todo, done, onCompleted) => void queueTodos([{ ...todo, done }]).then(() => { saved(); if (done) onCompleted(); }).catch((e: Error) => setError(e.message))}
-        toggle={(entry, submitted, onCompleted) => void markSubmitted(entry, submitted).then(() => { saved(); if (submitted) onCompleted(); }).catch((e: Error) => setError(e.message))} /> : tab === "statistics" ? <Suspense fallback={<p className="loading">{t("Loading…")}</p>}><Statistics entries={ledger.entries} preferences={p} /></Suspense> : tab !== "settings" ? <>
+        toggleManual={(todo, done) => void queueTodos([{ ...todo, done }]).then(saved).catch((e: Error) => setError(e.message))}
+        toggle={(entry, submitted) => void markSubmitted(entry, submitted).then(saved).catch((e: Error) => setError(e.message))} /> : tab === "statistics" ? <Suspense fallback={<p className="loading">{t("Loading…")}</p>}><Statistics entries={ledger.entries} preferences={p} /></Suspense> : tab !== "settings" ? <>
         {tab === "expenses" ? <>
           <header className="page-heading">
             <div><h1>{t("Expenses")}</h1><p className="household-members">{p.nameA} & {p.nameB}</p></div>

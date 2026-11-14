@@ -12,12 +12,19 @@ export function Sheet({ title, children, close, initialFocus, compact = false, d
   useLayoutEffect(() => {
     const element = dialog.current;
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const openerId = opener?.id;
     element?.showModal();
     if (initialFocus) element?.querySelector<HTMLElement>(initialFocus)?.focus();
     // Close before removal so the browser restores focus to the opener.
     return () => {
       element?.close();
-      if (opener?.isConnected) opener.focus({ preventScroll: true });
+      window.requestAnimationFrame(() => {
+        const target = (openerId && document.getElementById(openerId)) || (opener?.isConnected ? opener : null);
+        const active = document.activeElement;
+        if (target && (active === document.body || active === document.documentElement || active === target)) {
+          target.focus({ preventScroll: true });
+        }
+      });
     };
   }, [initialFocus]);
   return <dialog ref={dialog} onCancel={(event) => {

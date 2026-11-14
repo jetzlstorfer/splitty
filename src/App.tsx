@@ -27,6 +27,20 @@ interface Snapshot {
   conflicts: Conflict[]; todoConflicts: Conflict<Todo>[];
 }
 
+interface InstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+}
+
+function isInstalledPwa() {
+  const safariNavigator = navigator as Navigator & { standalone?: boolean };
+  return window.matchMedia("(display-mode: standalone)").matches || safariNavigator.standalone === true;
+}
+
+function isIosDevice() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
 function useLedger(): Snapshot | null {
   const [value, setValue] = useState<Snapshot | null>(null);
   useEffect(() => {
@@ -615,6 +629,10 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const [update, setUpdate] = useState<(() => Promise<void>) | null>(null);
   const [saveFeedback, setSaveFeedback] = useState<{ entry: Entry; settled: boolean } | null>(null);
   const [logoPulse, setLogoPulse] = useState({ sequence: 0, active: false });
+  const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
+  const [installed, setInstalled] = useState(isInstalledPwa);
+  const [installGuideOpen, setInstallGuideOpen] = useState(false);
+  const iosDevice = isIosDevice();
 
   useEffect(() => {
     const root = document.documentElement;
@@ -644,6 +662,28 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     const timeout = window.setTimeout(() => setSaveFeedback(null), 4500);
     return () => window.clearTimeout(timeout);
   }, [saveFeedback]);
+
+  useEffect(() => {
+    const displayMode = window.matchMedia("(display-mode: standalone)");
+    const updateInstalled = () => setInstalled(isInstalledPwa());
+    const captureInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as InstallPromptEvent);
+    };
+    const installedApp = () => {
+      setInstalled(true);
+      setInstallPrompt(null);
+      setInstallGuideOpen(false);
+    };
+    window.addEventListener("beforeinstallprompt", captureInstallPrompt);
+    window.addEventListener("appinstalled", installedApp);
+    displayMode.addEventListener("change", updateInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", captureInstallPrompt);
+      window.removeEventListener("appinstalled", installedApp);
+      displayMode.removeEventListener("change", updateInstalled);
+    };
+  }, []);
 
   const performSync = useCallback(() => {
     if (!navigator.onLine) return Promise.resolve();
@@ -706,6 +746,21 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const saved = () => { setSaveFeedback(null); setSyncStatus("Saved on this device"); void sync(); };
   const conflictResolved = () => { setSyncActionError(""); saved(); };
   const pulseLogo = () => setLogoPulse((current) => ({ sequence: current.sequence + 1, active: true }));
+  const install = async () => {
+    if (!installPrompt) {
+      setInstallGuideOpen(true);
+      return;
+    }
+    const prompt = installPrompt;
+    setInstallPrompt(null);
+    try {
+      await prompt.prompt();
+      const choice = await prompt.userChoice;
+      if (choice.outcome === "accepted") setInstalled(true);
+    } catch {
+      setError(t("Could not start installation."));
+    }
+  };
 
   function navigate(next: typeof tab) {
     setSwipedEntry(null);
@@ -805,6 +860,8 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
 
   return <div className="app-shell">
     <header className="topbar"><a className="wordmark" href="/" aria-label={t("Splitty home")}><img key={logoPulse.sequence} className={`brand-mark ${syncBusy ? "is-syncing" : logoPulse.active ? "is-saving" : ""}`} src="/icon.svg" width="32" height="32" alt="" />Splitty</a>
+      <div className="topbar-actions">
+      {!installed && (installPrompt || iosDevice) && <button className="pill-button install-button" aria-label={t("Install")} onClick={() => void install()}><Download size={16} aria-hidden="true" /><span className="install-button-label">{t("Install")}</span></button>}
       <SyncPopover online={online} busy={syncBusy} pending={ledger.pending} attention={needsAttention} upToDate={upToDate} status={message(currentStatus)}>
         <dl className="sync-details">
           <div><dt>{t("Connection")}</dt><dd>{t(online ? "Online" : "Offline")}</dd></div>
@@ -837,6 +894,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
           </div>)}
         </section>}
       </SyncPopover>
+      </div>
     </header>
     <main className={tab === "expenses" || tab === "todos" ? "with-expense-action" : undefined}>
       {error && <div className="banner error" role="alert">{message(error)}<button className="icon-button" aria-label={t("Dismiss error")} onClick={() => setError("")}><X size={18} /></button></div>}
@@ -976,5 +1034,15 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
       saved();
     }} />}
     {importing && <ImportForm preferences={p} close={() => setImporting(false)} saved={saved} />}
+    {installGuideOpen && <Sheet title={t("Install Splitty")} close={() => setInstallGuideOpen(false)}>
+      <div className="install-guide">
+        <p>{t("Add Splitty to your Home Screen for quick access and offline use.")}</p>
+        <ol>
+          <li>{t("Tap the Share button in your browser.")}</li>
+          <li>{t("Choose Add to Home Screen.")}</li>
+          <li>{t("Tap Add to confirm.")}</li>
+        </ol>
+      </div>
+    </Sheet>}
   </div>;
 }

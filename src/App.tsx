@@ -565,7 +565,7 @@ function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, to
                   actionsLabel={t("To-do actions")} editLabel={t("Edit to-do")} deleteLabel={t("Delete to-do")}
                   deleteConfirmation={t("Delete this to-do for everyone in your household? This will sync when you are online.")}>
                   <div className="todo-row">
-                    <label className="todo-check"><input type="checkbox" aria-label={todo.title} checked={item.done || celebratingTodo === id} disabled={manualBlocked.has(todo.id)} onChange={(event) => {
+                    <label className="todo-check"><input type="checkbox" aria-label={todo.title} checked={item.done} disabled={manualBlocked.has(todo.id)} onChange={(event) => {
                       const completed = event.target.checked;
                       if (completed) completeTodo(id, () => toggleManual(todo, true));
                       else {
@@ -625,7 +625,7 @@ function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, to
                 actionsLabel={t("To-do actions")} editLabel={t("Open expense")} deleteLabel={t("Delete entry")}
                 deleteConfirmation={t("Delete this entry for both of you? This will sync when you are online.")}>
                 <div className="todo-row">
-                  <label className="todo-check"><input type="checkbox" aria-label={`${t("Submit to insurance")}: ${entry.description}`} checked={item.done || celebratingTodo === id} disabled={blocked.has(entry.id)} onChange={(event) => {
+                  <label className="todo-check"><input type="checkbox" aria-label={`${t("Submit to insurance")}: ${entry.description}`} checked={item.done} disabled={blocked.has(entry.id)} onChange={(event) => {
                     const completed = event.target.checked;
                     if (completed) completeTodo(id, () => toggle(entry, true));
                     else {

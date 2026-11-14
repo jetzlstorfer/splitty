@@ -150,6 +150,35 @@ test("manual and insurance to-dos celebrate in the open list before moving to do
   await completeWithAnimation("Arzt Dr. Huber");
 });
 
+for (const kind of ["manual", "insurance"] as const) {
+  test(`${kind} completion never appears saved when its local transaction fails`, async ({ page }) => {
+    await page.goto("/");
+    const nav = page.getByRole("navigation", { name: "Hauptnavigation" });
+    if (kind === "insurance") await add(page, "Arzt storage failure");
+    await nav.getByRole("button", { name: "To-dos" }).click();
+    if (kind === "manual") await addTodo(page, "Manual storage failure");
+    await page.evaluate(() => {
+      const add = IDBObjectStore.prototype.add;
+      IDBObjectStore.prototype.add = function (value, key) {
+        if (this.name === "outbox" || this.name === "todoOutbox") {
+          throw new DOMException("Test storage quota exceeded.", "QuotaExceededError");
+        }
+        return key === undefined ? add.call(this, value) : add.call(this, value, key);
+      };
+    });
+    await page.clock.install();
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
+    const checkbox = page.getByRole("checkbox");
+    await checkbox.click();
+    await expect(page.getByRole("alert")).toBeVisible();
+    await expect(checkbox).not.toBeChecked();
+    await page.clock.resume();
+    await page.reload();
+    await nav.getByRole("button", { name: "To-dos" }).click();
+    await expect(page.getByRole("checkbox")).not.toBeChecked();
+  });
+}
+
 test("doctor specialties map to Gesundheit and create insurance to-dos", async ({ page }) => {
   await page.goto("/");
   for (const description of ["Augenarzt", "Zahnarzt", "Zahnärztin"]) {

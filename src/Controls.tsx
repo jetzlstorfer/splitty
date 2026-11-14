@@ -20,7 +20,10 @@ export function Sheet({ title, children, close, initialFocus, compact = false, d
       element?.close();
       window.requestAnimationFrame(() => {
         const target = (openerId && document.getElementById(openerId)) || (opener?.isConnected ? opener : null);
-        target?.focus({ preventScroll: true });
+        const active = document.activeElement;
+        if (target && (active === document.body || active === document.documentElement || active === target)) {
+          target.focus({ preventScroll: true });
+        }
       });
     };
   }, [initialFocus]);

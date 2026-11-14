@@ -340,6 +340,10 @@ function TodoForm({ todo, close, saved }: { todo?: Todo; close: () => void; save
   </Sheet>;
 }
 
+function householdTodoId(item: HouseholdTodo) {
+  return item.kind === "manual" ? `manual-${item.todo.id}` : `insurance-${item.entry.id}`;
+}
+
 function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, toggleManual, reorder, remove, onError }: {
   todos: HouseholdTodo[]; conflicts: Conflict<Todo>[];
   openCount: number; blocked: Set<string>;
@@ -350,7 +354,9 @@ function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, to
 }) {
   const { t, number, money } = useLocale();
   const [swipedTodo, setSwipedTodo] = useState<string | null>(null);
+  const swipedTodoRef = useRef<string | null>(null);
   const [celebratingTodo, setCelebratingTodo] = useState<string | null>(null);
+  const [celebrationPosition, setCelebrationPosition] = useState<{ id: string; index: number } | null>(null);
   const [preview, setPreview] = useState<string[] | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const draggingRef = useRef<string | null>(null);
@@ -412,19 +418,13 @@ function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, to
   }, []);
   useEffect(() => {
     if (!celebratingTodo) return;
-    let paused = false;
-    let timeout = window.setTimeout(finish, 900);
+    let timeout = window.setTimeout(finish, 850);
     function finish() {
       if (document.querySelector("dialog[open]")) {
-        paused = true;
         timeout = window.setTimeout(finish, 100);
         return;
       }
-      if (paused) {
-        paused = false;
-        timeout = window.setTimeout(finish, 900);
-        return;
-      }
+      if (swipedTodoRef.current !== celebratingTodo) setCelebrationPosition(null);
       setCelebratingTodo(null);
     }
     return () => window.clearTimeout(timeout);
@@ -440,11 +440,21 @@ function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, to
 
   function startDrag(id: string | null) { draggingRef.current = id; setDragging(id); }
 
+  function updateSwipedTodo(id: string | null) {
+    swipedTodoRef.current = id;
+    setSwipedTodo(id);
+    if (celebrationPosition && celebrationPosition.id !== id && celebrationPosition.id !== celebratingTodo) {
+      setCelebrationPosition(null);
+    }
+  }
+
   function completeTodo(id: string, complete: () => void) {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       complete();
       return;
     }
+    const index = orderedGroup(todos.filter((item) => !item.done)).findIndex((item) => householdTodoId(item) === id);
+    if (index >= 0) setCelebrationPosition({ id, index });
     setCelebratingTodo(id);
     complete();
   }
@@ -456,7 +466,7 @@ function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, to
     dragPosition.current = { element, grabOffset: startY - element.getBoundingClientRect().top, y: currentY };
     list.setPointerCapture(pointerId);
     let order = openManual.map((item) => item.id);
-    setSwipedTodo(null);
+    updateSwipedTodo(null);
     setPreview(order);
     startDrag(todo.id);
     const updatePosition = (y: number) => {
@@ -531,9 +541,16 @@ function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, to
     <p id={reorderHint} hidden>{t("Drag, or use the arrow keys, to change the order.")}</p>
     {[false, true].map((done) => {
         const group = orderedGroup(todos.filter((todo) => {
-          const id = todo.kind === "manual" ? `manual-${todo.todo.id}` : `insurance-${todo.entry.id}`;
+          const id = householdTodoId(todo);
           return celebratingTodo === id || swipedTodo === id ? !done : todo.done === done;
         }));
+        if (!done && celebrationPosition && (celebratingTodo === celebrationPosition.id || swipedTodo === celebrationPosition.id)) {
+          const currentIndex = group.findIndex((item) => householdTodoId(item) === celebrationPosition.id);
+          if (currentIndex >= 0 && currentIndex !== celebrationPosition.index) {
+            const [item] = group.splice(currentIndex, 1);
+            if (item) group.splice(Math.min(celebrationPosition.index, group.length), 0, item);
+          }
+        }
         return !!group.length && <section key={String(done)} className="todo-group" aria-label={t(done ? "Done" : "Open to-dos")}>
           {done && <h2 className="section-label">{t("Done")}</h2>}
           <ul className="todo-list" ref={done ? undefined : openList}>{group.map((item) => {
@@ -544,15 +561,18 @@ function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, to
               return <li key={id} className={`todo-item manual-todo ${done ? "done" : ""}${dragging === todo.id ? " reordering" : ""}`}
                 data-manual-id={done ? undefined : todo.id}>
                 <SwipeableRow description={todo.title} disabled={manualBlocked.has(todo.id)} open={swipedTodo === id}
-                  setOpen={(open) => setSwipedTodo(open ? id : null)} edit={() => edit(todo)} remove={() => remove(item)} onError={onError}
+                  setOpen={(open) => updateSwipedTodo(open ? id : null)} edit={() => edit(todo)} remove={() => remove(item)} onError={onError}
                   actionsLabel={t("To-do actions")} editLabel={t("Edit to-do")} deleteLabel={t("Delete to-do")}
                   deleteConfirmation={t("Delete this to-do for everyone in your household? This will sync when you are online.")}>
                   <div className="todo-row">
-                    <label className="todo-check"><input type="checkbox" aria-label={todo.title} checked={item.done || celebratingTodo === id} disabled={manualBlocked.has(todo.id)} onChange={(event) => {
+                    <label className="todo-check"><input type="checkbox" aria-label={todo.title} checked={item.done} disabled={manualBlocked.has(todo.id)} onChange={(event) => {
                       const completed = event.target.checked;
                       if (completed) completeTodo(id, () => toggleManual(todo, true));
                       else {
-                        if (celebratingTodo === id) setCelebratingTodo(null);
+                        if (celebratingTodo === id) {
+                          setCelebratingTodo(null);
+                          setCelebrationPosition(null);
+                        }
                         toggleManual(todo, false);
                       }
                     }} /></label>
@@ -601,15 +621,18 @@ function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, to
             const id = `insurance-${entry.id}`;
             return <li key={id} className={`todo-item ${done ? "done" : ""}`}>
               <SwipeableRow description={entry.description} disabled={blocked.has(entry.id)} open={swipedTodo === id}
-                setOpen={(open) => setSwipedTodo(open ? id : null)} edit={() => open(entry)} remove={() => remove(item)} onError={onError}
+                setOpen={(open) => updateSwipedTodo(open ? id : null)} edit={() => open(entry)} remove={() => remove(item)} onError={onError}
                 actionsLabel={t("To-do actions")} editLabel={t("Open expense")} deleteLabel={t("Delete entry")}
                 deleteConfirmation={t("Delete this entry for both of you? This will sync when you are online.")}>
                 <div className="todo-row">
-                  <label className="todo-check"><input type="checkbox" aria-label={`${t("Submit to insurance")}: ${entry.description}`} checked={item.done || celebratingTodo === id} disabled={blocked.has(entry.id)} onChange={(event) => {
+                  <label className="todo-check"><input type="checkbox" aria-label={`${t("Submit to insurance")}: ${entry.description}`} checked={item.done} disabled={blocked.has(entry.id)} onChange={(event) => {
                     const completed = event.target.checked;
                     if (completed) completeTodo(id, () => toggle(entry, true));
                     else {
-                      if (celebratingTodo === id) setCelebratingTodo(null);
+                      if (celebratingTodo === id) {
+                        setCelebratingTodo(null);
+                        setCelebrationPosition(null);
+                      }
                       toggle(entry, false);
                     }
                   }} /></label>

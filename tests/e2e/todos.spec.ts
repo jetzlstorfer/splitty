@@ -112,29 +112,72 @@ test("doctor and pharmacy expenses create insurance to-dos that can be checked o
 });
 
 test("manual and insurance to-dos celebrate in the open list before moving to done", async ({ page }) => {
+  await page.clock.install();
   await page.goto("/");
   const nav = page.getByRole("navigation", { name: "Hauptnavigation" });
   await nav.getByRole("button", { name: "To-dos" }).click();
+  await addTodo(page, "Earlier task");
   await addTodo(page, "Manual celebration");
 
   const open = page.getByRole("region", { name: "Offene To-dos" });
   const done = page.getByRole("region", { name: "Erledigt" });
   const completeWithAnimation = async (title: string) => {
     const row = open.getByRole("listitem").filter({ hasText: title });
+    const originalPosition = await row.evaluate((element) => Array.from(element.parentElement!.children).indexOf(element));
+    const rowCount = await open.getByRole("listitem").count();
+    expect(originalPosition).toBeLessThan(rowCount - 1);
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
     await row.getByRole("checkbox").click();
     await expect(row).toBeVisible();
     await expect(row.getByRole("checkbox")).toBeChecked();
     await expect(row.locator(".todo-confetti")).toBeVisible();
+    await expect(row.locator(".todo-confetti i").first()).toHaveCSS("animation-duration", "1.05s");
+    await expect.poll(() => row.evaluate((element) => Array.from(element.parentElement!.children).indexOf(element))).toBe(originalPosition);
+    await expect(done.getByRole("listitem").filter({ hasText: title })).toHaveCount(0);
+    await page.clock.runFor(800);
+    await expect(row).toBeVisible();
+    await page.clock.runFor(50);
     await expect(done.getByRole("listitem").filter({ hasText: title })).toBeVisible();
     await expect(open.getByRole("listitem").filter({ hasText: title })).toHaveCount(0);
+    await page.clock.resume();
   };
   await completeWithAnimation("Manual celebration");
 
   await nav.getByRole("button", { name: "Ausgaben" }).click();
   await add(page, "Arzt Dr. Huber");
+  await addOn(page, "Arzt Dr. Meier", "2026-09-01");
   await nav.getByRole("button", { name: "To-dos" }).click();
   await completeWithAnimation("Arzt Dr. Huber");
 });
+
+for (const kind of ["manual", "insurance"] as const) {
+  test(`${kind} completion never appears saved when its local transaction fails`, async ({ page }) => {
+    await page.goto("/");
+    const nav = page.getByRole("navigation", { name: "Hauptnavigation" });
+    if (kind === "insurance") await add(page, "Arzt storage failure");
+    await nav.getByRole("button", { name: "To-dos" }).click();
+    if (kind === "manual") await addTodo(page, "Manual storage failure");
+    await page.evaluate(() => {
+      const add = IDBObjectStore.prototype.add;
+      IDBObjectStore.prototype.add = function (value, key) {
+        if (this.name === "outbox" || this.name === "todoOutbox") {
+          throw new DOMException("Test storage quota exceeded.", "QuotaExceededError");
+        }
+        return key === undefined ? add.call(this, value) : add.call(this, value, key);
+      };
+    });
+    await page.clock.install();
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
+    const checkbox = page.getByRole("checkbox");
+    await checkbox.click();
+    await expect(page.getByRole("alert")).toBeVisible();
+    await expect(checkbox).not.toBeChecked();
+    await page.clock.resume();
+    await page.reload();
+    await nav.getByRole("button", { name: "To-dos" }).click();
+    await expect(page.getByRole("checkbox")).not.toBeChecked();
+  });
+}
 
 test("doctor specialties map to Gesundheit and create insurance to-dos", async ({ page }) => {
   await page.goto("/");

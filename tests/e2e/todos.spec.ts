@@ -112,26 +112,40 @@ test("doctor and pharmacy expenses create insurance to-dos that can be checked o
 });
 
 test("manual and insurance to-dos celebrate in the open list before moving to done", async ({ page }) => {
+  await page.clock.install();
   await page.goto("/");
   const nav = page.getByRole("navigation", { name: "Hauptnavigation" });
   await nav.getByRole("button", { name: "To-dos" }).click();
+  await addTodo(page, "Earlier task");
   await addTodo(page, "Manual celebration");
 
   const open = page.getByRole("region", { name: "Offene To-dos" });
   const done = page.getByRole("region", { name: "Erledigt" });
   const completeWithAnimation = async (title: string) => {
     const row = open.getByRole("listitem").filter({ hasText: title });
+    const originalPosition = await row.evaluate((element) => Array.from(element.parentElement!.children).indexOf(element));
+    const rowCount = await open.getByRole("listitem").count();
+    expect(originalPosition).toBeLessThan(rowCount - 1);
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
     await row.getByRole("checkbox").click();
     await expect(row).toBeVisible();
     await expect(row.getByRole("checkbox")).toBeChecked();
     await expect(row.locator(".todo-confetti")).toBeVisible();
+    await expect(row.locator(".todo-confetti i").first()).toHaveCSS("animation-duration", "1.05s");
+    await expect.poll(() => row.evaluate((element) => Array.from(element.parentElement!.children).indexOf(element))).toBe(originalPosition);
+    await expect(done.getByRole("listitem").filter({ hasText: title })).toHaveCount(0);
+    await page.clock.runFor(800);
+    await expect(row).toBeVisible();
+    await page.clock.runFor(50);
     await expect(done.getByRole("listitem").filter({ hasText: title })).toBeVisible();
     await expect(open.getByRole("listitem").filter({ hasText: title })).toHaveCount(0);
+    await page.clock.resume();
   };
   await completeWithAnimation("Manual celebration");
 
   await nav.getByRole("button", { name: "Ausgaben" }).click();
   await add(page, "Arzt Dr. Huber");
+  await addOn(page, "Arzt Dr. Meier", "2026-09-01");
   await nav.getByRole("button", { name: "To-dos" }).click();
   await completeWithAnimation("Arzt Dr. Huber");
 });

@@ -469,7 +469,7 @@ html[data-input-mode="pointer"] input.settings-name:read-only:focus-visible { ou
   .settled-mark.celebrate { animation: settled-pop .65s var(--cp-ease-out); }
   .settled-sparkles { animation: settled-sparkle .9s ease-out both; }
   .todo-confetti { display: block; }
-  .todo-confetti i { position: absolute; left: 0; top: 0; width: 6px; height: 9px; border-radius: 2px; opacity: 0; background: var(--confetti-color); animation: todo-confetti-burst .78s cubic-bezier(.15, .75, .3, 1) both; }
+  .todo-confetti i { position: absolute; left: 0; top: 0; width: 6px; height: 9px; border-radius: 2px; opacity: 0; background: var(--confetti-color); animation: todo-confetti-burst 1.05s cubic-bezier(.15, .75, .3, 1) both; }
   .todo-confetti i:nth-child(1) { --confetti-x: -22px; --confetti-y: -24px; --confetti-color: #e879f9; --confetti-rotation: 210deg; }
   .todo-confetti i:nth-child(2) { --confetti-x: -10px; --confetti-y: -32px; --confetti-color: #f59e0b; --confetti-rotation: -140deg; }
   .todo-confetti i:nth-child(3) { --confetti-x: 5px; --confetti-y: -30px; --confetti-color: #34d399; --confetti-rotation: 180deg; }
@@ -512,6 +512,7 @@ html[data-input-mode="pointer"] input.settings-name:read-only:focus-visible { ou
   @keyframes todo-confetti-burst {
     0% { opacity: 0; transform: translate(0, 0) rotate(0) scale(.4); }
     18% { opacity: 1; }
+    65% { opacity: 1; }
     100% { opacity: 0; transform: translate(var(--confetti-x), var(--confetti-y)) rotate(var(--confetti-rotation)) scale(.7); }
   }
   @keyframes rise-in {

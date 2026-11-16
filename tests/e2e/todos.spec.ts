@@ -1,23 +1,76 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
+import { signIn as signInMember } from "./helpers";
+import { confirmAction } from "./controls";
 
 async function signIn(page: Page, member: "A" | "B" = "A") {
   await page.goto("/");
-  await page.getByRole("button", { name: "Einstellungen", exact: true }).click();
-  await page.getByLabel("Mitglieds-Token").fill(member.repeat(43));
-  await page.getByRole("button", { name: "Anmelden", exact: true }).click();
-  await expect(page.getByRole("status")).toHaveText("Auf dem neuesten Stand");
+  await signInMember(page, member);
   await page.getByRole("button", { name: "Ausgaben", exact: true }).click();
 }
 
 async function add(page: Page, description: string) {
+  await addOn(page, description, "2026-10-01");
+}
+
+async function addOn(page: Page, description: string, date: string) {
   await page.locator(".add-button").click();
   const dialog = page.getByRole("dialog", { name: "Ausgabe hinzufügen" });
   await dialog.getByLabel("Beschreibung", { exact: true }).fill(description);
   await dialog.getByRole("textbox", { name: "Betrag in EUR" }).fill("20,00");
-  await dialog.getByLabel("Datum", { exact: true }).fill("2026-10-01");
+  await dialog.getByLabel("Datum", { exact: true }).fill(date);
   await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
 }
+
+async function addTodo(page: Page, title: string) {
+  await page.getByRole("button", { name: "To-do hinzufügen", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "To-do hinzufügen" });
+  await dialog.getByLabel("Titel", { exact: true }).fill(title);
+  await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+}
+
+test("insurance reminders are interleaved by date and keep their slot when manual to-dos move", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("navigation", { name: "Hauptnavigation" }).getByRole("button", { name: "To-dos" }).click();
+  await page.clock.setFixedTime(new Date("2024-03-01T12:00:00Z"));
+  await addTodo(page, "Ältere Aufgabe");
+  await page.clock.setFixedTime(new Date("2024-03-03T12:00:00Z"));
+  await addTodo(page, "Neuere Aufgabe");
+  await page.getByRole("navigation", { name: "Hauptnavigation" }).getByRole("button", { name: "Ausgaben" }).click();
+  await addOn(page, "Apotheke", "2024-03-02");
+  await page.getByRole("navigation", { name: "Hauptnavigation" }).getByRole("button", { name: "To-dos" }).click();
+
+  const open = page.getByRole("region", { name: "Offene To-dos" });
+  await expect(open.getByRole("listitem").nth(0)).toContainText("Neuere Aufgabe");
+  await expect(open.getByRole("listitem").nth(1)).toContainText("Apotheke");
+  await expect(open.getByRole("listitem").nth(2)).toContainText("Ältere Aufgabe");
+  await page.getByRole("button", { name: "To-do verschieben: Ältere Aufgabe" }).focus();
+  await page.keyboard.press("ArrowUp");
+  await expect(open.getByRole("listitem").nth(0)).toContainText("Ältere Aufgabe");
+  await expect(open.getByRole("listitem").nth(1)).toContainText("Apotheke");
+  await expect(open.getByRole("listitem").nth(2)).toContainText("Neuere Aufgabe");
+  await expect.poll(() => page.evaluate(() => new Promise<number | undefined>((resolve, reject) => {
+    const opening = indexedDB.open("splitty");
+    opening.onerror = () => reject(opening.error);
+    opening.onsuccess = () => {
+      const database = opening.result;
+      const request = database.transaction("todos", "readonly").objectStore("todos").getAll();
+      request.onerror = () => { database.close(); reject(request.error); };
+      request.onsuccess = () => {
+        const older = request.result.find((todo: { title: string }) => todo.title === "Ältere Aufgabe");
+        database.close();
+        resolve(older?.position);
+      };
+    };
+  }))).toBeDefined();
+
+  await page.reload();
+  await page.getByRole("navigation", { name: "Hauptnavigation" }).getByRole("button", { name: "To-dos" }).click();
+  await expect(open.getByRole("listitem").nth(0)).toContainText("Ältere Aufgabe");
+  await expect(open.getByRole("listitem").nth(1)).toContainText("Apotheke");
+  await expect(open.getByRole("listitem").nth(2)).toContainText("Neuere Aufgabe");
+});
 
 test("doctor and pharmacy expenses create insurance to-dos that can be checked off", async ({ page }) => {
   await page.goto("/");
@@ -28,22 +81,22 @@ test("doctor and pharmacy expenses create insurance to-dos that can be checked o
   await add(page, "Billa");
 
   await nav.getByRole("button", { name: "To-dos" }).click();
-  await expect(page.getByRole("heading", { name: /^To-dos/, level: 1 })).toContainText("2");
+  await expect(page.locator(".todos-page .page-heading p")).toHaveText("2 offen");
   const open = page.getByRole("region", { name: "Offene To-dos" });
   await expect(open.getByRole("heading")).toHaveCount(0);
-  await expect(open.locator(".section-title")).toHaveCount(0);
+  await expect(open.locator(".section-label")).toHaveCount(0);
   await expect(open.getByRole("listitem")).toHaveCount(2);
   await expect(open.getByRole("listitem").first()).toContainText("Bei Versicherung einreichen");
-  await expect(open).toContainText("Ausgabe: Apotheke");
-  await expect(open).toContainText("Ausgabe: Arzt Dr. Huber");
+  await expect(open).toContainText("Apotheke");
+  await expect(open).toContainText("Arzt Dr. Huber");
   await expect(page.getByText("Billa")).toHaveCount(0);
 
   await open.getByRole("listitem").filter({ hasText: "Apotheke" }).getByRole("checkbox").click();
   const done = page.getByRole("region", { name: "Erledigt" });
-  await expect(done.getByRole("heading", { level: 2 })).toHaveText("Erledigt1");
-  await expect(page.getByRole("heading", { name: /^To-dos/, level: 1 })).toContainText("1");
+  await expect(done.getByRole("heading", { level: 2 })).toHaveText("Erledigt");
+  await expect(page.locator(".todos-page .page-heading p")).toHaveText("1 offen");
   await expect(done.getByRole("checkbox")).toBeChecked();
-  await expect(done).toContainText("Ausgabe: Apotheke");
+  await expect(done).toContainText("Apotheke");
   await expect(open.getByRole("listitem")).toHaveCount(1);
 
   await page.reload();
@@ -58,6 +111,74 @@ test("doctor and pharmacy expenses create insurance to-dos that can be checked o
   await expect(page.getByRole("region", { name: "Erledigt" })).toContainText("Apotheke Rezept");
 });
 
+test("manual and insurance to-dos celebrate in the open list before moving to done", async ({ page }) => {
+  await page.clock.install();
+  await page.goto("/");
+  const nav = page.getByRole("navigation", { name: "Hauptnavigation" });
+  await nav.getByRole("button", { name: "To-dos" }).click();
+  await addTodo(page, "Earlier task");
+  await addTodo(page, "Manual celebration");
+
+  const open = page.getByRole("region", { name: "Offene To-dos" });
+  const done = page.getByRole("region", { name: "Erledigt" });
+  const completeWithAnimation = async (title: string) => {
+    const row = open.getByRole("listitem").filter({ hasText: title });
+    const originalPosition = await row.evaluate((element) => Array.from(element.parentElement!.children).indexOf(element));
+    const rowCount = await open.getByRole("listitem").count();
+    expect(originalPosition).toBeLessThan(rowCount - 1);
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
+    await row.getByRole("checkbox").click();
+    await expect(row).toBeVisible();
+    await expect(row.getByRole("checkbox")).toBeChecked();
+    await expect(row.locator(".todo-confetti")).toBeVisible();
+    await expect(row.locator(".todo-confetti i").first()).toHaveCSS("animation-duration", "1.05s");
+    await expect.poll(() => row.evaluate((element) => Array.from(element.parentElement!.children).indexOf(element))).toBe(originalPosition);
+    await expect(done.getByRole("listitem").filter({ hasText: title })).toHaveCount(0);
+    await page.clock.runFor(800);
+    await expect(row).toBeVisible();
+    await page.clock.runFor(50);
+    await expect(done.getByRole("listitem").filter({ hasText: title })).toBeVisible();
+    await expect(open.getByRole("listitem").filter({ hasText: title })).toHaveCount(0);
+    await page.clock.resume();
+  };
+  await completeWithAnimation("Manual celebration");
+
+  await nav.getByRole("button", { name: "Ausgaben" }).click();
+  await add(page, "Arzt Dr. Huber");
+  await addOn(page, "Arzt Dr. Meier", "2026-09-01");
+  await nav.getByRole("button", { name: "To-dos" }).click();
+  await completeWithAnimation("Arzt Dr. Huber");
+});
+
+for (const kind of ["manual", "insurance"] as const) {
+  test(`${kind} completion never appears saved when its local transaction fails`, async ({ page }) => {
+    await page.goto("/");
+    const nav = page.getByRole("navigation", { name: "Hauptnavigation" });
+    if (kind === "insurance") await add(page, "Arzt storage failure");
+    await nav.getByRole("button", { name: "To-dos" }).click();
+    if (kind === "manual") await addTodo(page, "Manual storage failure");
+    await page.evaluate(() => {
+      const add = IDBObjectStore.prototype.add;
+      IDBObjectStore.prototype.add = function (value, key) {
+        if (this.name === "outbox" || this.name === "todoOutbox") {
+          throw new DOMException("Test storage quota exceeded.", "QuotaExceededError");
+        }
+        return key === undefined ? add.call(this, value) : add.call(this, value, key);
+      };
+    });
+    await page.clock.install();
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
+    const checkbox = page.getByRole("checkbox");
+    await checkbox.click();
+    await expect(page.getByRole("alert")).toBeVisible();
+    await expect(checkbox).not.toBeChecked();
+    await page.clock.resume();
+    await page.reload();
+    await nav.getByRole("button", { name: "To-dos" }).click();
+    await expect(page.getByRole("checkbox")).not.toBeChecked();
+  });
+}
+
 test("doctor specialties map to Gesundheit and create insurance to-dos", async ({ page }) => {
   await page.goto("/");
   for (const description of ["Augenarzt", "Zahnarzt", "Zahnärztin"]) {
@@ -68,11 +189,11 @@ test("doctor specialties map to Gesundheit and create insurance to-dos", async (
   const open = page.getByRole("region", { name: "Offene To-dos" });
   await expect(open.getByRole("listitem")).toHaveCount(3);
   for (const description of ["Augenarzt", "Zahnarzt", "Zahnärztin"]) {
-    await expect(open).toContainText(`Ausgabe: ${description}`);
+    await expect(open.getByRole("listitem").filter({ hasText: description }).first()).toContainText("Bei Versicherung einreichen");
     await page.getByRole("button", { name: `To-do-Aktionen: ${description}`, exact: true }).click();
     await page.getByRole("button", { name: `Ausgabe öffnen: ${description}`, exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Eintrag bearbeiten" });
-    await expect(dialog.getByLabel("Kategorie", { exact: true })).toHaveValue("auto");
+    await expect(dialog.getByLabel("Kategorie", { exact: true })).toHaveText("Automatisch");
     await expect(dialog.getByRole("status")).toContainText("Gesundheit");
     await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
   }
@@ -110,7 +231,9 @@ test("the same member's devices sync completions saved during a slow sync and re
       await route.fulfill({ response });
     });
 
-    await mobile.getByRole("button", { name: "Geräte synchronisieren" }).click();
+    await mobile.getByRole("button", { name: "Synchronisierungsstatus" }).click();
+    await mobile.getByRole("button", { name: "Jetzt synchronisieren" }).click();
+    await mobile.getByRole("button", { name: "Synchronisierungsstatus" }).click();
     await pullStarted;
     for (const description of descriptions) {
       await todo(mobile, description).click();
@@ -165,8 +288,8 @@ for (const change of ["insurance completion", "deletion"]) {
         await expect(todo(b).getByRole("checkbox")).toBeChecked();
       } else {
         await expense(b).click();
-        b.once("dialog", (dialog) => dialog.accept());
         await b.getByRole("button", { name: "Eintrag löschen", exact: true }).click();
+        await confirmAction(b, "Eintrag löschen");
         await expect(expense(b)).toHaveCount(0);
       }
       await expect(b.getByRole("status")).toHaveText("Auf dem neuesten Stand");

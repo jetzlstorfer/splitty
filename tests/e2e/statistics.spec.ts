@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
+import { chooseOption } from "./controls";
 
 async function addExpense(page: Page, description: string, amount: string, date: string, paidBy = "a") {
   await page.getByRole("navigation").getByRole("button", { name: "Expenses", exact: true }).click();
@@ -7,7 +8,7 @@ async function addExpense(page: Page, description: string, amount: string, date:
   await dialog.getByLabel("Description", { exact: true }).fill(description);
   await dialog.getByRole("textbox", { name: "Amount in EUR" }).fill(amount);
   await dialog.getByLabel("Date", { exact: true }).fill(date);
-  await dialog.getByLabel("Paid by", { exact: true }).selectOption(paidBy);
+  await dialog.getByRole("group", { name: "Paid by" }).getByRole("radio").nth(paidBy === "a" ? 0 : 1).check();
   await dialog.getByRole("button", { name: "Save", exact: true }).click();
   await expect(dialog).not.toBeVisible();
 }
@@ -21,7 +22,7 @@ test("statistics filters real spending, stays independent of search, and works o
   await expect(page.getByText("Platz für neue Erlebnisse", { exact: true })).toBeVisible();
   await page.screenshot({ path: info.outputPath("statistics-empty-de.png"), fullPage: true });
   await nav.getByRole("button", { name: "Einstellungen", exact: true }).click();
-  await page.getByLabel("App-Sprache", { exact: true }).selectOption("en");
+  await chooseOption(page, page.getByLabel("App-Sprache", { exact: true }), "English");
   await addExpense(page, "Weekly groceries", "128.40", "2026-10-14");
   await addExpense(page, "Dinner together", "76", "2026-10-12", "b");
   await addExpense(page, "Train tickets", "42.60", "2026-10-08");
@@ -42,9 +43,9 @@ test("statistics filters real spending, stays independent of search, and works o
   await expect(nav.getByRole("button", { name: "Statistics", exact: true })).toHaveAttribute("aria-current", "page");
   await expect(page.locator(".add-button")).toHaveCount(0);
   await expect(page.locator(".statistics-total")).toContainText("260.00");
-  await expect(page.locator(".statistics-metrics dd")).toHaveText(["4", "€65.00"]);
-  await expect(page.getByRole("region", { name: "Who paid", exact: true })).toContainText("€171.00");
-  await expect(page.getByRole("region", { name: "Who paid", exact: true })).toContainText("€89.00");
+  await expect(page.locator(".statistics-hero small")).toHaveText("4 expenses · Ø €65.00 per expense");
+  await expect(page.getByRole("region", { name: "Who paid", exact: true })).toContainText("171.00");
+  await expect(page.getByRole("region", { name: "Who paid", exact: true })).toContainText("89.00");
   await expect(page.getByRole("region", { name: "Largest expense", exact: true })).toContainText("Weekly groceries");
   await page.screenshot({ path: info.outputPath("statistics-mobile-en.png"), fullPage: true });
   await page.getByRole("button", { name: "September 2026: €190.00", exact: true }).click();
@@ -71,7 +72,7 @@ test("statistics filters real spending, stays independent of search, and works o
   await nav.getByRole("button", { name: "Statistics", exact: true }).click();
   await expect(page.locator(".statistics-total")).toContainText("260.00");
   await nav.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByLabel("App language", { exact: true }).selectOption("de");
+  await chooseOption(page, page.getByLabel("App language", { exact: true }), "Deutsch");
   await nav.getByRole("button", { name: "Statistik", exact: true }).click();
   await expect(page.locator(".statistics-total")).toContainText("260,00");
   await page.screenshot({ path: info.outputPath("statistics-mobile-de.png"), fullPage: true });

@@ -10,7 +10,7 @@ afterEach(async () => { vi.restoreAllMocks(); await database.delete(); });
 
 describe("offline ledger", () => {
   it("defaults existing devices to German without changing names or ledger data", async () => {
-    expect((await getPreferences(database)).language).toBe("de");
+    expect(await getPreferences(database)).toMatchObject({ language: "de" });
     await database.preferences.put({ id: "preferences", member: "b", nameA: "Alex", nameB: "Sam", cursor: 4 });
     expect(await getPreferences(database)).toMatchObject({ language: "de", nameA: "Alex", member: "b", cursor: 4 });
   });

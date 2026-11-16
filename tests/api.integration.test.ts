@@ -36,7 +36,8 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     household = `test-${crypto.randomUUID()}`;
     partitions.push(household);
     Object.assign(process.env, {
-      APP_ORIGIN: origin, HOUSEHOLD_ID: household, TABLE_STORAGE_CONNECTION_STRING: "UseDevelopmentStorage=true",
+      APP_ORIGIN: origin, HOUSEHOLD_ID: household,
+      TABLE_STORAGE_CONNECTION_STRING: process.env.TABLE_STORAGE_CONNECTION_STRING ?? "UseDevelopmentStorage=true",
       MEMBER_A_TOKEN: "A".repeat(43), MEMBER_B_TOKEN: "B".repeat(43),
       MEMBER_A_NAME: "Alex", MEMBER_B_NAME: "Sam", LOCAL_DEVELOPMENT: "true"
     });

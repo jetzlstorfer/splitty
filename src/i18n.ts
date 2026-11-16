@@ -11,14 +11,17 @@ export function useLocale() {
   const t = (key: MessageKey, values?: Parameters) => translate(language, key, values);
   const money = (cents: number) => new Intl.NumberFormat(locale, { style: "currency", currency: "EUR" }).format(cents / 100);
   const number = (value: number) => new Intl.NumberFormat(locale).format(value);
+  const amount = (cents: number) => new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(cents / 100);
   const message = (value: string) => localizeMessage(value, language);
   const person = (preferences: Preferences, member: Member) => {
     const name = member === "a" ? preferences.nameA : preferences.nameB;
-    return !name || name === (member === "a" ? "You" : "Your wife") ? t(member === "a" ? "You" : "Your wife") : name;
+    // Keep the stored legacy placeholder compatible without rewriting household names.
+    return !name || name === (member === "a" ? "You" : "Your wife") || (member === "b" && name === "Your spouse")
+      ? t(member === "a" ? "You" : "Your spouse") : name;
   };
   const payer = (preferences: Preferences, member: Member) => {
     const name = person(preferences, member);
-    return name === t(member === "a" ? "You" : "Your wife") ? t(member === "a" ? "First person" : "Second person") : name;
+    return name === t(member === "a" ? "You" : "Your spouse") ? t(member === "a" ? "First person" : "Second person") : name;
   };
-  return { language, locale, t, money, number, message, person, payer };
+  return { language, locale, t, money, amount, number, message, person, payer };
 }

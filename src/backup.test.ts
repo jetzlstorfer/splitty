@@ -11,7 +11,7 @@ afterEach(async () => { await database.delete(); });
 describe("backups with manual to-dos", () => {
   it("accepts old expense-only backups and new backups with todos", () => {
     expect(readBackup({ format: "splitty-v1", entries: [example()] })).toEqual({ entries: [example()], todos: [] });
-    const todo = exampleTodo({ description: "Details", done: true });
+    const todo = exampleTodo({ description: "Details", done: true, position: 2.5 });
     expect(readBackup({ format: "splitty-v2", entries: [example()], todos: [todo] })).toEqual({ entries: [example()], todos: [todo] });
   });
   it("rejects malformed backups rather than silently losing todos", () => {

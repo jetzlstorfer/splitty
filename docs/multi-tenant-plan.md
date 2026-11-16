@@ -1,6 +1,8 @@
 # Multi-tenant plan and Azure cost outlook
 
-Status: proposal, not implemented. Planning date: 2026-10-25.
+Status: proposal, not implemented. Originally prepared: 2026-10-25.
+Architecture reviewed against `main` at `110bbde`; cost figures have not been
+revalidated since the original proposal.
 
 ## Recommendation and scope
 
@@ -33,6 +35,13 @@ Azure resources.
 - [`src/db.ts`](../src/db.ts) uses one default IndexedDB database with unscoped
   records, outboxes, conflicts, preferences, cursors, and a device session.
   Signing out deliberately retains the local ledger.
+- Manual to-do order is shared through the to-do records' optional `position`
+  field. Reordering can queue changes to multiple records; insurance reminders
+  remain derived from expenses and occupy date-based slots in the combined list.
+- A sync pass identifies the current member, updates local preferences, then
+  pulls and pushes expenses and manual to-dos. Saves during a pass request
+  another pass. A device key stored in IndexedDB can restore a lost cookie.
+  Tabs share the database and cookie, while their in-memory sync state is separate.
 
 The server partitioning is a useful foundation, but it does not by itself make
 the API or browser safe for multiple households.
@@ -64,13 +73,18 @@ subsequent server access, including queued writes and session recovery.
 
 Namespace local data by signed-in user and household, using separate databases
 or consistently scoped keys. Include entries, manual to-dos, outboxes,
-conflicts, preferences, and both expense and to-do cursors. Scope device-session
-recovery to the signed-in user rather than a household's accounting slot.
+conflicts, preferences, both expense and to-do cursors, and manual to-do
+positions. Scope device-session recovery to the signed-in user rather than a
+household's accounting slot; a stale device key must not restore a different
+user or household after an account switch or revocation.
 
 Capture the user and household context for each sync pass. Switching accounts
 or households must stop or fence in-flight work so responses and pending edits
-cannot be applied to another context. Preserve unsynced changes in their
-original context; never silently discard or upload them elsewhere.
+cannot be applied to another context, including identity updates, retries, and
+the additional pass requested by an in-flight save. Coordinate context changes
+across tabs sharing a cookie and database; a lock in one tab alone is not
+sufficient. Preserve unsynced changes in their original context; never silently
+discard or upload them elsewhere.
 
 Provide household selection and explicit sign-out/local-data handling for
 shared devices. Server revocation cannot remotely erase data already downloaded
@@ -80,15 +94,18 @@ Retain transactional local queues, revisions, operation receipts, tombstones,
 conflict resolution, and separate expense/to-do change streams. Keep integer
 EUR-cent accounting and imported signed balance contributions unchanged.
 Insurance completion remains on the expense; manual to-dos remain separate
-from balances. Localize new interface strings through the existing helpers.
+from balances. Preserve shared manual to-do order and its date-based interaction
+with insurance reminders, including queued multi-record reorders and conflicts.
+Localize new interface strings through the existing helpers.
 
 ### Migration and household lifecycle
 
 Map the current household and its two members into the new identity model
 without changing ledger IDs, revisions, or sequence history. Adopt existing
-local data only into that explicitly verified household context. Preserve
-pending writes and device recovery through a coordinated migration, and reject
-incompatible old clients rather than allowing unscoped sync.
+local data, including to-do positions, only into that explicitly verified
+household context. Preserve pending writes, conflicts, both cursors, and device
+recovery through a coordinated migration, and reject incompatible old clients
+rather than allowing unscoped sync.
 
 Make backup, restore, and deletion household-aware. Restore must explicitly
 confirm the destination household, never grant membership from imported
@@ -102,8 +119,9 @@ recovery procedures before pruning history; LRS replication is not a backup.
 2. Implement household-scoped server authorization and migrate the existing
    household, with tests that deny cross-household reads, writes, and invitation
    misuse.
-3. Isolate local storage and sync context; cover pending edits, switching during
-   in-flight sync, session recovery, revocation, and offline account switching.
+3. Isolate local storage and sync context; cover pending edits and multi-record
+   reorders, switching during in-flight sync, saves during a pass, multiple
+   tabs, session recovery, revocation, and offline account switching.
 4. Add onboarding, household selection, scoped backup/restore, and lifecycle
    operations. Validate two-device convergence and existing accounting behavior.
 5. Pilot with synthetic households, then a small invited cohort. Measure costs,
@@ -112,13 +130,16 @@ recovery procedures before pruning history; LRS replication is not a backup.
 Use the existing [checks](../README.md#checks),
 [offline-sync validation](../.github/skills/offline-sync-validation/SKILL.md),
 and [browser validation](../.github/skills/browser-validation/SKILL.md) during
-implementation. Multi-tenancy is not complete until isolation holds across
-server requests, local data, queued edits, and account transitions.
+implementation. The browser fixtures use isolated emulators and synthetic
+households; extend them to exercise multiple households and tabs rather than
+reusing real settings or data. Multi-tenancy is not complete until isolation
+holds across server requests, local data, queued edits, and account transitions.
 
 ## Azure cost outlook
 
-These are rough monthly planning budgets in USD before tax, not measured
-capacity, a verified West Europe quote, or an inspection of the current bill.
+These are historical, unverified October 2026 planning budgets in USD before
+tax, not current prices, measured capacity, a verified West Europe quote, or
+an inspection of the current bill. Recalculate before relying on them.
 Assume one shared deployment, two people per household, text-only records,
 modest daily use, controlled logging, and no paid identity add-ons.
 
@@ -157,8 +178,10 @@ The current visible app polls once per minute. An unchanged successful sync
 makes five API requests: `/me`, then two pulls each for expenses and manual
 to-dos. Ten minutes of daily use over 30 days therefore gives roughly 1,500 API
 requests per user, or 1.5 million for 1,000 users, before saves, initial loads,
-pagination, focus events, and retries. API requests are not equivalent to Table
-Storage transactions; mutations perform several storage operations.
+pagination, focus events, retries, additional passes for in-flight saves, and
+multiple visible tabs. Manual to-do reorders can queue multiple mutations.
+API requests are not equivalent to Table Storage transactions; mutations
+perform several storage operations.
 
 Evaluate less frequent or adaptive idle polling while preserving save,
 reconnect, and foreground sync. Measure actual API execution time, request

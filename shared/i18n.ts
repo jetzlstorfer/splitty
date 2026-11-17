@@ -235,6 +235,7 @@ export const german = {
   "First person": "Erste Person",
   "Second person": "Zweite Person",
   "This device belongs to": "Dieses Gerät gehört",
+  "EUR and an equal split are always the default. Signed-in names come from your household configuration.": "EUR und eine gleichmäßige Aufteilung sind immer voreingestellt. Nach der Anmeldung stammen die Namen aus eurer Haushaltskonfiguration.",
   "EUR and an equal split are always the default. Signed-in names are shared with your household.": "EUR und eine gleichmäßige Aufteilung sind immer voreingestellt. Angemeldete Namen werden mit dem Haushalt geteilt.",
   "Backups": "Sicherungen",
   "Backups include expenses and manual to-dos. Offline data lives in this browser; sync or back up before clearing site data or changing devices.": "Sicherungen enthalten Ausgaben und eigene To-dos. Offline-Daten bleiben in diesem Browser; synchronisiere oder sichere sie, bevor du Websitedaten löschst oder das Gerät wechselst.",

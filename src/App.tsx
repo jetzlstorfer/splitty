@@ -1153,6 +1153,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   if (!ledger) return <main className="loading"><img src="/icon.svg" width="64" height="64" alt="" /><h1>Splitty</h1><p>{t("Opening your shared ledger…")}</p>{error && <p className="error" role="alert">{message(error)}</p>}</main>;
 
   const p = { ...ledger.preferences, nameA: person(ledger.preferences, "a"), nameB: person(ledger.preferences, "b") };
+  const providerAccount = !!identity?.userId && !identity.userId.startsWith("legacy-");
   const other = p.member === "a" ? p.nameB : p.nameA;
   const balance = p.member === "a" ? balanceA : -balanceA;
   const conflictCount = ledger.conflicts.length + ledger.todoConflicts.length;
@@ -1340,19 +1341,20 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
           {(["a", "b"] as const).map((member) => {
             const name = member === "a" ? p.nameA : p.nameB, key = member === "a" ? "nameA" : "nameB";
             return <div className="settings-row" key={member}><span className={`avatar payer-${member}`} aria-hidden="true">{name.trim().charAt(0).toUpperCase() || "?"}</span>
-              <span className="entry-description settings-name-field"><span className="settings-name-input"><input id={`household-name-${member}`} className="settings-name" defaultValue={name} key={`${member}-${name}`} maxLength={60} readOnly={!!identity} aria-describedby={identity ? "household-names-note" : undefined}
+              <span className="entry-description settings-name-field"><span className="settings-name-input"><input id={`household-name-${member}`} className="settings-name" defaultValue={name} key={`${member}-${name}`}               maxLength={60} readOnly={!!identity && !providerAccount} aria-describedby={identity ? "household-names-note" : undefined}
                 onBlur={(e) => { const value = e.target.value.trim(); if (value !== name) {
-                  if (identity?.userId && !identity.userId.startsWith("legacy-")) void saveHouseholdName(member, value);
-                  else if (value) void updatePreferences({ [key]: value }).catch((err: Error) => setError(err.message));
+                                if (providerAccount) void saveHouseholdName(member, value);
+                                else if (!identity && value) void updatePreferences({ [key]: value }).catch((err: Error) => setError(err.message));
                 } }} />
-                {identity?.userId && !identity.userId.startsWith("legacy-") ? <Pencil className="settings-name-edit" size={16} aria-hidden="true" /> :
-                  identity ? <Lock className="settings-name-lock" size={16} aria-hidden="true" /> : <Pencil className="settings-name-edit" size={16} aria-hidden="true" />}</span>
+                              {identity && !providerAccount ? <Lock className="settings-name-lock" size={16} aria-hidden="true" /> : <Pencil className="settings-name-edit" size={16} aria-hidden="true" />}</span>
                 <label htmlFor={`household-name-${member}`}>{t(member === "a" ? "First person" : "Second person")}</label></span></div>;
           })}
           {!identity && <label className="settings-row"><span className="settings-tile" aria-hidden="true"><Smartphone size={19} /></span><span className="entry-description"><strong>{t("This device belongs to")}</strong></span>
             <Select<Member> label={t("This device belongs to")} value={p.member} onChange={(value) => void updatePreferences({ member: value }).catch((err: Error) => setError(err.message))} options={[{ value: "a", label: p.nameA }, { value: "b", label: p.nameB }]} /></label>}
-          <p id="household-names-note" className="settings-note">{t("EUR and an equal split are always the default. Signed-in names are shared with your household.")}</p>
-          {identity?.userId && !identity.userId.startsWith("legacy-") && <div className="button-row">
+          <p id="household-names-note" className="settings-note">{t(providerAccount
+            ? "EUR and an equal split are always the default. Signed-in names are shared with your household."
+            : "EUR and an equal split are always the default. Signed-in names come from your household configuration.")}</p>
+          {providerAccount && <div className="button-row">
             <button className="secondary" disabled={!online || signOutBusy} onClick={() => void runHouseholdAction(
               "household/remove-member", "Remove the other member", "Remove the other member? They will lose server access, but data already on their devices will remain."
             )}>{t("Remove the other member")}</button>

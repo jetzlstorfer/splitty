@@ -233,6 +233,35 @@ test.describe("touch controls", () => {
     await expect(second).toHaveCSS("outline-style", "solid");
     await expect(second).toHaveCSS("outline-width", "3px");
   });
+
+  test("provider-account household names are editable and saved to the household", async ({ page }) => {
+    const names = { nameA: "Alex", nameB: "Sam" };
+    let renamed: unknown;
+    await page.route("**/api/me", (route) =>
+      route.fulfill({ json: { userId: "user-names", householdId: "household-names", member: "a", ...names } }));
+    await page.route(/\/api\/(?:todo-)?sync\?/, (route) =>
+      route.fulfill({ json: { entries: [], cursor: 0, more: false } }));
+    await page.route("**/api/household/member-name", async (route) => {
+      renamed = route.request().postDataJSON();
+      names.nameB = (renamed as { name: string }).name;
+      await route.fulfill({ json: { renamed: true } });
+    });
+    await page.goto("/");
+    await page.getByRole("navigation").getByRole("button", { name: "Einstellungen", exact: true }).click();
+    await expect(page.getByLabel("Erste Person", { exact: true })).toHaveValue("Alex");
+    await chooseOption(page, page.getByLabel("App-Sprache", { exact: true }), "English");
+
+    const second = page.getByLabel("Second person", { exact: true });
+    await expect(second).toBeEditable();
+    await expect(page.locator(".settings-name-lock")).toHaveCount(0);
+    await expect(page.locator(".settings-name-edit")).toHaveCount(2);
+    await expect(second).toHaveAccessibleDescription(/shared with your household/);
+    await second.fill("Jamie");
+    await second.press("Tab");
+    await expect.poll(() => renamed).toEqual({ slot: "b", name: "Jamie" });
+    await expect(page.locator(".settings-page .page-heading p")).toHaveText("Alex & Jamie");
+    await expect(second).toHaveValue("Jamie");
+  });
 });
 
 for (const language of ["en", "de"] as const) {

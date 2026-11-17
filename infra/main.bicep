@@ -9,23 +9,29 @@ param appName string
 @maxLength(24)
 param storageName string
 
-@description('A stable identifier for your shared household. Do not change after importing.')
-param householdId string = 'our-household'
+@description('A stable identifier for the legacy shared household. Leave empty for hosted multi-tenant sign-in.')
+param householdId string = ''
 
-param memberAName string
-param memberBName string
+param memberAName string = 'First person'
+param memberBName string = 'Second person'
 
 @secure()
-@minLength(43)
-@maxLength(43)
 @description('Reusable 43-character base64url token for the first person.')
-param memberAToken string
+param memberAToken string = ''
 
 @secure()
-@minLength(43)
-@maxLength(43)
 @description('Reusable 43-character base64url token for the second person.')
-param memberBToken string
+param memberBToken string = ''
+
+@description('Entra External ID authority URL, for example https://tenant.ciamlogin.com.')
+param entraAuthority string = ''
+
+@description('Entra External ID application client ID.')
+param entraClientId string = ''
+
+@secure()
+@description('Entra External ID application client secret.')
+param entraClientSecret string = ''
 
 resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: storageName
@@ -55,16 +61,21 @@ resource site 'Microsoft.Web/staticSites@2023-12-01' = {
 resource settings 'Microsoft.Web/staticSites/config@2023-12-01' = {
   parent: site
   name: 'appsettings'
-  properties: {
-    APP_ORIGIN: 'https://${site.properties.defaultHostname}'
-    HOUSEHOLD_ID: householdId
-    TABLE_STORAGE_CONNECTION_STRING: 'DefaultEndpointsProtocol=https;AccountName=${storage.name};AccountKey=${storage.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
-    MEMBER_A_TOKEN: memberAToken
-    MEMBER_B_TOKEN: memberBToken
-    MEMBER_A_NAME: memberAName
-    MEMBER_B_NAME: memberBName
-    LOCAL_DEVELOPMENT: 'false'
-  }
+  properties: union({
+      APP_ORIGIN: 'https://${site.properties.defaultHostname}'
+      TABLE_STORAGE_CONNECTION_STRING: 'DefaultEndpointsProtocol=https;AccountName=${storage.name};AccountKey=${storage.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
+      LOCAL_DEVELOPMENT: 'false'
+    }, (!empty(householdId) || !empty(memberAToken) || !empty(memberBToken)) ? {
+      HOUSEHOLD_ID: householdId
+      MEMBER_A_TOKEN: memberAToken
+      MEMBER_B_TOKEN: memberBToken
+      MEMBER_A_NAME: memberAName
+      MEMBER_B_NAME: memberBName
+    } : {}, (!empty(entraAuthority) || !empty(entraClientId) || !empty(entraClientSecret)) ? {
+      ENTRA_AUTHORITY: entraAuthority
+      ENTRA_CLIENT_ID: entraClientId
+      ENTRA_CLIENT_SECRET: entraClientSecret
+    } : {})
 }
 
 output appUrl string = 'https://${site.properties.defaultHostname}'

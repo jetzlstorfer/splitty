@@ -5,7 +5,7 @@ export function statusCode(error: unknown): number | undefined {
   return error && typeof error === "object" && "statusCode" in error ? Number(error.statusCode) : undefined;
 }
 
-export async function optionalEntity<T extends object>(table: TableClient, partition: string, row: string): Promise<TableEntityResult<T> | null> {
+export async function optionalEntity<T extends object>(table: Pick<TableClient, "getEntity">, partition: string, row: string): Promise<TableEntityResult<T> | null> {
   try { return await table.getEntity<T>(partition, row); }
   catch (error) {
     if (statusCode(error) === 404) return null;

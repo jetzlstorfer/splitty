@@ -2,13 +2,53 @@ import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { VersionedRecord } from "../shared/model";
 import { example, exampleTodo } from "../tests/fixtures";
-import { SplittyDatabase, applyPage, applyResults, applyStorePage, expenseStore, getPreferences, queueEntries, resolveConflict, todoStore, updatePreferences, type SyncStore } from "./db";
+import { activateAccountDatabase, activateAnonymousDatabase, clearAccountDatabase, db, SplittyDatabase, applyPage, applyResults, applyStorePage, expenseStore, getPreferences, queueEntries, queueTodos, resolveConflict, setDeviceKey, todoStore, updatePreferences, type SyncStore } from "./db";
 
 let database: SplittyDatabase;
 beforeEach(() => { database = new SplittyDatabase(crypto.randomUUID()); });
 afterEach(async () => { vi.restoreAllMocks(); await database.delete(); });
 
 describe("offline ledger", () => {
+  it("isolates every local store by user and household context", async () => {
+    const userA = `user-a-${crypto.randomUUID()}`, householdA = `household-a-${crypto.randomUUID()}`;
+    const userB = `user-b-${crypto.randomUUID()}`, householdB = `household-b-${crypto.randomUUID()}`;
+    try {
+      await activateAccountDatabase(userA, householdA);
+      await queueEntries([example({ id: "scoped-expense" })]);
+      await queueTodos([exampleTodo({ id: "scoped-todo" })]);
+      await db.conflicts.put({ entryId: "scoped-expense", remote: null });
+      await db.todoConflicts.put({ entryId: "scoped-todo", remote: null });
+      await updatePreferences({ nameA: "Alex" });
+      await applyPage({ entries: [], cursor: 9, more: false });
+      await applyStorePage({ entries: [], cursor: 4, more: false }, todoStore());
+      await activateAccountDatabase(userB, householdB);
+      expect(await db.entries.count()).toBe(0);
+      expect(await db.outbox.count()).toBe(0);
+      expect(await db.conflicts.count()).toBe(0);
+      expect(await db.todos.count()).toBe(0);
+      expect(await db.todoOutbox.count()).toBe(0);
+      expect(await db.todoConflicts.count()).toBe(0);
+      expect((await getPreferences()).nameA).toBe("You");
+      expect(await getPreferences()).toMatchObject({ cursor: 0, todoCursor: 0 });
+      await activateAccountDatabase(userA, householdA);
+      expect(await db.entries.get("scoped-expense")).toBeDefined();
+      expect(await db.outbox.count()).toBe(1);
+      expect(await db.todos.get("scoped-todo")).toBeDefined();
+      expect(await db.todoOutbox.count()).toBe(1);
+      expect(await db.conflicts.count()).toBe(1);
+      expect(await db.todoConflicts.count()).toBe(1);
+      expect(await getPreferences()).toMatchObject({ nameA: "Alex", cursor: 9, todoCursor: 4 });
+      await setDeviceKey("D".repeat(43), db);
+      await clearAccountDatabase(db);
+      expect(await Promise.all(db.tables.map((table) => table.count()))).toEqual(Array(8).fill(0));
+    } finally {
+      await activateAccountDatabase(userA, householdA);
+      await db.delete();
+      await activateAccountDatabase(userB, householdB);
+      await db.delete();
+      await activateAnonymousDatabase();
+    }
+  });
   it("defaults existing devices to German without changing names or ledger data", async () => {
     expect(await getPreferences(database)).toMatchObject({ language: "de" });
     await database.preferences.put({ id: "preferences", member: "b", nameA: "Alex", nameB: "Sam", cursor: 4 });

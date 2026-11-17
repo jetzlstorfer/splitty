@@ -4,13 +4,14 @@ import {
   BarChart3, Check, ChevronDown, ChevronRight, ClipboardCheck,
   Download, GripVertical, Languages, Lock, Pencil, Plus, Receipt, RefreshCw, RotateCcw, Search, Settings, Smartphone, Sparkles, Sun, Trash2, Upload, X
 } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import { calculateShareA, expenseBalance, parseMoney, type Entry, type Member, type SplitType } from "../shared/model";
 import { translate } from "../shared/i18n";
 import { MAX_TODO_TITLE, MAX_TODO_DESCRIPTION, type Todo } from "../shared/todo";
-import { db, queueEntries, queueTodos, resolveConflict, resolveStoreConflict, todoStore, updatePreferences, getPreferences, type Conflict, type Preferences } from "./db";
+import { activateAnonymousDatabase, clearAccountDatabase, db, queueEntries, queueTodos, resolveConflict, resolveStoreConflict, todoStore, updatePreferences, getPreferences, setDeviceKey, type Conflict, type Preferences } from "./db";
 import { missingBackupRecords, readBackup, restoreBackup } from "./backup";
 import type { ImportPreview } from "./importer";
-import { ApiError, identify, signInDevice, signOutDevice, synchronize, type Identity } from "./sync";
+import { ApiError, api, identify, signInDevice, signOutDevice, syncPollingInterval, synchronize, type Identity } from "./sync";
 import { LanguageContext, useLocale } from "./i18n";
 import { categoryLabels, detectCategory, expenseCategory, normalizeText, storedCategory, type Category } from "./categories";
 import ExpenseIcon from "./ExpenseIcon";
@@ -32,6 +33,21 @@ interface InstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
 }
 
+interface AuthOptions { entraEnabled: boolean; legacyEnabled: boolean }
+interface Invitation { id: string; slot: Member; expiresAt: number }
+const authOptionsKey = "splitty-auth-options";
+
+function savedAuthOptions(): AuthOptions {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(authOptionsKey) ?? "null");
+    if (value && typeof value === "object" && "entraEnabled" in value && "legacyEnabled" in value
+      && typeof value.entraEnabled === "boolean" && typeof value.legacyEnabled === "boolean") {
+      return { entraEnabled: value.entraEnabled, legacyEnabled: value.legacyEnabled };
+    }
+  } catch { /* The API refresh below remains authoritative. */ }
+  return { entraEnabled: false, legacyEnabled: false };
+}
+
 function isInstalledPwa() {
   const safariNavigator = navigator as Navigator & { standalone?: boolean };
   return window.matchMedia("(display-mode: standalone)").matches || safariNavigator.standalone === true;
@@ -44,20 +60,33 @@ function isIosDevice() {
 function useLedger(): Snapshot | null {
   const [value, setValue] = useState<Snapshot | null>(null);
   useEffect(() => {
-    const subscription = liveQuery(async () => {
-      const [entries, todos, outboxCount, todoOutboxCount, preferences, conflicts, todoConflicts] = await Promise.all([
-        db.entries.toArray(), db.todos.toArray(), db.outbox.count(), db.todoOutbox.count(),
-        getPreferences(), db.conflicts.toArray(), db.todoConflicts.toArray()
-      ]);
-      return { entries, todos, pending: outboxCount + todoOutboxCount, preferences, conflicts, todoConflicts };
-    }).subscribe({
-      next: setValue,
-      error: (error: unknown) => window.dispatchEvent(new CustomEvent("splitty-error", {
-        detail: `Local storage failed: ${error instanceof Error ? error.message : String(error)}`
-      }))
-    });
-    return () => subscription.unsubscribe();
+    let subscription: { unsubscribe: () => void } | undefined;
+    const subscribe = () => {
+      const database = db;
+      subscription = liveQuery(async () => {
+        const [entries, todos, outboxCount, todoOutboxCount, preferences, conflicts, todoConflicts] = await Promise.all([
+          database.entries.toArray(), database.todos.toArray(), database.outbox.count(), database.todoOutbox.count(),
+          getPreferences(database), database.conflicts.toArray(), database.todoConflicts.toArray()
+        ]);
+        return { entries, todos, pending: outboxCount + todoOutboxCount, preferences, conflicts, todoConflicts };
+      }).subscribe({
+        next: setValue,
+        error: (error: unknown) => window.dispatchEvent(new CustomEvent("splitty-error", {
+          detail: `Local storage failed: ${error instanceof Error ? error.message : String(error)}`
+        }))
+      });
+    };
+    const stop = () => { subscription?.unsubscribe(); subscription = undefined; setValue(null); };
+    subscribe();
+    window.addEventListener("splitty-database-changing", stop);
+    window.addEventListener("splitty-database-changed", subscribe);
+    return () => {
+      stop();
+      window.removeEventListener("splitty-database-changing", stop);
+      window.removeEventListener("splitty-database-changed", subscribe);
+    };
   }, []);
+
   return value;
 }
 
@@ -685,9 +714,21 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const [syncActionError, setSyncActionError] = useState("");
   const syncLock = useRef<Promise<void> | null>(null);
   const syncRequested = useRef(false);
+  const identityRefreshRequested = useRef(false);
+  const identityRef = useRef<Identity | null>(null);
+  const lastIdentityCheck = useRef(0);
+  const lastActivityAt = useRef(0);
+  const lastPollAt = useRef(0);
+  const removingLocalData = useRef(false);
   const [error, setError] = useState("");
   const [memberToken, setMemberToken] = useState("");
   const [signInBusy, setSignInBusy] = useState(false);
+  const [authOptions, setAuthOptions] = useState<AuthOptions>(savedAuthOptions);
+  const [invitations, setInvitations] = useState<Invitation[]>([]);
+  const [invitationLink, setInvitationLink] = useState("");
+  const [createdInvitationId, setCreatedInvitationId] = useState("");
+  const [invitationBusy, setInvitationBusy] = useState(false);
+  const [invitationCopied, setInvitationCopied] = useState(false);
   const [signOutBusy, setSignOutBusy] = useState(false);
   const [update, setUpdate] = useState<(() => Promise<void>) | null>(null);
   const [saveFeedback, setSaveFeedback] = useState<{ entry: Entry; settled: boolean } | null>(null);
@@ -712,6 +753,19 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
 
   useEffect(() => {
     loadStatistics().catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    const refresh = () => {
+      void api<AuthOptions>("auth/config").then((options) => {
+        setAuthOptions(options);
+        try { localStorage.setItem(authOptionsKey, JSON.stringify(options)); }
+        catch { /* Sign-in options can still be fetched again when online. */ }
+      }).catch(() => undefined);
+    };
+    refresh();
+    window.addEventListener("online", refresh);
+    return () => window.removeEventListener("online", refresh);
   }, []);
 
   useEffect(() => {
@@ -748,53 +802,115 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     };
   }, []);
 
-  const performSync = useCallback(() => {
-    if (!navigator.onLine) return Promise.resolve();
+  const performSync = useCallback((refreshIdentity = false) => {
+    if (!navigator.onLine || removingLocalData.current) return Promise.resolve();
     syncRequested.current = true;
+    identityRefreshRequested.current ||= refreshIdentity;
     if (syncLock.current) return syncLock.current;
     syncLock.current = (async () => {
       do {
         syncRequested.current = false;
-        const me = await identify();
-        if ((me.member !== "a" && me.member !== "b") || !me.nameA || !me.nameB) throw new Error("Invalid sign-in response.");
+        const mustIdentify = identityRefreshRequested.current
+          || !identityRef.current || Date.now() - lastIdentityCheck.current >= 5 * 60_000;
+        identityRefreshRequested.current = false;
+        const me = mustIdentify ? await identify() : identityRef.current!;
+        if (mustIdentify) lastIdentityCheck.current = Date.now();
+        identityRef.current = me;
+        if ((me.member !== "a" && me.member !== "b")
+          || typeof me.nameA !== "string" || typeof me.nameB !== "string") {
+          throw new Error("Invalid sign-in response.");
+        }
+        const database = db;
         setIdentity(me);
-        await updatePreferences({ member: me.member, nameA: me.nameA, nameB: me.nameB });
+        await updatePreferences({ member: me.member, nameA: me.nameA, nameB: me.nameB }, database);
         setSyncStatus("Syncing…");
-        await synchronize();
+        const syncContext = typeof me.userId === "string" && typeof me.householdId === "string"
+          ? { userId: me.userId, householdId: me.householdId }
+          : undefined;
+        await synchronize(database, syncContext);
+        if (db !== database) {
+          syncRequested.current = true;
+          continue;
+        }
+        lastPollAt.current = Date.now();
         setLastSynced(new Date());
-        setSyncStatus(await db.conflicts.count() + await db.todoConflicts.count() ? "Some edits need your attention"
-          : await db.outbox.count() + await db.todoOutbox.count() ? "Saved locally · changes waiting to sync" : "Up to date");
+        setSyncStatus(await database.conflicts.count() + await database.todoConflicts.count() ? "Some edits need your attention"
+          : await database.outbox.count() + await database.todoOutbox.count() ? "Saved locally · changes waiting to sync" : "Up to date");
         // Saves during an in-flight pass need another pass, not a dropped request.
-      } while (syncRequested.current && navigator.onLine);
-    })().catch((e: unknown) => {
-      if (e instanceof ApiError && e.status === 401) { setIdentity(null); setSyncStatus("Sign in to sync"); }
+      } while (syncRequested.current && navigator.onLine && !removingLocalData.current);
+    })().catch(async (e: unknown) => {
+      if (e instanceof ApiError && e.status === 401) {
+        await activateAnonymousDatabase();
+        identityRef.current = null;
+        lastIdentityCheck.current = 0;
+        setIdentity(null); setInvitations([]); setInvitationLink(""); setCreatedInvitationId("");
+        setSyncStatus("Sign in to sync");
+      }
       else setSyncStatus(e instanceof Error ? e.message : "Sync failed; your changes remain on this device.");
     }).finally(() => { syncLock.current = null; setSyncBusy(false); });
     return syncLock.current;
   }, []);
 
-  const sync = useCallback(async () => {
-    if (!navigator.onLine) return;
+  const sync = useCallback(async (refreshIdentity = false) => {
+    if (!navigator.onLine || removingLocalData.current) return;
     setSyncBusy(true);
-    await performSync();
+    await performSync(refreshIdentity);
   }, [performSync]);
 
   useEffect(() => {
-    const connected = () => { setOnline(true); void sync(); };
+    if (!identity?.householdId || !authOptions.entraEnabled || !online) return;
+    let active = true;
+    void api<{ invitations: Invitation[] }>("household/invitations").then((result) => {
+      if (!Array.isArray(result.invitations) || result.invitations.some((invite) =>
+        !invite || typeof invite.id !== "string" || (invite.slot !== "a" && invite.slot !== "b")
+        || typeof invite.expiresAt !== "number")) {
+        throw new Error("Invalid invitation response.");
+      }
+      if (active) setInvitations(result.invitations);
+    }).catch((e: unknown) => {
+      if (active) setSyncActionError(e instanceof Error ? e.message : "Could not load household invitations.");
+    });
+    return () => { active = false; };
+  }, [authOptions.entraEnabled, identity?.householdId, online]);
+
+  useEffect(() => {
+    lastActivityAt.current = Date.now();
+    lastPollAt.current = Date.now();
+    const connected = () => { setOnline(true); void sync(true); };
     const disconnected = () => { setOnline(false); setSyncBusy(false); setSyncStatus("Offline · changes stay on this device"); };
-    const focus = () => { if (document.visibilityState === "visible") void sync(); };
+    const focus = () => {
+      if (document.visibilityState === "visible") {
+        lastActivityAt.current = Date.now();
+        void sync(true);
+      }
+    };
+    const activity = () => { lastActivityAt.current = Date.now(); };
+    const databaseChanged = () => { void sync(true); };
     const failure = (event: Event) => setError(String((event as CustomEvent).detail));
     const available = (event: Event) => setUpdate(() => (event as CustomEvent<() => Promise<void>>).detail);
     window.addEventListener("online", connected); window.addEventListener("offline", disconnected);
     window.addEventListener("focus", focus);
+    window.addEventListener("pointerdown", activity, { passive: true });
+    window.addEventListener("keydown", activity);
     document.addEventListener("visibilitychange", focus);
+    window.addEventListener("splitty-database-changed", databaseChanged);
     window.addEventListener("splitty-error", failure); window.addEventListener("splitty-update", available);
     void performSync();
-    const interval = window.setInterval(() => { if (document.visibilityState === "visible") void sync(); }, 60_000);
+    const interval = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      const cadence = syncPollingInterval(now, lastActivityAt.current);
+      if (now - lastPollAt.current < cadence) return;
+      lastPollAt.current = now;
+      void sync();
+    }, 10_000);
     return () => {
       window.removeEventListener("online", connected); window.removeEventListener("offline", disconnected);
       window.removeEventListener("focus", focus);
+      window.removeEventListener("pointerdown", activity);
+      window.removeEventListener("keydown", activity);
       document.removeEventListener("visibilitychange", focus);
+      window.removeEventListener("splitty-database-changed", databaseChanged);
       window.removeEventListener("splitty-error", failure); window.removeEventListener("splitty-update", available);
       window.clearInterval(interval);
     };
@@ -842,14 +958,158 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     finally { setSignInBusy(false); }
   }
 
+  async function startProviderSignIn() {
+    const inviteCode = new URLSearchParams(location.hash.slice(1)).get("invite");
+    if (!inviteCode) {
+      window.location.assign("/api/auth/start");
+      return;
+    }
+    setSignInBusy(true);
+    setSyncActionError("");
+    try {
+      const result = await api<{ authorizationUrl?: unknown }>("auth/start", { inviteCode });
+      if (typeof result.authorizationUrl !== "string") throw new Error("Invalid sign-in response.");
+      window.location.assign(result.authorizationUrl);
+    } catch (e) {
+      setSyncActionError(e instanceof Error ? e.message : "Could not start provider sign-in.");
+      setSignInBusy(false);
+    }
+  }
+
+  async function createHouseholdInvitation() {
+    setInvitationBusy(true);
+    setSyncActionError("");
+    setInvitationCopied(false);
+    try {
+      const result = await api<{ invitation: Invitation; code: string }>("household/invitations", {});
+      if (!result.invitation || typeof result.invitation.id !== "string"
+        || (result.invitation.slot !== "a" && result.invitation.slot !== "b")
+        || typeof result.invitation.expiresAt !== "number" || typeof result.code !== "string") {
+        throw new Error("Invalid invitation response.");
+      }
+      const link = new URL(location.pathname + location.search, location.origin);
+      link.hash = new URLSearchParams({ invite: result.code }).toString();
+      setInvitationLink(link.href);
+      setCreatedInvitationId(result.invitation.id);
+      setInvitations((current) => [...current.filter((invite) => invite.id !== result.invitation.id), result.invitation]);
+    } catch (e) {
+      setSyncActionError(e instanceof Error ? e.message : "Could not create an invitation.");
+    } finally { setInvitationBusy(false); }
+  }
+
+  async function copyInvitationLink() {
+    try {
+      await navigator.clipboard.writeText(invitationLink);
+      setInvitationCopied(true);
+    } catch {
+      setSyncActionError("Could not copy the invitation link. Select and copy the link above.");
+    }
+  }
+
+  async function revokeHouseholdInvitation(invitation: Invitation) {
+    setInvitationBusy(true);
+    setSyncActionError("");
+    try {
+      await api("household/invitations/revoke", { id: invitation.id });
+      setInvitations((current) => current.filter((item) => item.id !== invitation.id));
+      if (createdInvitationId === invitation.id) {
+        setInvitationLink("");
+        setCreatedInvitationId("");
+      }
+    } catch (e) {
+      setSyncActionError(e instanceof Error ? e.message : "Could not revoke the invitation.");
+    } finally { setInvitationBusy(false); }
+  }
+
+  async function saveHouseholdName(member: Member, value: string) {
+    const name = value.trim();
+    try {
+      await api("household/member-name", { slot: member, name });
+      await updatePreferences({ [member === "a" ? "nameA" : "nameB"]: name });
+      setIdentity((current) => current && ({
+        ...current,
+        [member === "a" ? "nameA" : "nameB"]: name
+      }));
+    } catch (e) {
+      setSyncActionError(e instanceof Error ? e.message : "Could not update the household member name.");
+    }
+  }
+
+  async function runHouseholdAction(
+    path: "household/leave" | "household/remove-member" | "household/delete" | "account/delete",
+    title: Parameters<typeof t>[0],
+    description: Parameters<typeof t>[0]
+  ) {
+    if (!await confirm({ title: t(title), description: t(description), action: t(title), dangerous: true })) return;
+    setSignOutBusy(true);
+    setSyncActionError("");
+    try {
+      await api(path, {});
+      if (path === "household/remove-member") {
+        await sync();
+        return;
+      }
+      await setDeviceKey(null);
+      await activateAnonymousDatabase();
+      setIdentity(null); setInvitations([]); setInvitationLink(""); setCreatedInvitationId("");
+      setLastSynced(null);
+      setSyncStatus(t("Your household access has ended."));
+      window.location.reload();
+    } catch (e) {
+      setSyncActionError(e instanceof Error ? e.message : "Could not update household access.");
+    } finally { setSignOutBusy(false); }
+  }
+
   async function signOut() {
     setSignOutBusy(true); setSyncActionError("");
     try {
       await signOutDevice();
+      await activateAnonymousDatabase();
+      identityRef.current = null;
+      lastIdentityCheck.current = 0;
       setLastSynced(null);
       setIdentity(null); setSyncStatus("Signed out · local history remains on this device");
+      setInvitations([]); setInvitationLink(""); setCreatedInvitationId("");
     } catch (e) { setSyncActionError(e instanceof Error ? e.message : "Could not sign out."); }
     finally { setSignOutBusy(false); }
+  }
+
+  async function removeLocalAccountData() {
+    const database = db;
+    if (!identity?.userId || identity.userId.startsWith("legacy-") || !database.name.startsWith("splitty-account-")) return;
+    setSignOutBusy(true); setSyncActionError("");
+    try {
+     const [expenseWrites, todoWrites, conflicts, todoConflicts] = await Promise.all([
+       database.outbox.count(),
+       database.todoOutbox.count(),
+       database.conflicts.count(),
+       database.todoConflicts.count()
+     ]);
+     const unsynced = expenseWrites + todoWrites + conflicts + todoConflicts;
+     const warning = unsynced
+       ? t("This device has {count} unsynced changes or conflicts. Removing local data permanently discards them. Synced household data is not deleted. Continue?", { count: number(unsynced) })
+       : t("Remove this account's data from this device? Synced household data is not deleted.");
+     if (!await confirm({
+       title: t("Remove local data from this device"),
+       description: warning,
+       action: t("Remove local data from this device"),
+       dangerous: true
+     })) return;
+     removingLocalData.current = true;
+     if (syncLock.current) await syncLock.current;
+     await api("auth/logout", {});
+     await activateAnonymousDatabase();
+     await setDeviceKey(null);
+     await clearAccountDatabase(database);
+     identityRef.current = null;
+     lastIdentityCheck.current = 0;
+     setIdentity(null); setInvitations([]); setInvitationLink(""); setCreatedInvitationId("");
+     setLastSynced(null);
+     setSyncStatus("Local account data was removed from this device.");
+     window.location.reload();
+    } catch (e) {
+     setSyncActionError(e instanceof Error ? e.message : "Could not remove local account data.");
+    } finally { setSyncBusy(false); removingLocalData.current = false; setSignOutBusy(false); }
   }
 
   function backup() {
@@ -935,11 +1195,36 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
         {syncActionError && <p className="error" role="alert">{message(syncActionError)}</p>}
         {identity && <p>{t("Signed in as {name}.", { name: person(p, identity.member) })}</p>}
         <div className="button-row"><button className="secondary" disabled={!online || syncBusy || signInBusy || signOutBusy} onClick={() => void sync()}><RefreshCw size={16} />{t("Sync now")}</button>
-          {identity && <button className="text-button" disabled={!online || syncBusy || signOutBusy} aria-busy={signOutBusy} onClick={() => void signOut()}>{t("Sign out")}</button>}</div>
+          {identity && <button className="text-button" disabled={!online || syncBusy || signOutBusy} aria-busy={signOutBusy} onClick={() => void signOut()}>{t("Sign out")}</button>}
+          {identity?.userId && !identity.userId.startsWith("legacy-") && db.name.startsWith("splitty-account-")
+            && <button className="text-button" disabled={!online || syncBusy || signOutBusy} aria-busy={signOutBusy} onClick={() => void removeLocalAccountData()}>{t("Remove local data from this device")}</button>}</div>
+        {identity && identity.householdId && authOptions.entraEnabled && <section className="invitation-panel" aria-label={t("Household invitations")}>
+          <h3>{t("Invite your partner")}</h3>
+          <p className="muted">{t("Invitation is valid for 7 days and takes over the invited member slot's existing balance.")}</p>
+          <button className="secondary" disabled={!online || invitationBusy} onClick={() => void createHouseholdInvitation()}>
+            {t(invitationBusy ? "Creating invitation…" : "Create invitation")}
+          </button>
+          {invitationLink && <div className="invitation-link">
+            <label>{t("Invitation link")}<input aria-label={t("Invitation link")} readOnly value={invitationLink} onFocus={(event) => event.currentTarget.select()} /></label>
+            <QRCodeSVG value={invitationLink} size={192} level="M" includeMargin role="img" aria-label={t("Invitation QR code")} />
+            <button className="secondary" disabled={invitationBusy} onClick={() => void copyInvitationLink()}>{t("Copy invite link")}</button>
+            {invitationCopied && <p role="status">{t("Invite was copied.")}</p>}
+          </div>}
+          {!!invitations.length && <ul>{invitations.map((invite) => <li key={invite.id}>
+            <p>{t("Pending invitation to {name}, expires {date}.", {
+              name: person(p, invite.slot),
+              date: new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(new Date(invite.expiresAt))
+            })}</p>
+            <button className="text-button" disabled={!online || invitationBusy} onClick={() => void revokeHouseholdInvitation(invite)}>{t("Revoke invitation")}</button>
+          </li>)}</ul>}
+        </section>}
         {identity ? <p className="muted">{t("Signing out does not erase this device's offline history. Use a trusted device.")}</p> :
-          <Form className="sync-sign-in" onSubmit={(event) => void signIn(event)}><label>{t("Member token")}<input type="password" autoComplete="off" autoCapitalize="off" spellCheck={false} required maxLength={43} value={memberToken} onChange={(event) => setMemberToken(event.target.value)} /></label>
-            <button className="primary" disabled={signInBusy || syncBusy || !online}>{t(signInBusy ? "Signing in…" : "Sign in")}</button>
-            <p className="muted">{t("This device stays signed in until you sign out or the member token is rotated.")}</p></Form>}
+          <div className="sync-sign-in">
+            {authOptions.entraEnabled && <button className="primary" disabled={syncBusy || signInBusy || !online} onClick={() => void startProviderSignIn()}>{t("Continue with email, Google, or Microsoft")}</button>}
+            {authOptions.legacyEnabled && <Form onSubmit={(event) => void signIn(event)}><label>{t("Member token")}<input type="password" autoComplete="off" autoCapitalize="off" spellCheck={false} required maxLength={43} value={memberToken} onChange={(event) => setMemberToken(event.target.value)} /></label>
+              <button className="primary" disabled={signInBusy || syncBusy || !online}>{t(signInBusy ? "Signing in…" : "Sign in")}</button>
+              <p className="muted">{t("This device stays signed in until you sign out or the member token is rotated.")}</p></Form>}
+          </div>}
         {!!ledger.conflicts.length && <section className="conflict-panel" aria-label={t("Conflicting edits")}><h3>{t("Conflicting edits")}</h3><p>{t("These entries changed on another device. Choose which version to keep.")}</p>{ledger.conflicts.map((conflict) => {
           const local = ledger.entries.find((entry) => entry.id === conflict.entryId);
           return <div key={conflict.entryId}><strong>{local?.description}</strong><p>{t("This device: {local} · Other device: {remote} ({name}'s balance)", { local: local?.deleted ? t("Deleted") : money(local?.balanceA ?? 0), remote: conflict.remote?.deleted ? t("Deleted") : conflict.remote ? money(conflict.remote.balanceA) : t("Not present"), name: p.nameA })}</p><div className="button-row">
@@ -1056,13 +1341,31 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
             const name = member === "a" ? p.nameA : p.nameB, key = member === "a" ? "nameA" : "nameB";
             return <div className="settings-row" key={member}><span className={`avatar payer-${member}`} aria-hidden="true">{name.trim().charAt(0).toUpperCase() || "?"}</span>
               <span className="entry-description settings-name-field"><span className="settings-name-input"><input id={`household-name-${member}`} className="settings-name" defaultValue={name} key={`${member}-${name}`} maxLength={60} readOnly={!!identity} aria-describedby={identity ? "household-names-note" : undefined}
-                onBlur={(e) => { const value = e.target.value.trim(); if (value && value !== name) void updatePreferences({ [key]: value }).catch((err: Error) => setError(err.message)); }} />
-                {identity ? <Lock className="settings-name-lock" size={16} aria-hidden="true" /> : <Pencil className="settings-name-edit" size={16} aria-hidden="true" />}</span>
+                onBlur={(e) => { const value = e.target.value.trim(); if (value !== name) {
+                  if (identity?.userId && !identity.userId.startsWith("legacy-")) void saveHouseholdName(member, value);
+                  else if (value) void updatePreferences({ [key]: value }).catch((err: Error) => setError(err.message));
+                } }} />
+                {identity?.userId && !identity.userId.startsWith("legacy-") ? <Pencil className="settings-name-edit" size={16} aria-hidden="true" /> :
+                  identity ? <Lock className="settings-name-lock" size={16} aria-hidden="true" /> : <Pencil className="settings-name-edit" size={16} aria-hidden="true" />}</span>
                 <label htmlFor={`household-name-${member}`}>{t(member === "a" ? "First person" : "Second person")}</label></span></div>;
           })}
           {!identity && <label className="settings-row"><span className="settings-tile" aria-hidden="true"><Smartphone size={19} /></span><span className="entry-description"><strong>{t("This device belongs to")}</strong></span>
             <Select<Member> label={t("This device belongs to")} value={p.member} onChange={(value) => void updatePreferences({ member: value }).catch((err: Error) => setError(err.message))} options={[{ value: "a", label: p.nameA }, { value: "b", label: p.nameB }]} /></label>}
-          <p id="household-names-note" className="settings-note">{t("EUR and an equal split are always the default. Signed-in names come from your household configuration.")}</p>
+          <p id="household-names-note" className="settings-note">{t("EUR and an equal split are always the default. Signed-in names are shared with your household.")}</p>
+          {identity?.userId && !identity.userId.startsWith("legacy-") && <div className="button-row">
+            <button className="secondary" disabled={!online || signOutBusy} onClick={() => void runHouseholdAction(
+              "household/remove-member", "Remove the other member", "Remove the other member? They will lose server access, but data already on their devices will remain."
+            )}>{t("Remove the other member")}</button>
+            <button className="secondary" disabled={!online || signOutBusy} onClick={() => void runHouseholdAction(
+              "household/leave", "Leave this household", "Leave this household? Its ledger will remain available to the other member."
+            )}>{t("Leave this household")}</button>
+            <button className="secondary" disabled={!online || signOutBusy} onClick={() => void runHouseholdAction(
+              "household/delete", "Delete this household", "Delete this household? It will be inaccessible and recoverable for 30 days."
+            )}>{t("Delete this household")}</button>
+            <button className="text-button" disabled={!online || signOutBusy} onClick={() => void runHouseholdAction(
+              "account/delete", "Delete your account", "Delete your account? Your sessions will be revoked immediately and deletion will be scheduled."
+            )}>{t("Delete your account")}</button>
+          </div>}
         </section>
         <section className="settings-card"><h2 className="section-label">{t("Backups")}</h2>
           <button className="settings-row" onClick={backup} aria-label={t("Download a backup")} aria-describedby="backup-download-hint"><span className="settings-tile" aria-hidden="true"><Download size={19} /></span>

@@ -102,6 +102,17 @@ test("the cloud is the only sync entry point across tabs, widths and themes, wit
   await indicator(page).click();
 });
 
+test("provider sign-in is shown only when enabled by the API", async ({ page }) => {
+  await page.route("**/api/auth/config", (route) =>
+    route.fulfill({ json: { entraEnabled: true, legacyEnabled: false } }));
+  await english(page);
+  await indicator(page).click();
+  await expect(popover(page).getByRole("button", {
+    name: "Continue with email, Google, or Microsoft", exact: true
+  })).toBeVisible();
+  await expect(popover(page).getByLabel("Member token")).toHaveCount(0);
+});
+
 test("busy sync stays inspectable and a failed sync can be retried from the popover", async ({ page }) => {
   await page.route("**/api/me", (route) => route.fulfill({ json: { member: "a", nameA: "Alex", nameB: "Sam" } }));
   await page.route(/\/api\/(?:todo-)?sync\?/, (route) =>

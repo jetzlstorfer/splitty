@@ -55,7 +55,7 @@ Local-only use needs no account or Azure resources. Shared sync requires a backe
 
 For conflict handling, data retention, and the full sync lifecycle, see [synchronization and deployment](docs/synchronization-and-deployment.md).
 
-For a proposed shared deployment supporting multiple households and indicative Azure costs, see the [multi-tenant plan](docs/multi-tenant-plan.md). Multi-tenancy is not implemented.
+For the shared multi-household design and Azure cost outlook, see the [multi-tenant plan](docs/multi-tenant-plan.md). The code includes Entra-based accounts, household-scoped sessions and storage, invitations, lifecycle controls, and quota/rate enforcement; public sign-up is not production-ready until existing-household migration, scheduled backup/deletion, provider validation, and operational/legal review are complete.
 
 ## Run locally
 
@@ -94,10 +94,12 @@ See [import details](docs/importing.md) for duplicate handling, reconciliation, 
 
 The Azure resources are described in [`infra/main.bicep`](infra/main.bicep); deployment is not automatic resource provisioning. In brief:
 
-1. Generate two private member tokens and choose a stable household ID.
+1. For the hosted multi-household deployment, create an Entra External ID user flow and confidential web application. Register `https://<static-web-app-host>/api/auth/callback` as its redirect URI. Supply the `entraAuthority`, `entraClientId`, and secure `entraClientSecret` Bicep parameters; leave the legacy household and member-token parameters empty.
 2. Deploy the Bicep template to create the Static Web App and Table Storage account.
 3. Configure the Static Web App deployment secret `AZURE_STATIC_WEB_APPS_API_TOKEN` in the GitHub `production` environment.
 4. Push or merge to `main` to run [Deploy to Azure](.github/workflows/deploy.yml), then sign in on each device.
+
+The legacy `householdId` and member-token parameters remain available for the existing single-household deployment and migration. Configure either the full legacy set or all three Entra parameters; partial configuration is rejected by the API.
 
 Pull requests run the full [Check workflow](.github/workflows/check.yml), including API integration and browser tests. Automatic deployments on `main` repeat lint, unit tests, TypeScript checks, builds, and API integration tests, but skip browser installation and tests. Manual deployments run the full suite. Deployment only starts after all enabled checks pass. Use pull requests for changes to `main`: direct pushes also skip browser tests.
 

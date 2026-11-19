@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { createHash } from "node:crypto";
 import type { TableClient } from "@azure/data-tables";
 import { HttpError } from "./config";
@@ -9,6 +10,12 @@ interface RateLimitEntity {
 }
 
 const partition = (key: string) => `limit-${createHash("sha256").update(key).digest("hex")}`;
+
+export function signInRateLimitKey(forwardedFor: string | null): string {
+  const clientIp = forwardedFor?.split(",").at(-1)?.trim();
+  // Static Web Apps may omit the client IP; keep a shared cap rather than blocking sign-in.
+  return `sign-in:${clientIp && isIP(clientIp) ? clientIp : "shared"}`;
+}
 
 export async function consumeRateLimit(
   table: TableClient, key: string, limit: number, windowMs: number, now = Date.now()

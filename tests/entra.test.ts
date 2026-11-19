@@ -7,7 +7,7 @@ describe("Entra authorization request", () => {
   it("persists one-time state and PKCE material before redirecting", async () => {
     const config: Config = {
       origin: "http://127.0.0.1:5173",
-      connection: "unused",
+      storage: { kind: "connectionString", connection: "unused" },
       nameA: "Alex",
       nameB: "Sam",
       local: true,

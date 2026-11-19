@@ -3,10 +3,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { sessionCookie, signInWithToken } from "./auth";
 import type { Config } from "./config";
 
+const connection = "UseDevelopmentStorage=true";
 const config: Config = {
   origin: "https://splitty.example",
   household: "test-auth",
-  connection: "UseDevelopmentStorage=true",
+  storage: { kind: "connectionString", connection },
   memberAToken: "A".repeat(43),
   memberBToken: "B".repeat(43),
   nameA: "Alex",
@@ -18,7 +19,7 @@ afterEach(() => vi.restoreAllMocks());
 
 describe("device session cookies", () => {
   it.each([false, true])("persists sign-in across browser sessions (local=%s)", async (local) => {
-    const table = TableClient.fromConnectionString(config.connection, "SplittyAuth");
+    const table = TableClient.fromConnectionString(connection, "SplittyAuth");
     const create = vi.spyOn(table, "createEntity").mockResolvedValue({});
     const { cookie, deviceKey } = await signInWithToken(config.memberAToken, { ...config, local }, table);
 

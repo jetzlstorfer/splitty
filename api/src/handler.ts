@@ -1,4 +1,3 @@
-import { isIP } from "node:net";
 import type { TableClient } from "@azure/data-tables";
 import { validateChange, validateEntry, type MutationResult, type VersionedRecord } from "../../shared/model";
 import { validateTodo } from "../../shared/todo";
@@ -10,7 +9,7 @@ import { createInvitation, listInvitations, revokeInvitation } from "./invitatio
 import {
   deleteAccount, deleteHousehold, leaveHousehold, removeOtherMember, renameHouseholdMember
 } from "./households";
-import { consumeRateLimit } from "./rateLimit";
+import { consumeRateLimit, signInRateLimitKey } from "./rateLimit";
 import { tables } from "./storage";
 
 const headers = {
@@ -46,10 +45,7 @@ export async function handler(request: Request, logError: (message: string) => v
     }
     if (["auth/start", "auth/callback", "auth/token", "auth/resume"].includes(path)) {
       if (!config.local) {
-        const forwarded = request.headers.get("x-forwarded-for");
-        const clientIp = forwarded?.split(",").at(-1)?.trim();
-        if (!clientIp || !isIP(clientIp)) throw new HttpError(503, "The sign-in request could not be rate limited.");
-        await consumeRateLimit(auth, `sign-in:${clientIp}`, 20, 60_000);
+        await consumeRateLimit(auth, signInRateLimitKey(request.headers.get("x-forwarded-for")), 20, 60_000);
       }
     }
     if (path === "auth/start" && request.method === "GET") return await beginEntraSignIn(config, auth);

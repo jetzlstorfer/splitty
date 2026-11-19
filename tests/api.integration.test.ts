@@ -50,9 +50,11 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     Object.assign(process.env, {
       APP_ORIGIN: origin, HOUSEHOLD_ID: household,
       TABLE_STORAGE_CONNECTION_STRING: process.env.TABLE_STORAGE_CONNECTION_STRING ?? "UseDevelopmentStorage=true",
+      TABLE_STORAGE_ACCOUNT_NAME: "", TABLE_STORAGE_TENANT_ID: "",
+      TABLE_STORAGE_CLIENT_ID: "", TABLE_STORAGE_CLIENT_SECRET: "",
       MEMBER_A_TOKEN: "A".repeat(43), MEMBER_B_TOKEN: "B".repeat(43),
       MEMBER_A_NAME: "Alex", MEMBER_B_NAME: "Sam", LOCAL_DEVELOPMENT: "true",
-      ENTRA_AUTHORITY: "https://splittytest.ciamlogin.com",
+      ENTRA_AUTHORITY: "https://splittytest.ciamlogin.com/00000000-0000-4000-8000-000000000003",
       ENTRA_CLIENT_ID: "00000000-0000-4000-8000-000000000001",
       ENTRA_CLIENT_SECRET: "test-client-secret"
     });

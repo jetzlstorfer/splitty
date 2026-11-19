@@ -94,12 +94,21 @@ See [import details](docs/importing.md) for duplicate handling, reconciliation, 
 
 The Azure resources are described in [`infra/main.bicep`](infra/main.bicep); deployment is not automatic resource provisioning. In brief:
 
-1. For the hosted multi-household deployment, create an Entra External ID user flow and confidential web application. Register `https://<static-web-app-host>/api/auth/callback` as its redirect URI. Supply the `entraAuthority`, `entraClientId`, and secure `entraClientSecret` Bicep parameters; leave the legacy household and member-token parameters empty.
+1. For the hosted multi-household deployment, create an Entra External ID user flow and confidential web application. Register `https://<static-web-app-host>/api/auth/callback` as its redirect URI. Set `entraAuthority` to the HTTPS CIAM URL with the tenant ID or domain path (for example, `https://<tenant-subdomain>.ciamlogin.com/<tenant-id>`), supply `entraClientId` and secure `entraClientSecret`, and leave the legacy household and member-token parameters empty.
 2. Deploy the Bicep template to create the Static Web App and Table Storage account.
 3. Configure the Static Web App deployment secret `AZURE_STATIC_WEB_APPS_API_TOKEN` in the GitHub `production` environment.
 4. Push or merge to `main` to run [Deploy to Azure](.github/workflows/deploy.yml), then sign in on each device.
 
 The legacy `householdId` and member-token parameters remain available for the existing single-household deployment and migration. Configure either the full legacy set or all three Entra parameters; partial configuration is rejected by the API.
+
+For an isolated staging deployment, set `storageAuthMode` to `rbac` and provide
+the workforce-tenant service principal's tenant ID, client ID, secret, and object
+ID. The template assigns **Storage Table Data Contributor** at the staging
+storage-account scope and disables shared-key access for that account. Keep the
+staging identity and credentials separate from the External ID sign-in
+application; do not use this mode for production until its deployment settings
+are intentionally migrated. The default `connectionString` mode preserves the
+existing deployment behavior.
 
 Pull requests run the full [Check workflow](.github/workflows/check.yml), including API integration and browser tests. Automatic deployments on `main` repeat lint, unit tests, TypeScript checks, builds, and API integration tests, but skip browser installation and tests. Manual deployments run the full suite. Deployment only starts after all enabled checks pass. Use pull requests for changes to `main`: direct pushes also skip browser tests.
 

@@ -26,6 +26,8 @@ export const test = base.extend<{
   app: [async ({ storage: _storage }, use) => {
     const values = {
       NODE_ENV: "test", APP_ORIGIN: "", LOCAL_DEVELOPMENT: "true",
+      TABLE_STORAGE_ACCOUNT_NAME: "", TABLE_STORAGE_TENANT_ID: "",
+      TABLE_STORAGE_CLIENT_ID: "", TABLE_STORAGE_CLIENT_SECRET: "",
       MEMBER_A_TOKEN: "A".repeat(43), MEMBER_B_TOKEN: "B".repeat(43),
       MEMBER_A_NAME: "Alex", MEMBER_B_NAME: "Sam"
     };

@@ -9,6 +9,26 @@ param appName string
 @maxLength(24)
 param storageName string
 
+@description('Storage authentication mode. Use rbac for keyless staging deployments.')
+@allowed([
+  'connectionString'
+  'rbac'
+])
+param storageAuthMode string = 'connectionString'
+
+@description('Workforce tenant ID for the storage service principal. Required when storageAuthMode is rbac.')
+param storageTenantId string = ''
+
+@description('Client ID for the storage service principal. Required when storageAuthMode is rbac.')
+param storageClientId string = ''
+
+@secure()
+@description('Client secret for the storage service principal. Required when storageAuthMode is rbac.')
+param storageClientSecret string = ''
+
+@description('Object ID of the storage service principal, used for its data-plane role assignment.')
+param storagePrincipalObjectId string = ''
+
 @description('A stable identifier for the legacy shared household. Leave empty for hosted multi-tenant sign-in.')
 param householdId string = ''
 
@@ -33,6 +53,9 @@ param entraClientId string = ''
 @description('Entra External ID application client secret.')
 param entraClientSecret string = ''
 
+var useStorageRbac = storageAuthMode == 'rbac'
+var storageTableDataContributorRoleId = '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3'
+
 resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: storageName
   location: location
@@ -42,6 +65,17 @@ resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
     minimumTlsVersion: 'TLS1_2'
     supportsHttpsTrafficOnly: true
     allowBlobPublicAccess: false
+    allowSharedKeyAccess: !useStorageRbac
+  }
+}
+
+resource storageTableDataContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (useStorageRbac) {
+  name: guid(storage.id, storagePrincipalObjectId, storageTableDataContributorRoleId)
+  scope: storage
+  properties: {
+    principalId: storagePrincipalObjectId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageTableDataContributorRoleId)
   }
 }
 
@@ -63,8 +97,14 @@ resource settings 'Microsoft.Web/staticSites/config@2023-12-01' = {
   name: 'appsettings'
   properties: union({
       APP_ORIGIN: 'https://${site.properties.defaultHostname}'
-      TABLE_STORAGE_CONNECTION_STRING: 'DefaultEndpointsProtocol=https;AccountName=${storage.name};AccountKey=${storage.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
       LOCAL_DEVELOPMENT: 'false'
+    }, useStorageRbac ? {
+      TABLE_STORAGE_ACCOUNT_NAME: storage.name
+      TABLE_STORAGE_TENANT_ID: storageTenantId
+      TABLE_STORAGE_CLIENT_ID: storageClientId
+      TABLE_STORAGE_CLIENT_SECRET: storageClientSecret
+    } : {
+      TABLE_STORAGE_CONNECTION_STRING: 'DefaultEndpointsProtocol=https;AccountName=${storage.name};AccountKey=${storage.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
     }, (!empty(householdId) || !empty(memberAToken) || !empty(memberBToken)) ? {
       HOUSEHOLD_ID: householdId
       MEMBER_A_TOKEN: memberAToken
@@ -78,6 +118,8 @@ resource settings 'Microsoft.Web/staticSites/config@2023-12-01' = {
     } : {})
 }
 
+@description('Azure Table Storage Data Contributor role assignment for the keyless storage service principal.')
+output storageTableDataContributorAssignmentId string = useStorageRbac ? storageTableDataContributor.id : ''
 output appUrl string = 'https://${site.properties.defaultHostname}'
 output staticSiteName string = site.name
 output storageAccountName string = storage.name

@@ -120,7 +120,9 @@ p { line-height: 1.55; }
 .invitation-panel { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--cp-border); }
 .invitation-panel h3 { margin: 0 0 8px; font-size: 15px; }
 .invitation-panel > p { line-height: 1.45; }
-.invitation-panel .invitation-link { margin-top: 12px; }
+.invitation-panel .invitation-link { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.invitation-panel .invitation-link > svg { display: block; align-self: center; }
+.invitation-panel .invitation-link > p { margin: 0; }
 .invitation-panel input { width: 100%; margin-top: 6px; padding: 10px; border: 1px solid var(--cp-border); border-radius: 8px; background: var(--cp-surface); color: var(--cp-text); }
 .invitation-panel ul { margin: 12px 0 0; padding: 0; list-style: none; }
 .invitation-panel li { padding: 10px 0; border-top: 1px solid var(--cp-border); }
@@ -132,6 +134,20 @@ main.with-expense-action { padding-bottom: calc(152px + env(safe-area-inset-bott
 .page-heading h1 { font-size: 30px; line-height: 1.15; font-weight: 600; letter-spacing: -.7px; overflow-wrap: anywhere; }
 .page-heading p { margin: 4px 0 0; font-size: 14px; color: var(--cp-text-muted); overflow-wrap: anywhere; }
 .page-heading .pill-button { margin-top: 2px; }
+.legal-links { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 24px; padding: 16px 0; border-top: 1px solid var(--cp-border); font-size: 13px; }
+.legal-links a, .legal-language a { display: inline-flex; align-items: center; min-height: 44px; }
+.legal-page .topbar { flex-wrap: wrap; gap: 8px; }
+.legal-language { display: flex; gap: 12px; font-size: 14px; }
+.legal-language [aria-current] { color: var(--cp-text); font-weight: 600; }
+.legal-document { padding-bottom: max(24px, env(safe-area-inset-bottom)); overflow-wrap: anywhere; }
+.legal-document > section { margin-top: 28px; }
+.legal-document h2 { font-size: 19px; line-height: 1.35; }
+.legal-document p, .legal-document li { line-height: 1.65; }
+.legal-document ul { padding-left: 24px; }
+.legal-document li + li { margin-top: 12px; }
+.legal-draft { margin-top: 24px; padding: 16px; border: 1px solid var(--cp-border-strong); border-radius: 12px; background: var(--cp-surface-soft); }
+.legal-draft h2 { color: var(--cp-warning); }
+.legal-draft p:last-child { margin-bottom: 0; }
 h1 { font-size: 24px; line-height: 1.25; font-weight: 650; letter-spacing: -.6px; margin-bottom: 0; }
 .balance-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 22px 2px 2px; }
 .balance-summary { min-width: 0; }

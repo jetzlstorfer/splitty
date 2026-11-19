@@ -16,6 +16,7 @@ import { LanguageContext, useLocale } from "./i18n";
 import { categoryLabels, detectCategory, expenseCategory, normalizeText, storedCategory, type Category } from "./categories";
 import ExpenseIcon from "./ExpenseIcon";
 import SyncIcon from "./SyncIcon";
+import { LegalLinks } from "./LegalPage";
 import SwipeableRow from "./SwipeableRow";
 import { householdTodos, reorderTodos, replaceManualSlots, type HouseholdTodo } from "./todos";
 import { ConfirmationProvider, DateField, Form, Select, Sheet, dateValue as today, useConfirm } from "./Controls";
@@ -1379,6 +1380,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
             }} /></label>
           <p className="settings-note">{t("Backups include expenses and manual to-dos. Offline data lives in this browser; sync or back up before clearing site data or changing devices.")}</p></section>
       </section>}
+      <LegalLinks />
     </main>
     {(tab === "expenses" || tab === "todos") && <div className="expense-action">
       <button className="add-button" aria-label={t(tab === "todos" ? "Add to-do" : "Add expense")}

@@ -21,6 +21,18 @@ test("creates, copies, revokes, and carries an invitation through provider sign-
     const linkInput = popover.getByLabel("Invitation link");
     await expect(linkInput).toBeVisible();
     await expect(popover.getByRole("img", { name: "Invitation QR code" })).toBeVisible();
+    const [inputBox, qrBox, copyBox] = await Promise.all([
+      linkInput.boundingBox(),
+      popover.getByRole("img", { name: "Invitation QR code" }).boundingBox(),
+      popover.getByRole("button", { name: "Copy invite link", exact: true }).boundingBox()
+    ]);
+    if (!inputBox || !qrBox || !copyBox) throw new Error("Invitation layout is not rendered");
+    // Leave room for the 3px focus outline at a 3px offset so the QR code does not cover it.
+    expect(qrBox.y - (inputBox.y + inputBox.height)).toBeGreaterThanOrEqual(6);
+    expect(copyBox.y - (qrBox.y + qrBox.height)).toBeGreaterThanOrEqual(6);
+    expect(Math.abs((qrBox.x + qrBox.width / 2) - (inputBox.x + inputBox.width / 2))).toBeLessThanOrEqual(1);
+    expect(copyBox.x).toBeCloseTo(inputBox.x, 0);
+    expect(copyBox.width).toBeCloseTo(inputBox.width, 0);
     const link = await linkInput.inputValue();
     const code = new URLSearchParams(new URL(link).hash.slice(1)).get("invite");
     expect(code).toMatch(/^browser-test-[a-zA-Z0-9-]+\.[a-zA-Z0-9_-]{43}$/);

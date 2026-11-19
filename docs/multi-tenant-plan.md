@@ -8,12 +8,15 @@ seven-day invitations with transactional redemption, per-user/household local
 database isolation, household member renaming/removal/leaving/deletion, account
 deletion requests, locally generated invitation QR codes, and adaptive polling.
 Legacy member-token sign-in remains available. Existing-household token claims
-and migration, scheduled backup/permanent-deletion jobs, rate-limit counter
-retention, Entra identity deletion, and operational/legal readiness remain
-incomplete. Household record/daily quotas, invitation and household-creation
-limits, per-session request limits, and sign-in IP limits are enforced in the
-API. Real Entra callback validation requires tenant and application
-credentials. Cost figures have not been revalidated since the original
+now bind a provider identity to the existing household partition, and the
+device adopts its legacy cache and pending changes without deleting the source
+database. Production migration still requires staging rehearsal,
+scheduled backup/permanent-deletion jobs, rate-limit counter retention, Entra
+identity deletion, and operational/legal readiness. Household record/daily
+quotas, invitation and household-creation limits, per-session request limits,
+and sign-in IP limits are enforced in the API. Real Entra callback validation
+requires tenant and application credentials. Cost figures have not been
+revalidated since the original
 proposal.
 
 ## Recommendation and scope
@@ -131,12 +134,16 @@ pilot.
 - [`api/src/config.ts`](../api/src/config.ts) selects one `HOUSEHOLD_ID` and two
   deployment-wide member tokens and names.
 - [`api/src/auth.ts`](../api/src/auth.ts) retains the legacy member-token
-  session path for migration and now supports server-side sessions carrying a
+  session path during migration and now supports server-side sessions carrying a
   user ID, household ID, and accounting slot. New-format sessions check the
   active membership and its generation on each request, so revoking and
   re-creating a membership does not revive an old device key. Provider sign-in
-  creates initial memberships or redeems invitations for new accounts. Joining
-  an invitation with an account already assigned to another household is
+  creates initial memberships or redeems invitations for new accounts. A member
+  may submit the existing deployment token before sign-in; the short-lived
+  transaction stores only its digest and claimed slot, and a transactional
+  reservation prevents two identities from claiming one slot. Non-local
+  deployments reject new household creation unless `ALLOW_NEW_HOUSEHOLDS=true`.
+  Joining an invitation with an account already assigned to another household is
   rejected until leave/transfer is implemented.
 - [`api/src/invitations.ts`](../api/src/invitations.ts) implements the
   household-scoped invitation lifecycle. The raw invitation code is returned
@@ -149,7 +156,10 @@ pilot.
   operation receipt within that partition.
 - [`src/db.ts`](../src/db.ts) keeps anonymous/legacy data in the default
   IndexedDB database and selects a separate database derived from the signed-in
-  user and household for Entra accounts. Expenses, to-dos, outboxes, conflicts,
+  user and household for Entra accounts. On an existing-household claim, it
+  transactionally adopts entries, tombstones, both outboxes, conflicts,
+  preferences, and both cursors while leaving the source data and Entra device
+  session intact. Expenses, to-dos, outboxes, conflicts,
   preferences, and cursors therefore do not cross account boundaries.
   Device-session recovery is stored separately; signing out hides rather than
   deletes account data.
@@ -184,8 +194,9 @@ Splitty's control.
 
 Household creation, invitations, joining, leaving, member removal, renaming,
 account deletion requests, and household deletion are implemented in the API
-and client. Existing-household claims for the planned migration are still
-required.
+and client. Existing-household claims are implemented; validate the migration
+on staging and rehearse it against the current production household before
+removing legacy tokens.
 
 Every expense, to-do, sync, export, and administrative request must verify the
 authenticated user's current membership and permissions. Never treat a
@@ -244,8 +255,9 @@ backup.
    configure the Entra External ID integration and confirm its Azure
    requirements.
 2. Implement household-scoped server authorization, limits, and the in-place
-   migration of the existing household, with tests that deny cross-household
-   reads, writes, and invitation misuse.
+   migration of the existing household. The code now claims the existing
+   partition with one-time member tokens and preserves local queues; verify
+   the flow with both members in staging before production cutover.
 3. Isolate local storage and sync context; cover pending edits and multi-record
    reorders, switching during in-flight sync, saves during a pass, multiple
    tabs, session recovery, revocation, and offline account switching.
@@ -253,8 +265,9 @@ backup.
    cadence, and household lifecycle operations. Still add scoped backup and
    restore plus the scheduled backup and deletion jobs. Validate two-device
    convergence and existing accounting behavior.
-5. Pilot in a separate staging deployment with synthetic households, then
-   implement and rehearse the existing-household claim/migration. Before
+5. Pilot in a separate staging deployment with synthetic households. Rehearse
+   the existing-household claim using a disposable household and
+   production-equivalent settings, never the live production storage. Before
    opening sign-up, configure budget alerts and publish the reviewed legal
    pages; measure costs, latency, concurrency, and failure rates.
 

@@ -5,6 +5,7 @@ import type { Member } from "../../shared/model";
 import { createMembership, createUserSession, type AuthContext } from "./auth";
 import { HttpError, type Config } from "./config";
 import { consumeInvitation, inspectInvitation, type InvitationTarget } from "./invitations";
+import { claimLegacyMemberSlot, legacyMemberForToken, verifyLegacyClaim } from "./legacyMigration";
 import { consumeRateLimit } from "./rateLimit";
 import { optionalEntity, statusCode } from "./storage";
 
@@ -20,10 +21,12 @@ const transactionCookie = (config: Config) => config.local ? "splitty-entra-stat
 interface LoginTransaction {
   state: string; nonce: string; verifier: string; expiresAt: number;
   inviteHouseholdId?: string; inviteId?: string; inviteSlot?: Member;
+  legacyMember?: Member; legacyTokenDigest?: string;
 }
 interface UserRecord {
   userId: string; subject: string; issuer: string; householdId: string;
   member: Member | ""; membershipInitialized?: boolean; deletionRequestedAt?: number;
+  legacyClaimed?: boolean;
 }
 interface HouseholdRecord { nameA: string; nameB: string; deletedAt?: number }
 interface BootstrapRecord { userId: string; deviceKey: string; expiresAt: number }
@@ -56,9 +59,12 @@ export async function beginEntraSignIn(
   table: Pick<TableClient, "createEntity" | "getEntity">,
   authorizationClient: Pick<ConfidentialClientApplication, "getAuthCodeUrl"> = client(config),
   invitationCode?: unknown,
-  returnAuthorizationUrl = false
+  returnAuthorizationUrl = false,
+  legacyToken?: unknown
 ): Promise<Response> {
   const invitation = invitationCode === undefined ? undefined : await inspectInvitation(table, invitationCode);
+  const legacyMember = legacyToken === undefined ? undefined : legacyMemberForToken(config, legacyToken);
+  if (invitation && legacyMember) throw new HttpError(400, "Choose either an invitation or an existing-household claim.");
   const state = randomValue();
   const nonce = randomValue();
   const verifier = randomValue() + randomValue().slice(0, 22);
@@ -76,6 +82,10 @@ export async function beginEntraSignIn(
       inviteHouseholdId: invitation.householdId,
       inviteId: invitation.id,
       inviteSlot: invitation.slot
+    } : {}),
+    ...(legacyMember && typeof legacyToken === "string" ? {
+      legacyMember,
+      legacyTokenDigest: digest(legacyToken)
     } : {})
   });
   const url = await authorizationClient.getAuthCodeUrl({
@@ -123,15 +133,20 @@ function identityClaims(value: unknown): { issuer: string; subject: string; name
 }
 
 async function ensureUser(
-  table: TableClient, config: Config, claims: ReturnType<typeof identityClaims>, invitation?: InvitationTarget
+  table: TableClient, config: Config, claims: ReturnType<typeof identityClaims>,
+  invitation?: InvitationTarget, legacyMember?: Member
 ): Promise<AuthContext> {
   const userId = `user-${digest(`${claims.issuer}\0${claims.subject}`).slice(0, 40)}`;
   let user = await optionalEntity<UserRecord>(table, userPartition, `u-${userId}`);
   let createdUser = false;
   if (!user) {
-    if (!invitation) await consumeRateLimit(table, `new-households:${userId}`, 3, 30 * 24 * 60 * 60 * 1000);
-    const householdId = invitation?.householdId ?? `household-${randomValue().slice(0, 32)}`;
-    const member = invitation?.slot ?? "a";
+    if (!invitation && !legacyMember && !config.allowNewHouseholds) {
+      throw new HttpError(403, "New household registration is currently closed.");
+    }
+    if (!invitation && !legacyMember) await consumeRateLimit(table, `new-households:${userId}`, 3, 30 * 24 * 60 * 60 * 1000);
+    const householdId = invitation?.householdId ?? (legacyMember && config.household
+      ? config.household : `household-${randomValue().slice(0, 32)}`);
+    const member = invitation?.slot ?? legacyMember ?? "a";
     try {
       await table.createEntity({
         partitionKey: userPartition,
@@ -143,7 +158,8 @@ async function ensureUser(
         name: claims.name,
         householdId,
         member,
-        membershipInitialized: false
+        membershipInitialized: false,
+        ...(legacyMember ? { legacyClaimed: true } : {})
       });
       createdUser = true;
     } catch (error) {
@@ -156,18 +172,26 @@ async function ensureUser(
     throw new HttpError(500, "Could not load the signed-in account.");
   }
   if (user.deletionRequestedAt) throw new HttpError(410, "This account is scheduled for deletion.");
+  if (legacyMember && (user.householdId !== config.household || user.member !== legacyMember)) {
+    throw new HttpError(409, "This account already belongs to another household. Sign in with the account intended for this member token.");
+  }
   if (!user.householdId || !user.member) {
-    if (!invitation) await consumeRateLimit(table, `new-households:${userId}`, 3, 30 * 24 * 60 * 60 * 1000);
-    const householdId = invitation?.householdId ?? `household-${randomValue().slice(0, 32)}`;
-    const member = invitation?.slot ?? "a";
+    if (!invitation && !legacyMember && !config.allowNewHouseholds) {
+      throw new HttpError(403, "New household registration is currently closed.");
+    }
+    if (!invitation && !legacyMember) await consumeRateLimit(table, `new-households:${userId}`, 3, 30 * 24 * 60 * 60 * 1000);
+    const householdId = invitation?.householdId ?? (legacyMember && config.household
+      ? config.household : `household-${randomValue().slice(0, 32)}`);
+    const member = invitation?.slot ?? legacyMember ?? "a";
     await table.updateEntity({
       partitionKey: userPartition,
       rowKey: `u-${userId}`,
       householdId,
       member,
-      membershipInitialized: false
+      membershipInitialized: false,
+      ...(legacyMember ? { legacyClaimed: true } : {})
     }, "Merge", { etag: user.etag });
-    user = { ...user, householdId, member, membershipInitialized: false };
+    user = { ...user, householdId, member, membershipInitialized: false, ...(legacyMember ? { legacyClaimed: true } : {}) };
   } else if (invitation && (user.householdId !== invitation.householdId || user.member !== invitation.slot)) {
     throw new HttpError(409, "This account already belongs to another household. Leave it before joining this one.");
   }
@@ -182,8 +206,8 @@ async function ensureUser(
       await table.createEntity({
         partitionKey: householdPartition(user.householdId),
         rowKey: "household",
-        nameA: claims.name,
-        nameB: ""
+        nameA: legacyMember ? config.nameA : claims.name,
+        nameB: legacyMember ? config.nameB : ""
       });
     } catch (error) {
       if (statusCode(error) !== 409) throw error;
@@ -201,6 +225,18 @@ async function ensureUser(
     }
     if (invitation) {
       try { await consumeInvitation(table, invitation, userId); }
+      catch (error) {
+        const recoveredMembership = await optionalEntity<{ userId: string; member: Member }>(
+          table, householdPartition(user.householdId), `m-${userId}`
+        );
+        if (!recoveredMembership && createdUser) {
+          try { await table.deleteEntity(userPartition, `u-${userId}`); }
+          catch (cleanupError) { if (statusCode(cleanupError) !== 404) throw cleanupError; }
+        }
+        if (!recoveredMembership) throw error;
+      }
+    } else if (user.legacyClaimed && (user.member === "a" || user.member === "b")) {
+      try { await claimLegacyMemberSlot(table, config, userId, user.member); }
       catch (error) {
         const recoveredMembership = await optionalEntity<{ userId: string; member: Member }>(
           table, householdPartition(user.householdId), `m-${userId}`
@@ -229,6 +265,13 @@ async function ensureUser(
       partitionKey: userPartition,
       rowKey: `u-${userId}`,
       membershipInitialized: true
+    }, "Merge");
+  }
+  if (legacyMember && !user.legacyClaimed) {
+    await table.updateEntity({
+      partitionKey: userPartition,
+      rowKey: `u-${userId}`,
+      legacyClaimed: true
     }, "Merge");
   }
   return context;
@@ -265,7 +308,12 @@ export async function completeEntraSignIn(
     ? { householdId: transaction.inviteHouseholdId, id: transaction.inviteId, slot: transaction.inviteSlot }
     : undefined;
   if (transaction.inviteId && !invitation) throw new HttpError(400, "Invalid invitation.");
-  const context = await ensureUser(table, config, claims, invitation);
+  if (transaction.legacyMember && transaction.legacyTokenDigest) {
+    verifyLegacyClaim(config, transaction.legacyMember, transaction.legacyTokenDigest);
+  } else if (transaction.legacyMember || transaction.legacyTokenDigest) {
+    throw new HttpError(400, "Invalid household claim.");
+  }
+  const context = await ensureUser(table, config, claims, invitation, transaction.legacyMember);
   const { cookie, deviceKey } = await createUserSession(config, table, context);
   const bootstrapCode = randomValue();
   await table.createEntity({
@@ -302,4 +350,11 @@ export async function getHouseholdNames(
     throw new HttpError(500, "Could not load the household.");
   }
   return { nameA: household.nameA, nameB: household.nameB };
+}
+
+export async function isLegacyClaimed(
+  table: TableClient, userId: string, householdId: string
+): Promise<boolean> {
+  const user = await optionalEntity<UserRecord>(table, userPartition, `u-${userId}`);
+  return user?.userId === userId && user.householdId === householdId && user.legacyClaimed === true;
 }

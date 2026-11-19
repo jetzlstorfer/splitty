@@ -12,7 +12,8 @@ const config: Config = {
   memberBToken: "B".repeat(43),
   nameA: "Alex",
   nameB: "Sam",
-  local: false
+  local: false,
+  allowNewHouseholds: false
 };
 
 afterEach(() => vi.restoreAllMocks());

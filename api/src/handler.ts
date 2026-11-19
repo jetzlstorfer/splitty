@@ -3,7 +3,7 @@ import { validateChange, validateEntry, type MutationResult, type VersionedRecor
 import { validateTodo } from "../../shared/todo";
 import { authenticate, isSessionKey, logout, resumeSession, sessionCookie, signInWithToken } from "./auth";
 import { getConfig, HttpError } from "./config";
-import { beginEntraSignIn, completeEntraSignIn, getHouseholdNames, redeemDeviceKey } from "./entra";
+import { beginEntraSignIn, completeEntraSignIn, getHouseholdNames, isLegacyClaimed, redeemDeviceKey } from "./entra";
 import { expenseLedger, todoLedger, type createLedger } from "./ledger";
 import { createInvitation, listInvitations, revokeInvitation } from "./invitations";
 import {
@@ -40,7 +40,8 @@ export async function handler(request: Request, logError: (message: string) => v
     if (path === "auth/config" && request.method === "GET") {
       return json({
         entraEnabled: !!config.entra,
-        legacyEnabled: !!(config.household && config.memberAToken && config.memberBToken)
+        legacyEnabled: !!(config.household && config.memberAToken && config.memberBToken),
+        newHouseholdsEnabled: config.allowNewHouseholds
       });
     }
     if (["auth/start", "auth/callback", "auth/token", "auth/resume"].includes(path)) {
@@ -56,7 +57,7 @@ export async function handler(request: Request, logError: (message: string) => v
     }
     if (path === "auth/start" && request.method === "POST") {
       const data = await body(request);
-      return await beginEntraSignIn(config, auth, undefined, data.inviteCode, true);
+      return await beginEntraSignIn(config, auth, undefined, data.inviteCode, true, data.legacyToken);
     }
     if (path === "auth/token" && request.method === "POST") {
       const data = await body(request);
@@ -86,6 +87,7 @@ export async function handler(request: Request, logError: (message: string) => v
         userId: identity.userId,
         householdId: identity.householdId,
         member: identity.member,
+        legacyClaimed: await isLegacyClaimed(auth, identity.userId, identity.householdId),
         ...(await getHouseholdNames(auth, identity.householdId) ?? { nameA: config.nameA, nameB: config.nameB })
       });
     }

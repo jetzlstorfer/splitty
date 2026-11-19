@@ -13,6 +13,7 @@ export interface Config {
   nameA: string;
   nameB: string;
   local: boolean;
+  allowNewHouseholds: boolean;
   entra?: { authority: string; clientId: string; clientSecret: string };
 }
 
@@ -24,6 +25,12 @@ export function getConfig(): Config {
   catch { throw new HttpError(503, "APP_ORIGIN must be a valid origin."); }
   const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(origin.hostname);
   const local = env.LOCAL_DEVELOPMENT === "true";
+  const newHouseholdsSetting = env.ALLOW_NEW_HOUSEHOLDS?.trim();
+  if (newHouseholdsSetting && !["true", "false"].includes(newHouseholdsSetting)) {
+    throw new HttpError(503, "ALLOW_NEW_HOUSEHOLDS must be true or false.");
+  }
+  const allowNewHouseholds = newHouseholdsSetting === "true"
+    || (!newHouseholdsSetting && local);
   if ((local && (!loopback || env.WEBSITE_INSTANCE_ID || env.NODE_ENV === "production"))
     || (!local && origin.protocol !== "https:")
     || origin.origin !== env.APP_ORIGIN) {
@@ -94,6 +101,6 @@ export function getConfig(): Config {
     memberAToken: env.MEMBER_A_TOKEN, memberBToken: env.MEMBER_B_TOKEN,
     nameA: env.MEMBER_A_NAME?.trim() || "First person",
     nameB: env.MEMBER_B_NAME?.trim() || "Second person",
-    local, entra
+    local, entra, allowNewHouseholds
   };
 }

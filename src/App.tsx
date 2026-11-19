@@ -34,7 +34,7 @@ interface InstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
 }
 
-interface AuthOptions { entraEnabled: boolean; legacyEnabled: boolean }
+interface AuthOptions { entraEnabled: boolean; legacyEnabled: boolean; newHouseholdsEnabled?: boolean }
 interface Invitation { id: string; slot: Member; expiresAt: number }
 const authOptionsKey = "splitty-auth-options";
 
@@ -43,7 +43,11 @@ function savedAuthOptions(): AuthOptions {
     const value: unknown = JSON.parse(localStorage.getItem(authOptionsKey) ?? "null");
     if (value && typeof value === "object" && "entraEnabled" in value && "legacyEnabled" in value
       && typeof value.entraEnabled === "boolean" && typeof value.legacyEnabled === "boolean") {
-      return { entraEnabled: value.entraEnabled, legacyEnabled: value.legacyEnabled };
+      return {
+        entraEnabled: value.entraEnabled,
+        legacyEnabled: value.legacyEnabled,
+        newHouseholdsEnabled: "newHouseholdsEnabled" in value && value.newHouseholdsEnabled === true
+      };
     }
   } catch { /* The API refresh below remains authoritative. */ }
   return { entraEnabled: false, legacyEnabled: false };
@@ -723,6 +727,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const removingLocalData = useRef(false);
   const [error, setError] = useState("");
   const [memberToken, setMemberToken] = useState("");
+  const [legacyClaimToken, setLegacyClaimToken] = useState("");
   const [signInBusy, setSignInBusy] = useState(false);
   const [authOptions, setAuthOptions] = useState<AuthOptions>(savedAuthOptions);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
@@ -959,16 +964,19 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     finally { setSignInBusy(false); }
   }
 
-  async function startProviderSignIn() {
+  async function startProviderSignIn(legacyToken?: string) {
     const inviteCode = new URLSearchParams(location.hash.slice(1)).get("invite");
-    if (!inviteCode) {
+    if (!inviteCode && !legacyToken) {
       window.location.assign("/api/auth/start");
       return;
     }
     setSignInBusy(true);
     setSyncActionError("");
     try {
-      const result = await api<{ authorizationUrl?: unknown }>("auth/start", { inviteCode });
+      const result = await api<{ authorizationUrl?: unknown }>("auth/start", {
+        ...(inviteCode ? { inviteCode } : {}),
+        ...(legacyToken ? { legacyToken } : {})
+      });
       if (typeof result.authorizationUrl !== "string") throw new Error("Invalid sign-in response.");
       window.location.assign(result.authorizationUrl);
     } catch (e) {
@@ -1222,7 +1230,20 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
         </section>}
         {identity ? <p className="muted">{t("Signing out does not erase this device's offline history. Use a trusted device.")}</p> :
           <div className="sync-sign-in">
-            {authOptions.entraEnabled && <button className="primary" disabled={syncBusy || signInBusy || !online} onClick={() => void startProviderSignIn()}>{t("Continue with email, Google, or Microsoft")}</button>}
+            {authOptions.entraEnabled && <>
+              <button className="primary" disabled={syncBusy || signInBusy || !online} onClick={() => void startProviderSignIn()}>{t("Continue with email, Google, or Microsoft")}</button>
+              {authOptions.newHouseholdsEnabled === false && !new URLSearchParams(location.hash.slice(1)).has("invite")
+                && <p className="muted">{t("New household registration is closed. Existing members can claim their household with a member token.")}</p>}
+              {authOptions.legacyEnabled && <Form onSubmit={(event) => {
+                event.preventDefault();
+                if (!legacyClaimToken) return;
+                void startProviderSignIn(legacyClaimToken);
+              }}>
+                <label>{t("Existing household member token")}<input type="password" autoComplete="off" autoCapitalize="off" spellCheck={false} required maxLength={43} value={legacyClaimToken} onChange={(event) => setLegacyClaimToken(event.target.value)} /></label>
+                <button className="secondary" disabled={syncBusy || signInBusy || !online}>{t(signInBusy ? "Signing in…" : "Continue and claim existing household")}</button>
+                <p className="muted">{t("Your existing household history and this device's offline changes will be kept.")}</p>
+              </Form>}
+            </>}
             {authOptions.legacyEnabled && <Form onSubmit={(event) => void signIn(event)}><label>{t("Member token")}<input type="password" autoComplete="off" autoCapitalize="off" spellCheck={false} required maxLength={43} value={memberToken} onChange={(event) => setMemberToken(event.target.value)} /></label>
               <button className="primary" disabled={signInBusy || syncBusy || !online}>{t(signInBusy ? "Signing in…" : "Sign in")}</button>
               <p className="muted">{t("This device stays signed in until you sign out or the member token is rotated.")}</p></Form>}

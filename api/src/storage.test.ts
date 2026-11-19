@@ -18,6 +18,7 @@ for (const local of [true, false]) {
     const config: Config = {
       origin: local ? "http://127.0.0.1:5173" : "https://splitty.example",
       household: "test-storage", storage: { kind: "connectionString", connection }, local,
+      allowNewHouseholds: local,
       memberAToken: "A".repeat(43), memberBToken: "B".repeat(43),
       nameA: "Alex", nameB: "Sam"
     };
@@ -43,6 +44,7 @@ it("uses the configured service principal for HTTPS table clients", async () => 
       clientSecret: "test-secret"
     },
     local: false,
+    allowNewHouseholds: false,
     nameA: "Alex",
     nameB: "Sam"
   };

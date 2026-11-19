@@ -7,6 +7,7 @@ import { createMembership, createUserSession, revokeMembership } from "../api/sr
 import { applyMutation, readChanges, todoLedger } from "../api/src/ledger";
 import { consumeInvitation, inspectInvitation } from "../api/src/invitations";
 import { beginEntraSignIn } from "../api/src/entra";
+import { claimLegacyMemberSlot } from "../api/src/legacyMigration";
 import { consumeRateLimit } from "../api/src/rateLimit";
 import { example, exampleTodo } from "./fixtures";
 import type { MutationResult, SyncPage } from "../shared/model";
@@ -54,6 +55,7 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
       TABLE_STORAGE_CLIENT_ID: "", TABLE_STORAGE_CLIENT_SECRET: "",
       MEMBER_A_TOKEN: "A".repeat(43), MEMBER_B_TOKEN: "B".repeat(43),
       MEMBER_A_NAME: "Alex", MEMBER_B_NAME: "Sam", LOCAL_DEVELOPMENT: "true",
+      ALLOW_NEW_HOUSEHOLDS: "true",
       ENTRA_AUTHORITY: "https://splittytest.ciamlogin.com/00000000-0000-4000-8000-000000000003",
       ENTRA_CLIENT_ID: "00000000-0000-4000-8000-000000000001",
       ENTRA_CLIENT_SECRET: "test-client-secret"
@@ -89,9 +91,29 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
   });
   it("advertises configured provider sign-in and rejects an unverified callback", async () => {
     const options = await call("auth/config");
-    expect(await options.json()).toEqual({ entraEnabled: true, legacyEnabled: true });
+    expect(await options.json()).toEqual({
+      entraEnabled: true, legacyEnabled: true, newHouseholdsEnabled: true
+    });
     const callback = await call("auth/callback?state=not-the-cookie&code=unused", undefined, "wrong-state");
     expect(callback.status).toBe(400);
+  });
+  it("binds a first Entra sign-in to the existing household without storing its member token", async () => {
+    const token = "A".repeat(43);
+    const { auth } = await tables(getConfig());
+    const response = await beginEntraSignIn(getConfig(), auth, {
+      getAuthCodeUrl: async () => "https://splittytest.ciamlogin.com/authorize"
+    }, undefined, true, token);
+    const cookie = response.headers.get("set-cookie")!;
+    const state = cookie.match(/splitty-entra-state=([^;]+)/)?.[1];
+    expect(state).toBeTruthy();
+    const saved = await auth.getEntity<Record<string, unknown>>(
+      "entra-transactions",
+      `t-${createHash("sha256").update(state!).digest("hex")}`
+    );
+    expect(response.status).toBe(200);
+    expect(saved).toMatchObject({ legacyMember: "a", legacyTokenDigest: createHash("sha256").update(token).digest("hex") });
+    expect(JSON.stringify(saved)).not.toContain(token);
+    expect(JSON.stringify(saved)).not.toContain("memberAToken");
   });
   it("reuses member tokens, identifies the member, and revokes sessions", async () => {
     const token = "A".repeat(43);
@@ -172,6 +194,32 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     expect((await call("sync", { mutations: [{ id: "after-revocation", expectedRevision: 1, entry: example({ revision: 2 }) }] }, cookie, origin, context)).status).toBe(401);
     await createMembership(auth, householdId, userId, context.member);
     expect((await call("auth/resume", { deviceKey })).status).toBe(401);
+  });
+  it("claims a legacy household slot without moving or changing its ledger", async () => {
+    const config = { ...getConfig(), household: `legacy-${crypto.randomUUID()}` };
+    const userId = `user-${crypto.randomUUID()}`;
+    partitions.push(config.household);
+    const { auth, ledger } = await tables(config);
+    const original = example({
+      id: `legacy-${crypto.randomUUID()}`, description: "Original legacy ledger"
+    });
+    await applyMutation(ledger, config.household, {
+      id: crypto.randomUUID(), entry: original, expectedRevision: 0
+    });
+    const beforeClaim = await readChanges(ledger, config.household, 0);
+
+    await claimLegacyMemberSlot(auth, config, userId, "a");
+    await claimLegacyMemberSlot(auth, config, userId, "a");
+
+    expect(await auth.getEntity(`h-${config.household}`, `m-${userId}`)).toMatchObject({
+      userId, member: "a", active: true
+    });
+    expect(await auth.getEntity(`h-${config.household}`, "invite-slot-a")).toMatchObject({
+      id: `legacy-claim-${userId}`, userId
+    });
+    expect(await readChanges(ledger, config.household, 0)).toEqual(beforeClaim);
+    await expect(claimLegacyMemberSlot(auth, config, `user-${crypto.randomUUID()}`, "a"))
+      .rejects.toThrow("That household member slot is already reserved.");
   });
   it("redeems device bootstrap codes once and only for the signed-in user", async () => {
     const householdId = `bootstrap-${crypto.randomUUID()}`;

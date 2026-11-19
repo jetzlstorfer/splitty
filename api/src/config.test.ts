@@ -8,6 +8,7 @@ const clientId = "00000000-0000-4000-8000-000000000002";
 function setBaseEnvironment() {
   for (const key of [
     "HOUSEHOLD_ID", "MEMBER_A_TOKEN", "MEMBER_B_TOKEN",
+    "ALLOW_NEW_HOUSEHOLDS",
     "TABLE_STORAGE_CONNECTION_STRING", "TABLE_STORAGE_ACCOUNT_NAME",
     "TABLE_STORAGE_TENANT_ID", "TABLE_STORAGE_CLIENT_ID", "TABLE_STORAGE_CLIENT_SECRET"
   ]) vi.stubEnv(key, "");
@@ -29,6 +30,24 @@ describe("storage configuration", () => {
       kind: "connectionString",
       connection: "UseDevelopmentStorage=true"
     });
+    expect(getConfig().allowNewHouseholds).toBe(false);
+  });
+
+  it("allows local household creation by default and requires explicit production opt-in", () => {
+    vi.stubEnv("APP_ORIGIN", "http://127.0.0.1:5173");
+    vi.stubEnv("LOCAL_DEVELOPMENT", "true");
+    vi.stubEnv("TABLE_STORAGE_CONNECTION_STRING", "UseDevelopmentStorage=true");
+    expect(getConfig().allowNewHouseholds).toBe(true);
+
+    vi.stubEnv("APP_ORIGIN", "https://splitty.example");
+    vi.stubEnv("LOCAL_DEVELOPMENT", "false");
+    vi.stubEnv("ALLOW_NEW_HOUSEHOLDS", "true");
+    expect(getConfig().allowNewHouseholds).toBe(true);
+  });
+
+  it("accepts only explicit household-registration values", () => {
+    vi.stubEnv("ALLOW_NEW_HOUSEHOLDS", "yes");
+    expect(() => getConfig()).toThrow("ALLOW_NEW_HOUSEHOLDS must be true or false.");
   });
 
   it("accepts a complete table-storage service-principal configuration", () => {

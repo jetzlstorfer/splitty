@@ -1,4 +1,4 @@
-import { activateAccountDatabase, applyStorePage, applyStoreResults, db, expenseStore, todoStore, getDeviceKey, getPreferences, isActiveDatabase, setDeviceKey, SplittyDatabase, type SyncStore } from "./db";
+import { activateAccountDatabase, applyStorePage, applyStoreResults, db, expenseStore, todoStore, getDeviceKey, getPreferences, importLegacyDatabase, isActiveDatabase, setDeviceKey, SplittyDatabase, type SyncStore } from "./db";
 import type { Member, MutationResult, SyncPage, VersionedRecord } from "../shared/model";
 
 export interface Identity {
@@ -7,6 +7,7 @@ export interface Identity {
   nameB: string;
   userId?: string;
   householdId?: string;
+  legacyClaimed?: boolean;
 }
 
 export class ApiError extends Error {
@@ -68,6 +69,7 @@ export async function identify(): Promise<Identity> {
     await setDeviceKey(deviceKey);
     history.replaceState(null, "", `${location.pathname}${location.search}`);
   }
+  if (identity.legacyClaimed) await importLegacyDatabase(identity);
   return identity;
 }
 

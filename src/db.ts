@@ -24,6 +24,11 @@ export interface DeviceSession {
   key: string;
 }
 
+export interface LegacyImport {
+  id: "legacy-import";
+  importedAt: string;
+}
+
 export class SplittyDatabase extends Dexie {
   entries!: Table<Entry, string>;
   outbox!: Table<Mutation, string>;
@@ -33,6 +38,7 @@ export class SplittyDatabase extends Dexie {
   todoOutbox!: Table<Mutation<Todo>, string>;
   todoConflicts!: Table<Conflict<Todo>, string>;
   session!: EntityTable<DeviceSession, "id">;
+  migrations!: EntityTable<LegacyImport, "id">;
 
   constructor(name = "splitty") {
     super(name);
@@ -48,6 +54,7 @@ export class SplittyDatabase extends Dexie {
       todoConflicts: "entryId"
     });
     this.version(3).stores({ session: "id" });
+    this.version(4).stores({ migrations: "id" });
   }
 }
 
@@ -153,7 +160,8 @@ export async function clearAccountDatabase(database: SplittyDatabase): Promise<v
     for (let attempt = 0; attempt < 3; attempt++) {
       await cleanupDatabase.transaction("rw", [
         cleanupDatabase.entries, cleanupDatabase.outbox, cleanupDatabase.preferences, cleanupDatabase.conflicts,
-        cleanupDatabase.todos, cleanupDatabase.todoOutbox, cleanupDatabase.todoConflicts, cleanupDatabase.session
+        cleanupDatabase.todos, cleanupDatabase.todoOutbox, cleanupDatabase.todoConflicts,
+        cleanupDatabase.session, cleanupDatabase.migrations
       ], async () => {
         await cleanupDatabase.entries.clear();
         await cleanupDatabase.outbox.clear();
@@ -163,6 +171,7 @@ export async function clearAccountDatabase(database: SplittyDatabase): Promise<v
         await cleanupDatabase.todoOutbox.clear();
         await cleanupDatabase.todoConflicts.clear();
         await cleanupDatabase.session.clear();
+        await cleanupDatabase.migrations.clear();
       });
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
       const remaining = await Promise.all(cleanupDatabase.tables.map((table) => table.count()));
@@ -172,6 +181,77 @@ export async function clearAccountDatabase(database: SplittyDatabase): Promise<v
   } finally {
     cleanupDatabase.close();
   }
+}
+
+export async function assertLegacyMigrationTarget(database = db): Promise<void> {
+  if (!/^splitty-account-[a-f0-9]{64}$/.test(database.name)) {
+    throw new Error("Sign in to an account before importing household history.");
+  }
+  const marker = await database.migrations.get("legacy-import");
+  if (marker) return;
+  const [entries, outbox, conflicts, todos, todoOutbox, todoConflicts, preferences] = await Promise.all([
+    database.entries.count(), database.outbox.count(), database.conflicts.count(),
+    database.todos.count(), database.todoOutbox.count(), database.todoConflicts.count(),
+    database.preferences.get("preferences")
+  ]);
+  if (entries || outbox || conflicts || todos || todoOutbox || todoConflicts
+    || (preferences && (preferences.cursor !== 0 || (preferences.todoCursor ?? 0) !== 0))) {
+    throw new Error("This account already has household data. Its history cannot be moved safely.");
+  }
+}
+
+export async function importLegacyDatabase(
+  identity: { member: Member; nameA: string; nameB: string },
+  target = db,
+  source = legacyDatabase
+): Promise<void> {
+  if (target === source || !/^splitty-account-[a-f0-9]{64}$/.test(target.name)) {
+    throw new Error("Cannot import household history into this database.");
+  }
+  await source.open();
+  const legacy = await source.transaction("r", [
+    source.entries, source.outbox, source.conflicts, source.todos, source.todoOutbox,
+    source.todoConflicts, source.preferences
+  ], async () => ({
+    entries: await source.entries.toArray(),
+    outbox: await source.outbox.toArray(),
+    conflicts: await source.conflicts.toArray(),
+    todos: await source.todos.toArray(),
+    todoOutbox: await source.todoOutbox.toArray(),
+    todoConflicts: await source.todoConflicts.toArray(),
+    preferences: await source.preferences.get("preferences")
+  }));
+  await target.transaction("rw", [
+    target.entries, target.outbox, target.conflicts, target.todos, target.todoOutbox,
+    target.todoConflicts, target.preferences, target.migrations
+  ], async () => {
+    if (await target.migrations.get("legacy-import")) return;
+    const [entries, outbox, conflicts, todos, todoOutbox, todoConflicts, preferences] = await Promise.all([
+      target.entries.count(), target.outbox.count(), target.conflicts.count(),
+      target.todos.count(), target.todoOutbox.count(), target.todoConflicts.count(),
+      target.preferences.get("preferences")
+    ]);
+    if (entries || outbox || conflicts || todos || todoOutbox || todoConflicts
+      || (preferences && (preferences.cursor !== 0 || (preferences.todoCursor ?? 0) !== 0))) {
+      throw new Error("This account already has household data. Its history cannot be moved safely.");
+    }
+    await target.entries.bulkAdd(legacy.entries);
+    await target.outbox.bulkAdd(legacy.outbox);
+    await target.conflicts.bulkAdd(legacy.conflicts);
+    await target.todos.bulkAdd(legacy.todos);
+    await target.todoOutbox.bulkAdd(legacy.todoOutbox);
+    await target.todoConflicts.bulkAdd(legacy.todoConflicts);
+    await target.preferences.put({
+      ...(legacy.preferences ?? await getPreferences(source)),
+      id: "preferences",
+      member: identity.member,
+      nameA: identity.nameA,
+      nameB: identity.nameB,
+      cursor: legacy.preferences?.cursor ?? 0,
+      todoCursor: legacy.preferences?.todoCursor ?? 0
+    });
+    await target.migrations.put({ id: "legacy-import", importedAt: new Date().toISOString() });
+  });
 }
 
 export async function getPreferences(database = db): Promise<Preferences> {

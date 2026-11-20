@@ -57,6 +57,12 @@ For conflict handling, data retention, and the full sync lifecycle, see [synchro
 
 For a proposed shared deployment supporting multiple households and indicative Azure costs, see the [multi-tenant plan](docs/multi-tenant-plan.md). Multi-tenancy is not implemented.
 
+## Public legal pages
+
+`/privacy` and `/terms` are public, sign-in-free pages linked from the app. Direct visits do not open the ledger or call the API. German is the default; use `?lang=en` or the language links for English. App links preserve the selected language. The existing SPA fallback serves direct visits to either URL.
+
+These pages do not enable account sign-in or public registration.
+
 ## Run locally
 
 Use Node.js 22.13+ or 24+ and npm:

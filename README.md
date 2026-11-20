@@ -57,19 +57,11 @@ For conflict handling, data retention, and the full sync lifecycle, see [synchro
 
 For the shared multi-household design and Azure cost outlook, see the [multi-tenant plan](docs/multi-tenant-plan.md). The code includes Entra-based accounts, existing-household claims, local-history adoption, household-scoped sessions and storage, invitations, lifecycle controls, and quota/rate enforcement; public sign-up is not production-ready until migration is rehearsed and scheduled backup/deletion, provider validation, and operational/legal review are complete.
 
-## Legal drafts
+## Public legal pages
 
-`/privacy` and `/terms` are public, sign-in-free **drafts for review**, linked from
-the app footer. They do not open the ledger or call the API. German is the default;
-use `?lang=en` or the language links for English. The app links preserve its current
-language. The existing SPA fallback serves direct visits to either URL.
+`/privacy` and `/terms` are public, sign-in-free pages linked from the app. Direct visits do not open the ledger or call the API. German is the default; use `?lang=en` or the language links for English. App links preserve the selected language. The existing SPA fallback serves direct visits to either URL.
 
-The short drafts state that Splitty is free and non-commercial. Before publication,
-complete operator/contact details and confirm the legal, provider, retention,
-deletion and jurisdiction-specific details. Do not describe planned backup or
-deletion jobs as operational. Review and approve both languages, then remove the
-draft notices and `noindex` metadata. These drafts are not final Google OAuth legal
-documents. Adding the pages does not deploy them or publish the Google OAuth app.
+These pages do not enable account sign-in or public registration.
 
 ## Run locally
 

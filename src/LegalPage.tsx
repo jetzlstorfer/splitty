@@ -6,20 +6,17 @@ type LegalDocument = "privacy" | "terms";
 interface Section { heading: MessageKey; paragraphs: MessageKey[] }
 
 const titles: Record<LegalDocument, MessageKey> = {
-  privacy: "Privacy policy (draft)",
-  terms: "Terms of service (draft)"
+  privacy: "Privacy policy",
+  terms: "Terms of service"
 };
 
 const sections: Record<LegalDocument, Section[]> = {
   privacy: [
-    {
-      heading: "Operator and contact",
-      paragraphs: ["Draft: add the operator's name and a working privacy contact before publication."]
-    },
+    { heading: "Operator and contact", paragraphs: ["Jürgen Etzlstorfer, Hagenberg im Mühlkreis"] },
     {
       heading: "Data and use",
       paragraphs: [
-        "Splitty is a free, non-commercial project. It uses household names, expense details, amounts, shares, settlements and to-dos to provide a shared ledger. Synced records are stored in Azure and shared with authorized household members.",
+        "Splitty is a free, non-commercial project. It uses household names, expense details, amounts, shares, settlements and to-dos to provide a shared ledger. Synced household data is stored in a Microsoft Azure cloud region within the EU and shared with authorized household members.",
         "When enabled, sign-in is handled by Microsoft Entra using email, Google or Microsoft accounts. Splitty receives an account identifier and profile details such as your name and email, not your password. See the providers' privacy notices below."
       ]
     },
@@ -27,15 +24,12 @@ const sections: Record<LegalDocument, Section[]> = {
       heading: "Storage and deletion",
       paragraphs: [
         "Your browser stores local entries for offline use; clearing it may remove unsynced data. Deleting a synced entry does not erase copies on other devices or in backups.",
-        "Before publication, confirm the legal basis, providers and data locations, retention, deletion process, and how to exercise your privacy rights."
+        "You can request a copy or backup of your data, or request deletion, from the operator."
       ]
     }
   ],
   terms: [
-    {
-      heading: "Operator and scope",
-      paragraphs: ["Draft: add the operator's name, contact and effective date before publication."]
-    },
+    { heading: "Operator and scope", paragraphs: ["Jürgen Etzlstorfer, Hagenberg im Mühlkreis"] },
     {
       heading: "What the service does",
       paragraphs: [
@@ -64,7 +58,6 @@ export default function LegalPage({ page }: { page: LegalDocument }) {
   useEffect(() => { document.documentElement.lang = language; }, [language]);
   return <div className="app-shell legal-page">
     <title>{`${t(titles[page])} | Splitty`}</title>
-    <meta name="robots" content="noindex, nofollow" />
     <header className="topbar">
       <a className="wordmark" href="/" aria-label={t("Splitty home")}><img className="brand-mark" src="/icon.svg" width="32" height="32" alt="" />Splitty</a>
       <div className="legal-language" role="group" aria-label={t("Language")}>
@@ -73,11 +66,7 @@ export default function LegalPage({ page }: { page: LegalDocument }) {
       </div>
     </header>
     <main className="legal-document">
-      <header className="page-heading"><div><h1>{t(titles[page])}</h1><p>{t("Draft for operator and legal review")}</p></div></header>
-      <aside className="legal-draft" aria-label={t("Review required")}>
-        <h2>{t("Review required")}</h2>
-        <p>{t("Draft only: add the operator and contact details, then confirm the legal and data-handling details before publication.")}</p>
-      </aside>
+      <header className="page-heading"><div><h1>{t(titles[page])}</h1></div></header>
       {sections[page].map((section) => <section key={section.heading}>
         <h2>{t(section.heading)}</h2>
         {section.paragraphs.map((paragraph) => <p key={paragraph}>{t(paragraph)}</p>)}

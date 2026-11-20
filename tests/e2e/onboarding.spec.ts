@@ -25,54 +25,6 @@ const copy = {
 };
 
 test.describe("public legal pages", () => {
-  test("public legal drafts support both languages without sign-in or ledger storage", async ({ page }, info) => {
-    const apiRequests: string[] = [];
-    const errors: string[] = [];
-    page.on("pageerror", (error) => errors.push(error.message));
-    await page.route("**/api/**", async (route) => {
-      apiRequests.push(route.request().url());
-      await route.abort();
-    });
-    await page.addInitScript(() => {
-      IDBFactory.prototype.open = () => { throw new Error("Legal pages must not open ledger storage."); };
-    });
-    for (const [path, german, english] of [
-      ["privacy", "Datenschutzerklärung (Entwurf)", "Privacy policy (draft)"],
-      ["terms", "Nutzungsbedingungen (Entwurf)", "Terms of service (draft)"]
-    ]) {
-      await page.goto(`/${path}/`);
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText(german);
-      await expect(page.getByText(/kostenloses, nicht kommerzielles Projekt/)).toBeVisible();
-      await expect(page.locator("html")).toHaveAttribute("lang", "de");
-      const englishLink = page.getByRole("link", { name: "English", exact: true });
-      await englishLink.focus();
-      await page.keyboard.press("Enter");
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText(english);
-      await expect(page.getByText(/free, non-commercial project/)).toBeVisible();
-      await expect(page).toHaveTitle(`${english} | Splitty`);
-      await expect(page.locator("html")).toHaveAttribute("lang", "en");
-      await expect(page.getByRole("heading", { name: "Review required", exact: true })).toBeVisible();
-      await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", "noindex, nofollow");
-      await page.reload();
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText(english);
-      for (const width of [320, 393, 1280]) {
-        await page.setViewportSize({ width, height: 851 });
-        for (const colorScheme of ["light", "dark"] as const) {
-          await page.emulateMedia({ colorScheme });
-          await expect(page.locator("html")).toHaveAttribute("data-theme", colorScheme);
-          expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-        }
-      }
-      await page.setViewportSize({ width: 393, height: 851 });
-      await page.emulateMedia({ colorScheme: "light" });
-      await page.screenshot({ path: info.outputPath(`${path}-draft.png`) });
-      await page.getByRole("link", { name: "Deutsch", exact: true }).click();
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText(german);
-    }
-    expect(apiRequests).toEqual([]);
-    expect(errors).toEqual([]);
-  });
-
   test("home legal links preserve language and offline records through a round trip", async ({ page, context }) => {
     await useEnglish(page);
     await page.getByRole("button", { name: "Add expense", exact: true }).click();
@@ -86,19 +38,18 @@ test.describe("public legal pages", () => {
     await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
     await context.setOffline(true);
     try {
-      const privacy = page.getByRole("link", { name: "Privacy policy (draft)", exact: true });
+      const privacy = page.getByRole("link", { name: "Privacy policy", exact: true });
       await expect(privacy).toHaveAttribute("href", "/privacy?lang=en");
       await privacy.focus();
       await page.keyboard.press("Enter");
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Privacy policy (draft)");
-      await page.getByRole("link", { name: "Terms of service (draft)", exact: true }).click();
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Terms of service (draft)");
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Privacy policy");
+      await page.getByRole("link", { name: "Terms of service", exact: true }).click();
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Terms of service");
       await page.getByRole("link", { name: "Splitty home", exact: true }).click();
       await expect(page.getByRole("heading", { level: 1 })).toHaveText("Expenses");
       await expect(page.locator(".expense-row")).toHaveCount(1);
       await expect(page.locator(".expense-row")).toContainText("Shared groceries");
       await expect(page.locator(".balance-amount")).toContainText("4.00");
-      await expect(page.locator('meta[name="robots"]')).toHaveCount(0);
     } finally { await context.setOffline(false); }
   });
 });

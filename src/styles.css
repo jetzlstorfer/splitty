@@ -145,9 +145,6 @@ main.with-expense-action { padding-bottom: calc(152px + env(safe-area-inset-bott
 .legal-document p, .legal-document li { line-height: 1.65; }
 .legal-document ul { padding-left: 24px; }
 .legal-document li + li { margin-top: 12px; }
-.legal-draft { margin-top: 24px; padding: 16px; border: 1px solid var(--cp-border-strong); border-radius: 12px; background: var(--cp-surface-soft); }
-.legal-draft h2 { color: var(--cp-warning); }
-.legal-draft p:last-child { margin-bottom: 0; }
 h1 { font-size: 24px; line-height: 1.25; font-weight: 650; letter-spacing: -.6px; margin-bottom: 0; }
 .balance-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 22px 2px 2px; }
 .balance-summary { min-width: 0; }

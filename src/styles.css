@@ -124,6 +124,17 @@ main.with-expense-action { padding-bottom: calc(152px + env(safe-area-inset-bott
 .page-heading h1 { font-size: 30px; line-height: 1.15; font-weight: 600; letter-spacing: -.7px; overflow-wrap: anywhere; }
 .page-heading p { margin: 4px 0 0; font-size: 14px; color: var(--cp-text-muted); overflow-wrap: anywhere; }
 .page-heading .pill-button { margin-top: 2px; }
+.legal-links { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 24px; padding: 16px 0; border-top: 1px solid var(--cp-border); font-size: 13px; }
+.legal-links a, .legal-language a { display: inline-flex; align-items: center; min-height: 44px; }
+.legal-page .topbar { flex-wrap: wrap; gap: 8px; }
+.legal-language { display: flex; gap: 12px; font-size: 14px; }
+.legal-language [aria-current] { color: var(--cp-text); font-weight: 600; }
+.legal-document { padding-bottom: max(24px, env(safe-area-inset-bottom)); overflow-wrap: anywhere; }
+.legal-document > section { margin-top: 28px; }
+.legal-document h2 { font-size: 19px; line-height: 1.35; }
+.legal-document p, .legal-document li { line-height: 1.65; }
+.legal-document ul { padding-left: 24px; }
+.legal-document li + li { margin-top: 12px; }
 h1 { font-size: 24px; line-height: 1.25; font-weight: 650; letter-spacing: -.6px; margin-bottom: 0; }
 .balance-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 22px 2px 2px; }
 .balance-summary { min-width: 0; }

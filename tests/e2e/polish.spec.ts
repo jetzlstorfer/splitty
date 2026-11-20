@@ -229,6 +229,37 @@ test("category colors are consistent, accessible and responsive across both them
   }
 });
 
+test("sports expenses show a soccer ball throughout the app", async ({ page }, info) => {
+  await useEnglish(page);
+  await page.getByRole("button", { name: "Add expense", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Description", { exact: true }).fill("Gym membership");
+  await expect(dialog.getByRole("img", { name: "Sport" }).locator("svg")).toHaveClass(/lucide-soccer-ball/);
+  await dialog.getByRole("textbox", { name: "Amount in EUR" }).fill("12");
+  await save(page);
+
+  const row = page.locator(".expense-row").filter({ hasText: "Gym membership" });
+  await expect(row.getByRole("img", { name: "Sport" }).locator("svg")).toHaveClass(/lucide-soccer-ball/);
+  await page.screenshot({ path: info.outputPath("sports-soccer-ball.png") });
+  await row.screenshot({ path: info.outputPath("sports-soccer-ball-detail.png") });
+  for (const width of [320, 393, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const theme of ["light", "dark"]) {
+      await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
+      await expect(row.getByRole("img", { name: "Sport" }).locator("svg")).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    }
+  }
+
+  const nav = page.getByRole("navigation");
+  await nav.getByRole("button", { name: "Search", exact: true }).click();
+  await page.getByRole("searchbox").fill("Gym membership");
+  await expect(page.getByRole("img", { name: "Sport" }).locator("svg")).toHaveClass(/lucide-soccer-ball/);
+  await nav.getByRole("button", { name: "Statistics", exact: true }).click();
+  await expect(page.locator(".statistics-category-icon").getByRole("img", { name: "Sport" }).locator("svg"))
+    .toHaveClass(/lucide-soccer-ball/);
+});
+
 test("German local-save and settled copy follows the device language", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".settled-note")).toHaveText("Gut gemacht, ihr zwei.");

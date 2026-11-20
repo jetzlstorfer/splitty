@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "./fixtures";
 import { closeSync, openSync, signIn, storedRecords, synchronize, upToDate, useEnglish } from "./helpers";
+import { example } from "../fixtures";
 
 async function addExpense(page: Page, description: string, amount = "12.34") {
   await page.getByRole("navigation").getByRole("button", { name: "Expenses", exact: true }).click();
@@ -111,6 +112,151 @@ test.describe("shared browser storage", () => {
       await receiver.close();
       await other.close();
     }
+  });
+
+  test("a household change in another tab refreshes the active tab's identity", async ({ page, context }) => {
+    let activeIdentity = {
+      member: "a", nameA: "Alex A", nameB: "Sam A",
+      userId: "user-account-a", householdId: "household-a"
+    };
+    let firstTabIdentityRequests = 0;
+    let holdFirstTabPull = false;
+    let releaseFirstTabPull = () => {};
+    let notifyFirstTabPull = () => {};
+    const heldFirstTabPull = new Promise<void>((resolve) => { releaseFirstTabPull = resolve; });
+    const firstTabPullStarted = new Promise<void>((resolve) => { notifyFirstTabPull = resolve; });
+    const installApi = async (target: Page, countIdentityRequests = false) => {
+      await target.route("**/api/auth/config", (route) =>
+        route.fulfill({ json: { entraEnabled: false, legacyEnabled: false } }));
+      await target.route("**/api/me", (route) => {
+        if (countIdentityRequests) firstTabIdentityRequests++;
+        return route.fulfill({ json: activeIdentity });
+      });
+      await target.route(/\/api\/(?:todo-)?sync(?:\?|$)/, async (route) => {
+        if (target === page && holdFirstTabPull && route.request().url().includes("/api/sync?")) {
+          holdFirstTabPull = false;
+          notifyFirstTabPull();
+          await heldFirstTabPull;
+          return route.fulfill({ json: { entries: [example({ id: "stale-account-response" })], cursor: 1, more: false } });
+        }
+        return route.fulfill({ json: { entries: [], cursor: 0, more: false } });
+      });
+    };
+    await installApi(page, true);
+    await useEnglish(page);
+    await upToDate(page);
+    await openSync(page);
+    await expect(page.getByText("Signed in as Alex A.")).toBeVisible();
+    const accountADatabaseName = await page.evaluate(() => localStorage.getItem("splitty-active-database"));
+    expect(accountADatabaseName).toMatch(/^splitty-account-/);
+
+    const other = await context.newPage();
+    try {
+      holdFirstTabPull = true;
+      await page.getByRole("button", { name: "Sync now" }).click();
+      await firstTabPullStarted;
+      const identityRequestsBeforeSwitch = firstTabIdentityRequests;
+      activeIdentity = {
+        member: "b", nameA: "Alex B", nameB: "Sam B",
+        userId: "user-account-b", householdId: "household-b"
+      };
+      await installApi(other);
+      await useEnglish(other);
+      await upToDate(other);
+      releaseFirstTabPull();
+      await expect.poll(() => firstTabIdentityRequests).toBeGreaterThan(identityRequestsBeforeSwitch);
+      await openSync(page);
+      await expect(page.getByText("Signed in as Sam B.")).toBeVisible();
+      await expect(other.locator(".expense-row")).toHaveCount(0);
+      const oldAccountEntries = await page.evaluate(async (name) => {
+        if (!name) return null;
+        const database = await new Promise<IDBDatabase>((resolve, reject) => {
+          const request = indexedDB.open(name);
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+        try {
+          return await new Promise<unknown[]>((resolve, reject) => {
+            const request = database.transaction("entries", "readonly").objectStore("entries").getAll();
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+        } finally { database.close(); }
+      }, accountADatabaseName);
+      expect(oldAccountEntries).toEqual([]);
+    } finally {
+      releaseFirstTabPull();
+      await other.close();
+    }
+  });
+
+  test("removing account data warns about pending writes and deletes only this device's account store", async ({ page }) => {
+    let signedIn = true;
+    let logoutRequests = 0;
+    let logoutNetworkRequests = 0;
+    page.on("request", (request) => {
+      if (request.url().includes("/api/auth/logout")) logoutNetworkRequests++;
+    });
+    await page.route("**/api/auth/config", (route) =>
+      route.fulfill({ json: { entraEnabled: true, legacyEnabled: false } }));
+    await page.route("**/api/me", (route) => signedIn
+      ? route.fulfill({ json: {
+        member: "a", nameA: "Alex", nameB: "Sam",
+        userId: "user-remove-local", householdId: "household-remove-local"
+      } })
+      : route.fulfill({ status: 401, json: { error: "Sign in to sync this device." } }));
+    await page.route("**/api/household/invitations", (route) => route.fulfill({ json: { invitations: [] } }));
+    await page.route(/\/api\/auth\/logout(?:\?.*)?$/, (route) => {
+      logoutRequests++;
+      signedIn = false;
+      return route.fulfill({ json: { signedOut: true } });
+    });
+    await page.route(/\/api\/(?:todo-)?sync(?:\?|$)/, (route) => route.request().method() === "POST"
+      ? route.fulfill({ status: 503, json: { error: "Sync request failed." } })
+      : route.fulfill({ json: { entries: [], cursor: 0, more: false } }));
+
+    await useEnglish(page);
+    await expect.poll(() => page.evaluate(() => localStorage.getItem("splitty-active-database"))).toMatch(/^splitty-account-/);
+    const accountDatabaseName = await page.evaluate(() => localStorage.getItem("splitty-active-database"));
+    await upToDate(page);
+    await addExpense(page, "Unsent local record", "8");
+    await expect(page.locator(".expense-row")).toContainText("Unsent local record");
+    await openSync(page);
+
+    const removeButton = page.getByRole("button", { name: "Remove local data from this device" });
+    await removeButton.click();
+    const confirmation = page.getByRole("dialog").filter({ hasText: /1 unsynced changes or conflicts/ });
+    await expect(confirmation).toBeVisible();
+    await expect(confirmation).toContainText("permanently discards them");
+    const reloaded = page.waitForEvent("load");
+    await confirmation.getByRole("button", { name: "Remove local data from this device" }).click();
+    await reloaded;
+    await expect(confirmation).not.toBeVisible();
+    await expect.poll(() => logoutNetworkRequests).toBe(1);
+    await expect.poll(() => logoutRequests).toBe(1);
+    await expect.poll(() => page.evaluate(() => localStorage.getItem("splitty-active-database"))).toBeNull();
+    const remainingCounts = await page.evaluate(async (name) => {
+      if (!name) return null;
+      const database = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open(name);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      try {
+        const stores = Array.from(database.objectStoreNames);
+        const transaction = database.transaction(stores, "readonly");
+        return await Promise.all(stores.map((store) => new Promise<{ store: string; count: number }>((resolve, reject) => {
+          const request = transaction.objectStore(store).count();
+          request.onsuccess = () => resolve({ store, count: request.result });
+          request.onerror = () => reject(request.error);
+        })));
+      } finally { database.close(); }
+    }, accountDatabaseName);
+    expect(remainingCounts).not.toBeNull();
+    expect(remainingCounts).toEqual(remainingCounts?.map(({ store }) => ({ store, count: 0 })));
+    await expect(page.locator(".expense-row")).toHaveCount(0);
+    await openSync(page);
+    await expect(page.getByRole("button", { name: /Continue with email|Mit E-Mail/ })).toBeVisible();
   });
 });
 

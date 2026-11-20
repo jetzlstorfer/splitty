@@ -25,6 +25,7 @@
     "dexie": "^4.4.7",
     "lucide-react": "^1.61.0",
     "papaparse": "^5.5.3",
+    "qrcode.react": "^4.2.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },

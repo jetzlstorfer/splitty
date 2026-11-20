@@ -55,7 +55,7 @@ Local-only use needs no account or Azure resources. Shared sync requires a backe
 
 For conflict handling, data retention, and the full sync lifecycle, see [synchronization and deployment](docs/synchronization-and-deployment.md).
 
-For a proposed shared deployment supporting multiple households and indicative Azure costs, see the [multi-tenant plan](docs/multi-tenant-plan.md). Multi-tenancy is not implemented.
+For the shared multi-household design and Azure cost outlook, see the [multi-tenant plan](docs/multi-tenant-plan.md). The code includes Entra-based accounts, existing-household claims, local-history adoption, household-scoped sessions and storage, invitations, lifecycle controls, and quota/rate enforcement; public sign-up is not production-ready until migration is rehearsed and scheduled backup/deletion, provider validation, and operational/legal review are complete.
 
 ## Public legal pages
 
@@ -100,10 +100,49 @@ See [import details](docs/importing.md) for duplicate handling, reconciliation, 
 
 The Azure resources are described in [`infra/main.bicep`](infra/main.bicep); deployment is not automatic resource provisioning. In brief:
 
-1. Generate two private member tokens and choose a stable household ID.
-2. Deploy the Bicep template to create the Static Web App and Table Storage account.
+1. For a new hosted deployment, create an Entra External ID user flow and confidential web application. Register `https://<static-web-app-host>/api/auth/callback` as its redirect URI. Set `entraAuthority` to the HTTPS CIAM URL with the tenant ID or domain path (for example, `https://<tenant-subdomain>.ciamlogin.com/<tenant-id>`), supply `entraClientId` and secure `entraClientSecret`.
+2. Deploy the Bicep template only when creating new Azure resources. For an existing production deployment, do not redeploy this template or replace its storage account as part of the application cutover.
 3. Configure the Static Web App deployment secret `AZURE_STATIC_WEB_APPS_API_TOKEN` in the GitHub `production` environment.
 4. Push or merge to `main` to run [Deploy to Azure](.github/workflows/deploy.yml), then sign in on each device.
+
+### Existing household production cutover
+
+The cutover uses the current Static Web App, custom domain, Table Storage account,
+and `TABLE_STORAGE_CONNECTION_STRING`; it must not create a replacement ledger.
+Before changing settings, sync both existing devices, resolve conflicts, and
+download a backup from each device. Keep the current `HOUSEHOLD_ID`,
+`MEMBER_A_TOKEN`, and `MEMBER_B_TOKEN` settings during the migration.
+
+In the existing Static Web App's application settings, keep `APP_ORIGIN` set to
+the current HTTPS custom domain, add the three `ENTRA_*` settings described
+above, and set `ALLOW_NEW_HOUSEHOLDS=false`. Leave all table-storage settings
+unchanged. Register the callback as
+`https://<production-custom-domain>/api/auth/callback`. New users can then
+claim a member slot by entering its existing member token before continuing
+with Entra; the token is validated before redirect and only its digest is held
+for the short-lived sign-in transaction. Household data remains in its
+existing partition, and cached entries, queued writes, conflicts, tombstones,
+and separate sync cursors are adopted into that account's local database
+without deleting the original local database.
+
+Have each existing member use their own token on a trusted device, complete
+provider sign-in with the intended Entra account, and verify the household
+names, balances, expenses, to-dos, and sync status on both devices. Do not
+remove the legacy settings until both memberships are claimed and verified.
+Afterward, remove `HOUSEHOLD_ID`, `MEMBER_A_TOKEN`, and `MEMBER_B_TOKEN`
+together. Keep `ALLOW_NEW_HOUSEHOLDS=false` until backup/deletion operations,
+provider checks, budgets, and reviewed legal pages are ready; only then set it
+to `true` to permit public household creation. Non-local deployments default
+to closed registration if this setting is absent.
+
+For an isolated staging deployment, set `storageAuthMode` to `rbac` and provide
+the workforce-tenant service principal's tenant ID, client ID, secret, and object
+ID. The template assigns **Storage Table Data Contributor** at the staging
+storage-account scope and disables shared-key access for that account. Keep the
+staging identity and credentials separate from the External ID sign-in
+application; do not use this mode for production until its deployment settings
+are intentionally migrated. The default `connectionString` mode preserves the
+existing deployment behavior.
 
 Pull requests run the full [Check workflow](.github/workflows/check.yml), including API integration and browser tests. Automatic deployments on `main` repeat lint, unit tests, TypeScript checks, builds, and API integration tests, but skip browser installation and tests. Manual deployments run the full suite. Deployment only starts after all enabled checks pass. Use pull requests for changes to `main`: direct pushes also skip browser tests.
 

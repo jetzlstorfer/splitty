@@ -3,14 +3,34 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mutation } from "../shared/model";
 import type { Todo } from "../shared/todo";
 import { example, exampleTodo } from "../tests/fixtures";
-import { db, getDeviceKey, getPreferences, queueTodos, setDeviceKey } from "./db";
-import { ApiError, identify, signInDevice, signOutDevice, synchronize } from "./sync";
+import { activateAnonymousDatabase, db, getDeviceKey, getPreferences, queueTodos, setDeviceKey } from "./db";
+import { ApiError, identify, signInDevice, signOutDevice, syncPollingInterval, synchronize } from "./sync";
 
-beforeEach(async () => { await db.delete(); await db.open(); });
-afterEach(async () => { vi.unstubAllGlobals(); await db.delete(); });
+beforeEach(async () => {
+  await activateAnonymousDatabase();
+  await db.delete();
+  await db.open();
+  await setDeviceKey(null);
+});
+afterEach(async () => {
+  vi.unstubAllGlobals();
+  await setDeviceKey(null);
+  await activateAnonymousDatabase();
+  await db.delete();
+});
 
 const deviceKey = "K".repeat(43);
 const identity = { member: "a", nameA: "Alex", nameB: "Sam" };
+
+describe("adaptive sync polling", () => {
+  it("uses one-minute polling until five idle minutes, then polls every five minutes", () => {
+    const now = 1_000_000;
+    expect(syncPollingInterval(now, now)).toBe(60_000);
+    expect(syncPollingInterval(now, now - 5 * 60_000 + 1)).toBe(60_000);
+    expect(syncPollingInterval(now, now - 5 * 60_000)).toBe(5 * 60_000);
+    expect(syncPollingInterval(now, now - 30 * 60_000)).toBe(5 * 60_000);
+  });
+});
 
 describe("device session recovery", () => {
   it("stores the device key on sign-in and sends it when signing out", async () => {
@@ -42,6 +62,25 @@ describe("device session recovery", () => {
     await expect(identify()).resolves.toEqual(identity);
     expect(requests).toEqual(["/api/me", "/api/auth/resume", "/api/me"]);
     expect(await getDeviceKey()).toBe(deviceKey);
+  });
+
+  it("redeems the one-time device key after provider sign-in and removes it from the URL", async () => {
+    const code = "C".repeat(43);
+    const replaceState = vi.fn();
+    vi.stubGlobal("location", { hash: "#auth=" + code, pathname: "/", search: "" });
+    vi.stubGlobal("history", { replaceState });
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (path: string) => {
+      requests.push(path);
+      return path === "/api/auth/device-key"
+        ? Response.json({ deviceKey })
+        : Response.json(identity);
+    }));
+
+    await expect(identify()).resolves.toEqual(identity);
+    expect(requests).toEqual(["/api/me", "/api/auth/device-key"]);
+    expect(await getDeviceKey()).toBe(deviceKey);
+    expect(replaceState).toHaveBeenCalledWith(null, "", "/");
   });
 
   it("forgets revoked keys but keeps them when the network fails", async () => {

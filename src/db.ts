@@ -24,6 +24,11 @@ export interface DeviceSession {
   key: string;
 }
 
+export interface LegacyImport {
+  id: "legacy-import";
+  importedAt: string;
+}
+
 export class SplittyDatabase extends Dexie {
   entries!: Table<Entry, string>;
   outbox!: Table<Mutation, string>;
@@ -33,6 +38,7 @@ export class SplittyDatabase extends Dexie {
   todoOutbox!: Table<Mutation<Todo>, string>;
   todoConflicts!: Table<Conflict<Todo>, string>;
   session!: EntityTable<DeviceSession, "id">;
+  migrations!: EntityTable<LegacyImport, "id">;
 
   constructor(name = "splitty") {
     super(name);
@@ -48,18 +54,204 @@ export class SplittyDatabase extends Dexie {
       todoConflicts: "entryId"
     });
     this.version(3).stores({ session: "id" });
+    this.version(4).stores({ migrations: "id" });
   }
 }
 
-export const db = new SplittyDatabase();
+class DeviceDatabase extends Dexie {
+  session!: EntityTable<DeviceSession, "id">;
 
-export async function getDeviceKey(database = db): Promise<string | null> {
-  return (await database.session.get("session"))?.key ?? null;
+  constructor() {
+    super("splitty-device");
+    this.version(1).stores({ session: "id" });
+  }
 }
 
-export async function setDeviceKey(key: string | null, database = db): Promise<void> {
-  if (key) await database.session.put({ id: "session", key });
-  else await database.session.delete("session");
+const scopeStorageKey = "splitty-active-database";
+const accountDatabaseName = (value: string | null) =>
+  value && /^splitty-account-[a-f0-9]{64}$/.test(value) ? value : "splitty";
+function rememberedDatabaseName(): string {
+  try { return accountDatabaseName(typeof localStorage === "undefined" ? null : localStorage.getItem(scopeStorageKey)); }
+  catch { return "splitty"; }
+}
+
+const legacyDatabase = new SplittyDatabase();
+const deviceDatabase = new DeviceDatabase();
+const initialDatabaseName = rememberedDatabaseName();
+export let db = initialDatabaseName === legacyDatabase.name ? legacyDatabase : new SplittyDatabase(initialDatabaseName);
+
+export function isActiveDatabase(database: SplittyDatabase): boolean {
+  return db === database;
+}
+
+async function selectDatabase(name: string, persist = true): Promise<void> {
+  if (persist && typeof localStorage !== "undefined") {
+    try {
+      if (name === legacyDatabase.name) localStorage.removeItem(scopeStorageKey);
+      else localStorage.setItem(scopeStorageKey, name);
+    } catch { throw new Error("Could not save this device's signed-in account."); }
+  }
+  if (db.name === name) return;
+  const next = name === legacyDatabase.name ? legacyDatabase : new SplittyDatabase(name);
+  await next.open();
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("splitty-database-changing"));
+  db.close();
+  db = next;
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("splitty-database-changed"));
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event) => {
+    if (event.key !== scopeStorageKey) return;
+    void selectDatabase(accountDatabaseName(event.newValue), false).catch((error: unknown) => {
+      window.dispatchEvent(new CustomEvent("splitty-error", {
+        detail: `Local storage failed: ${error instanceof Error ? error.message : String(error)}`
+      }));
+    });
+  });
+}
+
+export async function activateAccountDatabase(userId: string, householdId: string): Promise<void> {
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(userId) || !/^[a-zA-Z0-9_-]{1,100}$/.test(householdId)) {
+    throw new Error("Invalid sign-in response.");
+  }
+  if (userId.startsWith("legacy-")) {
+    await selectDatabase("splitty");
+    return;
+  }
+  const input = new TextEncoder().encode(`${userId}\0${householdId}`);
+  const hash = await crypto.subtle.digest("SHA-256", input);
+  const suffix = [...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  await selectDatabase(`splitty-account-${suffix}`);
+}
+
+export async function activateAnonymousDatabase(): Promise<void> {
+  await selectDatabase("splitty");
+}
+
+export async function getDeviceKey(database?: SplittyDatabase): Promise<string | null> {
+  if (database) return (await database.session.get("session"))?.key ?? null;
+  const current = (await deviceDatabase.session.get("session"))?.key;
+  if (current) return current;
+  const legacy = (await legacyDatabase.session.get("session"))?.key ?? null;
+  if (legacy) {
+    await deviceDatabase.session.put({ id: "session", key: legacy });
+    await legacyDatabase.session.delete("session");
+  }
+  return legacy;
+}
+
+export async function setDeviceKey(key: string | null, database?: SplittyDatabase): Promise<void> {
+  const session = database?.session ?? deviceDatabase.session;
+  if (key) await session.put({ id: "session", key });
+  else {
+    await session.delete("session");
+    if (!database) await legacyDatabase.session.delete("session");
+  }
+}
+
+export async function clearAccountDatabase(database: SplittyDatabase): Promise<void> {
+  if (!/^splitty-account-[a-f0-9]{64}$/.test(database.name)) {
+    throw new Error("Cannot clear the shared local database.");
+  }
+  const cleanupDatabase = new SplittyDatabase(database.name);
+  try {
+    await cleanupDatabase.open();
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await cleanupDatabase.transaction("rw", [
+        cleanupDatabase.entries, cleanupDatabase.outbox, cleanupDatabase.preferences, cleanupDatabase.conflicts,
+        cleanupDatabase.todos, cleanupDatabase.todoOutbox, cleanupDatabase.todoConflicts,
+        cleanupDatabase.session, cleanupDatabase.migrations
+      ], async () => {
+        await cleanupDatabase.entries.clear();
+        await cleanupDatabase.outbox.clear();
+        await cleanupDatabase.preferences.clear();
+        await cleanupDatabase.conflicts.clear();
+        await cleanupDatabase.todos.clear();
+        await cleanupDatabase.todoOutbox.clear();
+        await cleanupDatabase.todoConflicts.clear();
+        await cleanupDatabase.session.clear();
+        await cleanupDatabase.migrations.clear();
+      });
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      const remaining = await Promise.all(cleanupDatabase.tables.map((table) => table.count()));
+      if (remaining.every((count) => count === 0)) return;
+    }
+    throw new Error("Could not remove local account data.");
+  } finally {
+    cleanupDatabase.close();
+  }
+}
+
+export async function assertLegacyMigrationTarget(database = db): Promise<void> {
+  if (!/^splitty-account-[a-f0-9]{64}$/.test(database.name)) {
+    throw new Error("Sign in to an account before importing household history.");
+  }
+  const marker = await database.migrations.get("legacy-import");
+  if (marker) return;
+  const [entries, outbox, conflicts, todos, todoOutbox, todoConflicts, preferences] = await Promise.all([
+    database.entries.count(), database.outbox.count(), database.conflicts.count(),
+    database.todos.count(), database.todoOutbox.count(), database.todoConflicts.count(),
+    database.preferences.get("preferences")
+  ]);
+  if (entries || outbox || conflicts || todos || todoOutbox || todoConflicts
+    || (preferences && (preferences.cursor !== 0 || (preferences.todoCursor ?? 0) !== 0))) {
+    throw new Error("This account already has household data. Its history cannot be moved safely.");
+  }
+}
+
+export async function importLegacyDatabase(
+  identity: { member: Member; nameA: string; nameB: string },
+  target = db,
+  source = legacyDatabase
+): Promise<void> {
+  if (target === source || !/^splitty-account-[a-f0-9]{64}$/.test(target.name)) {
+    throw new Error("Cannot import household history into this database.");
+  }
+  await source.open();
+  const legacy = await source.transaction("r", [
+    source.entries, source.outbox, source.conflicts, source.todos, source.todoOutbox,
+    source.todoConflicts, source.preferences
+  ], async () => ({
+    entries: await source.entries.toArray(),
+    outbox: await source.outbox.toArray(),
+    conflicts: await source.conflicts.toArray(),
+    todos: await source.todos.toArray(),
+    todoOutbox: await source.todoOutbox.toArray(),
+    todoConflicts: await source.todoConflicts.toArray(),
+    preferences: await source.preferences.get("preferences")
+  }));
+  await target.transaction("rw", [
+    target.entries, target.outbox, target.conflicts, target.todos, target.todoOutbox,
+    target.todoConflicts, target.preferences, target.migrations
+  ], async () => {
+    if (await target.migrations.get("legacy-import")) return;
+    const [entries, outbox, conflicts, todos, todoOutbox, todoConflicts, preferences] = await Promise.all([
+      target.entries.count(), target.outbox.count(), target.conflicts.count(),
+      target.todos.count(), target.todoOutbox.count(), target.todoConflicts.count(),
+      target.preferences.get("preferences")
+    ]);
+    if (entries || outbox || conflicts || todos || todoOutbox || todoConflicts
+      || (preferences && (preferences.cursor !== 0 || (preferences.todoCursor ?? 0) !== 0))) {
+      throw new Error("This account already has household data. Its history cannot be moved safely.");
+    }
+    await target.entries.bulkAdd(legacy.entries);
+    await target.outbox.bulkAdd(legacy.outbox);
+    await target.conflicts.bulkAdd(legacy.conflicts);
+    await target.todos.bulkAdd(legacy.todos);
+    await target.todoOutbox.bulkAdd(legacy.todoOutbox);
+    await target.todoConflicts.bulkAdd(legacy.todoConflicts);
+    await target.preferences.put({
+      ...(legacy.preferences ?? await getPreferences(source)),
+      id: "preferences",
+      member: identity.member,
+      nameA: identity.nameA,
+      nameB: identity.nameB,
+      cursor: legacy.preferences?.cursor ?? 0,
+      todoCursor: legacy.preferences?.todoCursor ?? 0
+    });
+    await target.migrations.put({ id: "legacy-import", importedAt: new Date().toISOString() });
+  });
 }
 
 export async function getPreferences(database = db): Promise<Preferences> {

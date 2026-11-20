@@ -24,6 +24,36 @@ const copy = {
   }
 };
 
+test.describe("public legal pages", () => {
+  test("home legal links preserve language and offline records through a round trip", async ({ page, context }) => {
+    await useEnglish(page);
+    await page.getByRole("button", { name: "Add expense", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("Description", { exact: true }).fill("Shared groceries");
+    await dialog.getByRole("textbox", { name: "Amount in EUR" }).fill("8");
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+    await page.evaluate(async () => { await navigator.serviceWorker.ready; });
+    await page.reload();
+    await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
+    await context.setOffline(true);
+    try {
+      const privacy = page.getByRole("link", { name: "Privacy policy", exact: true });
+      await expect(privacy).toHaveAttribute("href", "/privacy?lang=en");
+      await privacy.focus();
+      await page.keyboard.press("Enter");
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Privacy policy");
+      await page.getByRole("link", { name: "Terms of service", exact: true }).click();
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Terms of service");
+      await page.getByRole("link", { name: "Splitty home", exact: true }).click();
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Expenses");
+      await expect(page.locator(".expense-row")).toHaveCount(1);
+      await expect(page.locator(".expense-row")).toContainText("Shared groceries");
+      await expect(page.locator(".balance-amount")).toContainText("4.00");
+    } finally { await context.setOffline(false); }
+  });
+});
+
 for (const language of ["de", "en"] as const) {
   for (const width of [320, 393, 1280]) {
     for (const theme of ["light", "dark"] as const) {

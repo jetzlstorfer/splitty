@@ -172,7 +172,8 @@ async function ensureUser(
     throw new HttpError(500, "Could not load the signed-in account.");
   }
   if (user.deletionRequestedAt) throw new HttpError(410, "This account is scheduled for deletion.");
-  if (legacyMember && (user.householdId !== config.household || user.member !== legacyMember)) {
+  if (legacyMember && (user.householdId || user.member)
+    && (user.householdId !== config.household || user.member !== legacyMember)) {
     throw new HttpError(409, "This account already belongs to another household. Sign in with the account intended for this member token.");
   }
   if (!user.householdId || !user.member) {
@@ -278,7 +279,8 @@ async function ensureUser(
 }
 
 export async function completeEntraSignIn(
-  request: Request, config: Config, table: TableClient
+  request: Request, config: Config, table: TableClient,
+  authorizationClient?: Pick<ConfidentialClientApplication, "acquireTokenByCode">
 ): Promise<Response> {
   const url = new URL(request.url);
   const state = url.searchParams.get("state");
@@ -294,7 +296,7 @@ export async function completeEntraSignIn(
   }
   await table.deleteEntity(transactionPartition, `t-${digest(state)}`);
 
-  const result = await client(config).acquireTokenByCode({
+  const result = await (authorizationClient ?? client(config)).acquireTokenByCode({
     code,
     scopes,
     redirectUri: `${config.origin}/api/auth/callback`,

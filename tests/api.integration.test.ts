@@ -6,7 +6,7 @@ import { tables } from "../api/src/storage";
 import { createMembership, createUserSession, revokeMembership } from "../api/src/auth";
 import { applyMutation, readChanges, todoLedger } from "../api/src/ledger";
 import { consumeInvitation, inspectInvitation } from "../api/src/invitations";
-import { beginEntraSignIn } from "../api/src/entra";
+import { beginEntraSignIn, completeEntraSignIn } from "../api/src/entra";
 import { claimLegacyMemberSlot } from "../api/src/legacyMigration";
 import { consumeRateLimit } from "../api/src/rateLimit";
 import { example, exampleTodo } from "./fixtures";
@@ -220,6 +220,54 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     expect(await readChanges(ledger, config.household, 0)).toEqual(beforeClaim);
     await expect(claimLegacyMemberSlot(auth, config, `user-${crypto.randomUUID()}`, "a"))
       .rejects.toThrow("That household member slot is already reserved.");
+  });
+  it("allows a former household member to claim a legacy slot, but rejects an active member", async () => {
+    const config = { ...getConfig(), allowNewHouseholds: false };
+    const oldHousehold = `former-${crypto.randomUUID()}`;
+    const issuer = "https://issuer.example";
+    const subject = crypto.randomUUID();
+    const userId = `user-${createHash("sha256").update(`${issuer}\0${subject}`).digest("hex").slice(0, 40)}`;
+    partitions.push(oldHousehold);
+    const { auth, ledger } = await tables(config);
+    await auth.createEntity({ partitionKey: `h-${oldHousehold}`, rowKey: "household", nameA: "Alex", nameB: "" });
+    await auth.createEntity({
+      partitionKey: "users", rowKey: `u-${userId}`, userId, issuer, subject,
+      email: "test@example.invalid", name: "Alex", householdId: oldHousehold,
+      member: "a", membershipInitialized: true
+    });
+    await createMembership(auth, oldHousehold, userId, "a");
+    const oldSession = await createUserSession(config, auth, { userId, householdId: oldHousehold, member: "a" });
+    const original = example({ id: crypto.randomUUID(), description: "Existing legacy ledger" });
+    await applyMutation(ledger, household, { id: crypto.randomUUID(), entry: original, expectedRevision: 0 });
+    const before = await readChanges(ledger, household, 0);
+
+    const authorizationClient: NonNullable<Parameters<typeof completeEntraSignIn>[3]> = {
+      acquireTokenByCode: async () => ({
+        authority: issuer, uniqueId: subject, tenantId: "test", scopes: [], account: null,
+        idToken: "", idTokenClaims: { iss: issuer, sub: subject, email: "test@example.invalid" },
+        accessToken: "", fromCache: false, expiresOn: null, tokenType: "Bearer", correlationId: ""
+      })
+    };
+    async function claim() {
+      const start = await beginEntraSignIn(config, auth, {
+        getAuthCodeUrl: async () => "https://splittytest.ciamlogin.com/authorize"
+      }, undefined, true, "A".repeat(43));
+      expect(start.status).toBe(200);
+      const cookie = start.headers.get("set-cookie")!.split(";")[0];
+      const state = cookie.slice(cookie.indexOf("=") + 1);
+      return completeEntraSignIn(new Request(`${origin}/api/auth/callback?state=${state}&code=synthetic-code`, {
+        headers: { cookie }
+      }), config, auth, authorizationClient);
+    }
+    await expect(claim()).rejects.toMatchObject({ status: 409 });
+    expect((await call("household/leave", {}, oldSession.cookie.split(";")[0])).status).toBe(200);
+    expect((await call("me", undefined, oldSession.cookie.split(";")[0])).status).toBe(401);
+    expect((await claim()).status).toBe(302);
+    expect(await auth.getEntity<Record<string, unknown>>("users", `u-${userId}`))
+      .toMatchObject({ householdId: household, member: "a", legacyClaimed: true });
+    expect(await auth.getEntity<Record<string, unknown>>(`h-${household}`, `m-${userId}`))
+      .toMatchObject({ userId, member: "a", active: true });
+    expect(await readChanges(ledger, household, 0)).toEqual(before);
   });
   it("redeems device bootstrap codes once and only for the signed-in user", async () => {
     const householdId = `bootstrap-${crypto.randomUUID()}`;

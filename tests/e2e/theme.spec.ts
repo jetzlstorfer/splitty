@@ -3,8 +3,11 @@ import { expect, test, type Page } from "./fixtures";
 async function expectTheme(page: Page, theme: "light" | "dark") {
   await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
   await expect(page.locator("html")).toHaveCSS("color-scheme", theme);
+  await expect(page.locator("html")).toHaveCSS("background-color", theme === "dark" ? "rgb(28, 37, 36)" : "rgb(255, 255, 255)");
   await expect(page.locator("body")).toHaveCSS("background-color", theme === "dark" ? "rgb(20, 27, 25)" : "rgb(242, 244, 243)");
   await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", theme === "dark" ? "#1c2524" : "#ffffff");
+  await expect(page.locator('meta[name="apple-mobile-web-app-capable"]')).toHaveAttribute("content", "yes");
+  await expect(page.locator('meta[name="apple-mobile-web-app-status-bar-style"]')).toHaveAttribute("content", theme === "dark" ? "black-translucent" : "default");
 }
 
 for (const initial of ["light", "dark"] as const) {

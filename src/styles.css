@@ -76,7 +76,7 @@ html[data-theme="dark"] {
   --cp-category-gold-ink: #e3cc88;
 }
 * { box-sizing: border-box; }
-html { scroll-padding-top: calc(72px + env(safe-area-inset-top)); }
+html { background: var(--cp-surface); scroll-padding-top: calc(72px + env(safe-area-inset-top)); }
 body { margin: 0; background: var(--cp-bg); color: var(--cp-text); font-family: "Segoe UI", Aptos, Calibri, -apple-system, BlinkMacSystemFont, sans-serif; -webkit-tap-highlight-color: var(--cp-accent-soft); }
 button, input, select, textarea { font: inherit; }
 button, input, textarea { appearance: none; -webkit-appearance: none; }

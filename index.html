@@ -3,6 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="theme-color" content="#ffffff" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <script>
       (() => {
         const param = new URLSearchParams(window.location.search).get("scoutTheme");
@@ -13,6 +15,7 @@
             : systemTheme.matches ? "dark" : "light";
           document.documentElement.setAttribute("data-theme", theme);
           document.querySelector('meta[name="theme-color"]').content = theme === "dark" ? "#1c2524" : "#ffffff";
+          document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]').content = theme === "dark" ? "black-translucent" : "default";
         };
         updateTheme();
         if (param !== "light" && param !== "dark") {

@@ -27,6 +27,8 @@ Open to-dos and insurance reminders are initially shown newest first, using the 
 
 Dropdowns, date selection, confirmations, and validation messages use Splitty's theme in both light and dark mode. Dates can also be typed as `YYYY-MM-DD`. The device keyboard, file picker, and permission prompts remain system-provided.
 
+On iPhone in dark mode, the installed app draws its themed surface behind the notch with a transparent status bar. Light mode keeps the default status bar with dark icons. After updating or changing the device theme, fully close and reopen the Home Screen app so iOS picks up the status-bar settings.
+
 Choose who paid with the two-person switch directly in the expense form. For quick entry, use the keyboard's Next action after the description, then Done after the amount to save with today's date and the current payer and split. Date, category, and custom splits remain editable before saving.
 
 When a new app version is ready, a prominent green card above the current page offers an **Update** button. Updating keeps your saved entries.

@@ -99,6 +99,7 @@ npm run test:e2e -- --workers=1
 Chromium owns the main regression suite. WebKit runs
 [the mobile/PWA smoke tests](../tests/e2e/webkit.spec.ts) and
 [the themed-control regressions](../tests/e2e/controls.spec.ts), plus
+[theme and status-bar surface checks](../tests/e2e/theme.spec.ts) and
 [sync action layout checks](../tests/e2e/sync-popover-layout.spec.ts), not the
 Chromium-specific touch/CDP matrix. Use filename selectors and projects to focus a run:
 
@@ -108,6 +109,11 @@ npm run test:e2e -- sync-popover-layout.spec.ts
 npm run test:e2e -- --project=webkit
 npm run test:e2e -- isolation.spec.ts persistence.spec.ts --repeat-each=2
 ```
+
+Theme tests cover the root surface, iOS status-bar metadata, live system-theme
+changes, explicit overrides, and offline PWA reloads in both engines. WebKit does
+not emulate the physical iPhone notch or Home Screen status bar: also check the
+installed app on an iPhone in both themes after fully closing and reopening it.
 
 Keep coverage at the narrowest useful layer:
 

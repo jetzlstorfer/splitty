@@ -115,6 +115,13 @@ changes, explicit overrides, and offline PWA reloads in both engines. WebKit doe
 not emulate the physical iPhone notch or Home Screen status bar: also check the
 installed app on an iPhone in both themes after fully closing and reopening it.
 
+The theme spec also fetches the emitted manifest and checks that Android's
+installed launch/navigation fallback matches the dark app surface while the
+page can still switch to light mode. Desktop browser emulation cannot verify
+Android's native gesture/three-button navigation area. Check an updated
+installation on Android in both themes; Android may retain the manifest colors
+in its installed shell, and some versions use the fixed fallback in both themes.
+
 Keep coverage at the narrowest useful layer:
 
 - Category vocabulary and accounting rules belong in unit tests; browsers cover

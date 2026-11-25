@@ -29,6 +29,8 @@ Dropdowns, date selection, confirmations, and validation messages use Splitty's 
 
 On iPhone in dark mode, the installed app draws its themed surface behind the notch with a transparent status bar. Light mode keeps the default status bar with dark icons. After updating or changing the device theme, fully close and reopen the Home Screen app so iOS picks up the status-bar settings.
 
+The installed Android app uses a dark launch and system-navigation fallback to avoid a white strip below the page in dark mode. Some Android/Chrome versions use this fixed installed color even in light mode; the page and supported browser chrome still follow the device theme. Existing installations may need Chrome's installed-app update or reinstallation to pick up the new shell color. Download a backup before reinstalling or clearing any site data.
+
 Choose who paid with the two-person switch directly in the expense form. For quick entry, use the keyboard's Next action after the description, then Done after the amount to save with today's date and the current payer and split. Date, category, and custom splits remain editable before saving.
 
 When a new app version is ready, a prominent green card above the current page offers an **Update** button. Updating keeps your saved entries.

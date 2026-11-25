@@ -68,6 +68,23 @@ test("installed app shell uses the dark surface behind Android system navigation
   await expectTheme(page, "light");
 });
 
+test("installed-app manifest checks receive new colors without activating a new service worker", async ({ page, publishManifestUpdate }) => {
+  await page.goto("/");
+  await page.evaluate(async () => { await navigator.serviceWorker.ready; });
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
+  const controller = await page.evaluate(() => navigator.serviceWorker.controller?.scriptURL);
+  const fetchManifest = () => page.evaluate(async () => {
+    const response = await fetch("/manifest.webmanifest", { cache: "no-cache" });
+    if (!response.ok) throw new Error(`Manifest request failed: ${response.status}`);
+    return response.json();
+  });
+  expect(await fetchManifest()).toMatchObject({ background_color: "#1c2524", theme_color: "#1c2524" });
+  publishManifestUpdate();
+  expect(await fetchManifest()).toMatchObject({ background_color: "#102030", theme_color: "#102030" });
+  expect(await page.evaluate(() => navigator.serviceWorker.controller?.scriptURL)).toBe(controller);
+});
+
 test("system theme follows changes after an offline PWA reload", async ({ page, context }) => {
   await page.emulateMedia({ colorScheme: "light" });
   await page.goto("/");

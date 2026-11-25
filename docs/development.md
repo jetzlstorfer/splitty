@@ -121,6 +121,11 @@ page can still switch to light mode. Desktop browser emulation cannot verify
 Android's native gesture/three-button navigation area. Check an updated
 installation on Android in both themes; Android may retain the manifest colors
 in its installed shell, and some versions use the fixed fallback in both themes.
+An additional regression changes the server's manifest colors while the page
+remains controlled by the same service worker, then fetches the manifest through
+the page (not `page.request`, which bypasses the worker). It must receive the new
+colors. The manifest is excluded from precaching and served with `no-cache`;
+offline reloads still use the cached HTML, scripts, styles, and icons.
 
 Keep coverage at the narrowest useful layer:
 

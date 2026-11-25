@@ -29,7 +29,9 @@ Dropdowns, date selection, confirmations, and validation messages use Splitty's 
 
 On iPhone in dark mode, the installed app draws its themed surface behind the notch with a transparent status bar. Light mode keeps the default status bar with dark icons. After updating or changing the device theme, fully close and reopen the Home Screen app so iOS picks up the status-bar settings.
 
-The installed Android app uses a dark launch and system-navigation fallback to avoid a white strip below the page in dark mode. Some Android/Chrome versions use this fixed installed color even in light mode; the page and supported browser chrome still follow the device theme. Existing installations may need Chrome's installed-app update or reinstallation to pick up the new shell color. Download a backup before reinstalling or clearing any site data.
+The installed Android app uses a dark launch and system-navigation fallback to avoid a white strip below the page in dark mode. Some Android/Chrome versions use this fixed installed color even in light mode; the page and supported browser chrome still follow the device theme.
+
+The Android shell updates separately from the page. First accept Splitty's **Update** prompt to activate the latest service worker. Then, in Chrome, open `chrome://webapks`, find Splitty, and select **Update**. Close all Splitty windows and connect the phone to Wi-Fi and power while Chrome updates the installed shell. Reload that diagnostics page and wait for **Successful**; the theme and background colors should both be `rgba(28,37,36,1)`. Reopen Splitty afterwards. This does not require reinstalling or clearing saved data. The manifest is fetched from the network rather than the offline app cache, so shell updates can receive new colors independently of the page version.
 
 Choose who paid with the two-person switch directly in the expense form. For quick entry, use the keyboard's Next action after the description, then Done after the amount to save with today's date and the current payer and split. Date, category, and custom splits remain editable before saving.
 

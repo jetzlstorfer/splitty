@@ -8,6 +8,14 @@ export default defineConfig({
     VitePWA({
       registerType: "prompt",
       includeAssets: ["icon.svg"],
+      integration: {
+        beforeBuildServiceWorker(options) {
+          // The plugin adds the web manifest after Workbox's manifest transforms.
+          options.workbox.additionalManifestEntries = options.workbox.additionalManifestEntries?.filter(
+            (entry) => (typeof entry === "string" ? entry : entry.url) !== options.manifestFilename
+          );
+        }
+      },
       manifest: {
         name: "Splitty - Gemeinsame Ausgaben",
         short_name: "Splitty",

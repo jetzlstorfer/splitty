@@ -8,6 +8,7 @@ export type { BrowserContext, Locator, Page } from "@playwright/test";
 export const test = base.extend<{
   household: string;
   publishUpdate: () => void;
+  publishManifestUpdate: () => void;
 }, {
   storage: Awaited<ReturnType<typeof startStorage>>;
   app: Awaited<ReturnType<typeof startApp>>;
@@ -48,6 +49,10 @@ export const test = base.extend<{
   }, { scope: "worker" }],
   baseURL: async ({ app }, use) => { await use(app.origin); },
   publishUpdate: async ({ app }, use) => { await use(app.publishUpdate); },
+  publishManifestUpdate: async ({ app }, use) => {
+    try { await use(() => app.setManifestColor("#102030")); }
+    finally { app.setManifestColor(); }
+  },
   household: [async ({ app: _app }, use) => {
     const previous = process.env.HOUSEHOLD_ID;
     const household = `browser-test-${randomUUID()}`;

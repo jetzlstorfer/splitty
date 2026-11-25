@@ -12,6 +12,7 @@
   },
   "routes": [
     { "route": "/sw.js", "headers": { "Cache-Control": "no-cache" } },
+    { "route": "/manifest.webmanifest", "headers": { "Cache-Control": "no-cache" } },
     { "route": "/index.html", "headers": { "Cache-Control": "no-cache" } },
     { "route": "/api/*", "headers": { "Cache-Control": "no-store" } }
   ]

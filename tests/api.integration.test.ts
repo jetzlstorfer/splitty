@@ -367,6 +367,45 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     await expect(consumeInvitation(auth, target, `user-${crypto.randomUUID()}`)).rejects.toMatchObject({ status: 410 });
     expect((await call("household/invitations", {}, cookie)).status).toBe(409);
   });
+  it("uses the Entra name for an empty member slot without overwriting chosen names", async () => {
+    const householdId = `entra-name-${crypto.randomUUID()}`;
+    const ownerId = `user-${crypto.randomUUID()}`;
+    partitions.push(householdId);
+    const { auth } = await tables(getConfig());
+    await auth.createEntity({ partitionKey: `h-${householdId}`, rowKey: "household", nameA: "Alex", nameB: "" });
+    await createMembership(auth, householdId, ownerId, "a");
+    const owner = await createUserSession(getConfig(), auth, { userId: ownerId, householdId, member: "a" });
+    const ownerCookie = owner.cookie.split(";")[0];
+    const { code } = await (await call("household/invitations", {}, ownerCookie)).json() as { code: string };
+    const issuer = "https://issuer.example", subject = crypto.randomUUID();
+    let displayName = "Sam Synthetic";
+    const authorizationClient: NonNullable<Parameters<typeof completeEntraSignIn>[3]> = {
+      acquireTokenByCode: async () => ({
+        authority: issuer, uniqueId: subject, tenantId: "test", scopes: [], account: null, idToken: "",
+        idTokenClaims: { iss: issuer, sub: subject, email: "sam@example.invalid", name: displayName },
+        accessToken: "", fromCache: false, expiresOn: null, tokenType: "Bearer", correlationId: ""
+      })
+    };
+    async function signIn(invite?: string) {
+      const start = await beginEntraSignIn(getConfig(), auth, {
+        getAuthCodeUrl: async () => "https://splittytest.ciamlogin.com/authorize"
+      }, invite, true);
+      const cookie = start.headers.get("set-cookie")!.split(";")[0];
+      const state = cookie.slice(cookie.indexOf("=") + 1);
+      return completeEntraSignIn(new Request(`${origin}/api/auth/callback?state=${state}&code=synthetic-code`, {
+        headers: { cookie }
+      }), getConfig(), auth, authorizationClient);
+    }
+
+    expect((await signIn(code)).status).toBe(302);
+    expect(await auth.getEntity<Record<string, unknown>>(`h-${householdId}`, "household"))
+      .toMatchObject({ nameA: "Alex", nameB: "Sam Synthetic" });
+    expect((await call("household/member-name", { slot: "b", name: "Sammy" }, ownerCookie)).status).toBe(200);
+    displayName = "Samuel Synthetic";
+    expect((await signIn()).status).toBe(302);
+    expect(await auth.getEntity<Record<string, unknown>>(`h-${householdId}`, "household"))
+      .toMatchObject({ nameA: "Alex", nameB: "Sammy" });
+  });
   it("renames members, removes access, and schedules empty-household deletion", async () => {
     const householdId = `lifecycle-${crypto.randomUUID()}`;
     const userA = `user-${crypto.randomUUID()}`, userB = `user-${crypto.randomUUID()}`;

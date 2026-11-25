@@ -275,7 +275,24 @@ async function ensureUser(
       legacyClaimed: true
     }, "Merge");
   }
+  await fillEmptyMemberName(table, context, claims.name);
   return context;
+}
+
+async function fillEmptyMemberName(table: TableClient, context: AuthContext, name: string): Promise<void> {
+  const field = context.member === "a" ? "nameA" : "nameB";
+  const household = await optionalEntity<HouseholdRecord>(table, householdPartition(context.householdId), "household");
+  if (!household || household.deletedAt || household[field]?.trim() || !name.trim()) return;
+  try {
+    await table.updateEntity({
+      partitionKey: householdPartition(context.householdId),
+      rowKey: "household",
+      [field]: name.trim().slice(0, 60)
+    }, "Merge", { etag: household.etag });
+  } catch (error) {
+    // Another device or member changed the household concurrently; keep their value.
+    if (statusCode(error) !== 412) throw error;
+  }
 }
 
 export async function completeEntraSignIn(

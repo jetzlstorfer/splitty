@@ -67,6 +67,8 @@ export async function startStorage() {
 
 export async function startApp() {
   const serviceWorker = await readFile(resolve("dist", "sw.js"), "utf8");
+  const manifest: Record<string, unknown> = JSON.parse(await readFile(resolve("dist", "manifest.webmanifest"), "utf8"));
+  let manifestColor: string | undefined;
   let revision = 0;
   const server = await preview({
     configFile: false,
@@ -75,7 +77,12 @@ export async function startApp() {
       name: "isolated-browser-test-api",
       configurePreviewServer(server) {
         server.middlewares.use((incoming, outgoing, next) => {
-          if (incoming.url?.split("?")[0] === "/sw.js") {
+          if (incoming.url?.split("?")[0] === "/manifest.webmanifest") {
+            outgoing.writeHead(200, { "Content-Type": "application/manifest+json", "Cache-Control": "no-cache" });
+            outgoing.end(JSON.stringify(manifestColor === undefined ? manifest : {
+              ...manifest, theme_color: manifestColor, background_color: manifestColor
+            }));
+          } else if (incoming.url?.split("?")[0] === "/sw.js") {
             outgoing.writeHead(200, { "Content-Type": "application/javascript", "Cache-Control": "no-store" });
             outgoing.end(`${serviceWorker}\n/* Browser-test deployment ${revision} */\n`);
           } else if (incoming.url?.startsWith("/api/")) {
@@ -108,6 +115,7 @@ export async function startApp() {
   return {
     origin: `http://127.0.0.1:${address.port}`,
     publishUpdate: () => { revision++; },
+    setManifestColor: (color?: string) => { manifestColor = color; },
     close: () => new Promise<void>((resolve, reject) => {
       if ("closeAllConnections" in server.httpServer) server.httpServer.closeAllConnections();
       server.httpServer.close((error) => error ? reject(error) : resolve());

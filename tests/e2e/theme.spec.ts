@@ -48,6 +48,26 @@ test("invalid theme override still follows system changes", async ({ page }) => 
   await expectTheme(page, "dark");
 });
 
+test("installed app shell uses the dark surface behind Android system navigation", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.goto("/");
+  await expectTheme(page, "dark");
+  const manifestUrl = await page.locator('link[rel="manifest"]').getAttribute("href");
+  expect(manifestUrl).toBeTruthy();
+  const response = await page.request.get(manifestUrl!);
+  expect(response.ok()).toBe(true);
+  const surface = await page.locator("html").evaluate((element) =>
+    getComputedStyle(element).getPropertyValue("--cp-surface").trim()
+  );
+  expect(await response.json()).toMatchObject({
+    display: "standalone",
+    background_color: surface,
+    theme_color: surface
+  });
+  await page.emulateMedia({ colorScheme: "light" });
+  await expectTheme(page, "light");
+});
+
 test("system theme follows changes after an offline PWA reload", async ({ page, context }) => {
   await page.emulateMedia({ colorScheme: "light" });
   await page.goto("/");

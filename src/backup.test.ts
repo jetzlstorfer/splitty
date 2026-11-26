@@ -1,7 +1,8 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { example, exampleTodo } from "../tests/fixtures";
-import { SplittyDatabase } from "./db";
+import { queueInsuranceTodoSetting, queueNewReceipts, SplittyDatabase } from "./db";
+import { insuranceTodos } from "./todos";
 import { missingBackupRecords, readBackup, restoreBackup } from "./backup";
 
 let database: SplittyDatabase;
@@ -39,5 +40,19 @@ describe("backups with manual to-dos", () => {
     await expect(restoreBackup({ entries: [example()], todos: [exampleTodo({ title: "" })] }, database)).rejects.toThrow();
     expect(await database.entries.count()).toBe(0);
     expect(await database.outbox.count()).toBe(0);
+  });
+  it("preserves reminder eligibility on restore instead of applying the current CSV import setting", async () => {
+    const imported = example({ id: "imported", importKey: "csv-key", kind: "imported", description: "Apotheke", paidBy: null, shareA: null });
+    await queueInsuranceTodoSetting(false, database);
+    await queueNewReceipts([imported], database);
+    const skipped = example({ id: "restored-skip", description: "Apotheke", skipInsuranceTodo: true });
+    const submitted = example({ description: "Arzt", insuranceSubmittedAt: "2024-06-02T00:00:00Z" });
+    const backup = readBackup({ format: "splitty-v2", entries: [submitted, skipped], todos: [] });
+    await restoreBackup(backup, database);
+    await queueInsuranceTodoSetting(true, database);
+    const entries = await database.entries.toArray();
+    expect(entries).toHaveLength(3);
+    expect(insuranceTodos(entries).map(({ entry, done }) => [entry.id, done])).toEqual([[submitted.id, true]]);
+    expect(entries.find((entry) => entry.id === imported.id)).toMatchObject({ balanceA: imported.balanceA, paidBy: null, shareA: null });
   });
 });

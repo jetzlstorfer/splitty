@@ -1,13 +1,13 @@
 import type { TableClient } from "@azure/data-tables";
-import { validateChange, validateEntry, type MutationResult, type VersionedRecord } from "../../shared/model";
+import { isInsuranceTodoSetting, validateChange, validateEntry, type MutationResult, type VersionedRecord } from "../../shared/model";
 import { validateTodo } from "../../shared/todo";
 import { authenticate, isSessionKey, logout, resumeSession, sessionCookie, signInWithToken } from "./auth";
 import { getConfig, HttpError } from "./config";
-import { beginEntraSignIn, completeEntraSignIn, getHouseholdNames, isLegacyClaimed, redeemDeviceKey } from "./entra";
+import { beginEntraSignIn, completeEntraSignIn, getAccountDetails, getHouseholdNames, redeemDeviceKey } from "./entra";
 import { expenseLedger, todoLedger, type createLedger } from "./ledger";
 import { createInvitation, listInvitations, revokeInvitation } from "./invitations";
 import {
-  deleteAccount, deleteHousehold, leaveHousehold, removeOtherMember, renameHouseholdMember
+  deleteAccount, deleteHousehold, insuranceTodoSetting, leaveHousehold, removeOtherMember, renameHouseholdMember
 } from "./households";
 import { consumeRateLimit, signInRateLimitKey } from "./rateLimit";
 import { tables } from "./storage";
@@ -87,7 +87,7 @@ export async function handler(request: Request, logError: (message: string) => v
         userId: identity.userId,
         householdId: identity.householdId,
         member: identity.member,
-        legacyClaimed: await isLegacyClaimed(auth, identity.userId, identity.householdId),
+        ...await getAccountDetails(auth, identity),
         ...(await getHouseholdNames(auth, identity.householdId) ?? { nameA: config.nameA, nameB: config.nameB })
       });
     }
@@ -127,13 +127,19 @@ export async function handler(request: Request, logError: (message: string) => v
       await logout(request, config, auth);
       return json({ deletionScheduled: true }, 200, { "Set-Cookie": sessionCookie(config, "", 0) });
     }
-    if (path === "sync" || path === "todo-sync") {
+    if (path === "sync" || path === "todo-sync" || path === "household/insurance-todos") {
       const requestUser = request.headers.get("x-splitty-user");
       const requestHousehold = request.headers.get("x-splitty-household");
       const hasContext = requestUser !== null || requestHousehold !== null;
       if ((!identity.userId.startsWith("legacy-") && (!requestUser || !requestHousehold))
         || (hasContext && (requestUser !== identity.userId || requestHousehold !== identity.householdId))) {
         throw new HttpError(409, "The signed-in household changed. Retry sync on this device.");
+      }
+      if (path === "household/insurance-todos") {
+        if (request.method === "GET") return json(await insuranceTodoSetting(ledger, identity.householdId));
+        const change = await body(request);
+        if (!isInsuranceTodoSetting(change)) throw new HttpError(400, "Invalid insurance to-do setting.");
+        return json(await insuranceTodoSetting(ledger, identity.householdId, change));
       }
     }
     if (path === "sync") return await syncRequest(request, url, ledger, identity.householdId, validateEntry, expenseLedger);

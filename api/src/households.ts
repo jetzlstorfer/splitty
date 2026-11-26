@@ -1,5 +1,5 @@
 import type { TableClient } from "@azure/data-tables";
-import type { Member } from "../../shared/model";
+import { defaultInsuranceTodoSetting, type InsuranceTodoSetting, type Member } from "../../shared/model";
 import type { AuthContext } from "./auth";
 import { HttpError } from "./config";
 import { clearInvitationSlot } from "./invitations";
@@ -8,6 +8,27 @@ import { optionalEntity, statusCode } from "./storage";
 const householdPartition = (householdId: string) => `h-${householdId}`;
 const userPartition = "users";
 const deletionGraceMs = 30 * 24 * 60 * 60 * 1000;
+
+export async function insuranceTodoSetting(
+  ledger: TableClient, household: string, change?: InsuranceTodoSetting
+): Promise<InsuranceTodoSetting> {
+  const rowKey = "insurance-todo-setting";
+  const read = () => optionalEntity<InsuranceTodoSetting>(ledger, household, rowKey);
+  const stored = await read();
+  const { enabled, revision } = stored ?? defaultInsuranceTodoSetting;
+  if (!change || change.revision !== revision || change.enabled === enabled) return { enabled, revision };
+  const next = { enabled: change.enabled, revision: revision + 1 };
+  const entity = { partitionKey: household, rowKey, ...next };
+  try {
+    if (stored) await ledger.updateEntity(entity, "Replace", { etag: stored.etag });
+    else await ledger.createEntity(entity);
+    return next;
+  } catch (error) {
+    if (statusCode(error) !== 409 && statusCode(error) !== 412) throw error;
+    const current = await ledger.getEntity<InsuranceTodoSetting>(household, rowKey);
+    return { enabled: current.enabled, revision: current.revision };
+  }
+}
 
 interface HouseholdEntity {
   nameA: string;

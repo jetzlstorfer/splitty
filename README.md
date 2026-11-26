@@ -22,7 +22,7 @@ The screenshots below show the expenses and to-do screens with synthetic sample 
 - Categorize expenses automatically, switch between German and English, and download or restore backups.
 - Optionally scan German/English receipts on-device, review suggestions, and download the scanner for offline use.
 
-Insurance reminders are derived from health and pharmacy expenses; manual to-dos remain separate from the ledger and never affect balances.
+By default, new health and pharmacy receipts create insurance reminders. Either member can turn **Settings → To-dos → Automatic insurance to-dos** off for the household. This applies to newly entered receipts and CSV imports, not to existing reminders or their completion status. Turning it back on does not create reminders for skipped receipts. An offline device uses its last known setting until it syncs. Manual to-dos remain separate from the ledger and never affect balances.
 Like expense rows, to-do rows open their details when selected. Use the checkbox at the left to complete or reopen a to-do; insurance reminders open the associated expense.
 Open to-dos and insurance reminders are initially shown newest first, using the creation date for manual to-dos and the expense date for reminders. Drag a manual to-do by its grip handle, or focus the handle and use the arrow keys, to reorder manual to-dos; the order syncs to the whole household. Insurance reminders remain in their date-based slots while manual to-dos move around them.
 
@@ -59,6 +59,8 @@ flowchart LR
 ```
 
 Local-only use needs no account or Azure resources. Shared sync requires a backend. Browser storage can be cleared or evicted, so download a backup before replacing a device or clearing site data. This app is not end-to-end encrypted.
+
+Settings shows your sign-in method (email, Google, Microsoft, or member token), plus the name, email address, and HTTPS profile picture supplied at sign-in. Photos are optional and fall back to an initial or account icon. Existing sessions may need a fresh sign-in to populate these details. Provider detection uses Entra's ID-token `idp` claim; if it is absent or unrecognized, Settings reports that the provider is unavailable rather than inferring it from your email address. Names and pictures are shown only when Entra passes them through. No additional Graph permissions are requested.
 
 For conflict handling, data retention, and the full sync lifecycle, see [synchronization and deployment](docs/synchronization-and-deployment.md).
 

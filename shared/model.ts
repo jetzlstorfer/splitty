@@ -24,6 +24,15 @@ export interface Entry extends VersionedRecord {
   percentageA?: number;
   categoryMode?: "auto" | "manual";
   insuranceSubmittedAt?: string;
+  skipInsuranceTodo?: boolean;
+}
+
+export interface InsuranceTodoSetting { enabled: boolean; revision: number }
+export const defaultInsuranceTodoSetting: InsuranceTodoSetting = { enabled: true, revision: 0 };
+
+export function isInsuranceTodoSetting(value: unknown): value is InsuranceTodoSetting {
+  return !!value && typeof value === "object" && "enabled" in value && typeof value.enabled === "boolean"
+    && "revision" in value && typeof value.revision === "number" && Number.isSafeInteger(value.revision) && value.revision >= 0;
 }
 
 export interface Mutation<T = Entry> {
@@ -102,6 +111,9 @@ export function validateEntry(value: unknown): Entry {
   if (e.categoryMode !== undefined && e.categoryMode !== "auto" && e.categoryMode !== "manual") {
     throw new Error("Invalid expense fields.");
   }
+  if (e.skipInsuranceTodo !== undefined && typeof e.skipInsuranceTodo !== "boolean") {
+    throw new Error("Invalid expense fields.");
+  }
   if (e.insuranceSubmittedAt !== undefined && (typeof e.insuranceSubmittedAt !== "string"
     || e.insuranceSubmittedAt.length > 40 || !Number.isFinite(Date.parse(e.insuranceSubmittedAt)))) {
     throw new Error("Invalid expense fields.");
@@ -138,6 +150,7 @@ export function validateEntry(value: unknown): Entry {
     ...(e.splitType && e.kind === "expense" ? { splitType: e.splitType as SplitType } : {}),
     ...(e.splitType === "percent" && e.kind === "expense" ? { percentageA: e.percentageA as number } : {}),
     ...(e.categoryMode ? { categoryMode: e.categoryMode as "auto" | "manual" } : {}),
+    ...(e.skipInsuranceTodo === true ? { skipInsuranceTodo: true } : {}),
     ...(e.insuranceSubmittedAt ? { insuranceSubmittedAt: e.insuranceSubmittedAt as string } : {})
   };
 }

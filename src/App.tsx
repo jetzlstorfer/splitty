@@ -2,13 +2,14 @@ import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo
 import { liveQuery } from "dexie";
 import {
   BarChart3, Check, ChevronDown, ChevronRight, ClipboardCheck,
-  Download, GripVertical, Languages, Lock, Pencil, Plus, Receipt, RefreshCw, RotateCcw, Search, Settings, Smartphone, Sparkles, Sun, Trash2, Upload, X
+  Download, GripVertical, Languages, Lock, Pencil, Plus, Receipt, RefreshCw, RotateCcw, Search, Settings, Smartphone, Sparkles, Sun, Trash2, Upload, UserRound, X
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { calculateShareA, expenseBalance, parseMoney, type Entry, type Member, type SplitType } from "../shared/model";
 import { translate } from "../shared/i18n";
+import { profilePictureUrl } from "../shared/profile";
 import { MAX_TODO_TITLE, MAX_TODO_DESCRIPTION, type Todo } from "../shared/todo";
-import { activateAnonymousDatabase, clearAccountDatabase, db, queueEntries, queueTodos, resolveConflict, resolveStoreConflict, todoStore, updatePreferences, getPreferences, setDeviceKey, type Conflict, type Preferences } from "./db";
+import { activateAnonymousDatabase, automaticInsuranceTodos, clearAccountDatabase, db, localQueueState, queueEntries, queueInsuranceTodoSetting, queueNewReceipts, queueTodos, resolveConflict, resolveStoreConflict, todoStore, updatePreferences, setDeviceKey, type Conflict, type Preferences } from "./db";
 import { missingBackupRecords, readBackup, restoreBackup } from "./backup";
 import type { ImportPreview } from "./importer";
 import { ApiError, api, identify, signInDevice, signOutDevice, syncPollingInterval, synchronize, type Identity } from "./sync";
@@ -38,6 +39,35 @@ interface InstallPromptEvent extends Event {
 interface AuthOptions { entraEnabled: boolean; legacyEnabled: boolean; newHouseholdsEnabled?: boolean }
 interface Invitation { id: string; slot: Member; expiresAt: number }
 const authOptionsKey = "splitty-auth-options";
+
+function AccountDetails({ identity }: { identity: Identity | null }) {
+  const { t } = useLocale();
+  const [failedPicture, setFailedPicture] = useState<string>();
+  const picture = profilePictureUrl(identity?.pictureUrl);
+  const legacy = identity && (!identity.userId || identity.userId.startsWith("legacy-"));
+  const provider = identity?.signInProvider;
+  const signInMethod = !identity ? t("Not signed in") : legacy ? t("Signed in with a member token")
+    : provider === "google" ? t("Signed in with Google")
+    : provider === "microsoft" ? t("Signed in with Microsoft")
+    : provider === "email" ? t("Signed in with email") : t("Sign-in provider unavailable");
+  return <section className="settings-card" aria-label={t("Account")}>
+    <h2 className="section-label">{t("Account")}</h2>
+    <div className="settings-row account-details">
+      <span className="avatar" aria-hidden="true">
+        {picture && picture !== failedPicture
+          ? <img src={picture} alt="" referrerPolicy="no-referrer" onError={() => setFailedPicture(picture)} />
+          : identity?.displayName?.trim().charAt(0).toUpperCase() || <UserRound size={20} />}
+      </span>
+      <span className="entry-description">
+        <strong>{identity?.displayName || signInMethod}</strong>
+        {identity?.displayName && <small>{signInMethod}</small>}
+        {identity?.email && <small>{identity.email}</small>}
+      </span>
+    </div>
+    {identity && !legacy && (!provider || provider === "unknown") &&
+      <p className="settings-note">{t("Sign in again to refresh your provider and profile details. Some providers do not share all details.")}</p>}
+  </section>;
+}
 
 function savedAuthOptions(): AuthOptions {
   try {
@@ -70,11 +100,11 @@ function useLedger(): Snapshot | null {
     const subscribe = () => {
       const database = db;
       subscription = liveQuery(async () => {
-        const [entries, todos, outboxCount, todoOutboxCount, preferences, conflicts, todoConflicts] = await Promise.all([
-          database.entries.toArray(), database.todos.toArray(), database.outbox.count(), database.todoOutbox.count(),
-          getPreferences(database), database.conflicts.toArray(), database.todoConflicts.toArray()
+        const [entries, todos, queue, conflicts, todoConflicts] = await Promise.all([
+          database.entries.toArray(), database.todos.toArray(), localQueueState(database),
+          database.conflicts.toArray(), database.todoConflicts.toArray()
         ]);
-        return { entries, todos, pending: outboxCount + todoOutboxCount, preferences, conflicts, todoConflicts };
+        return { entries, todos, ...queue, conflicts, todoConflicts };
       }).subscribe({
         next: setValue,
         error: (error: unknown) => window.dispatchEvent(new CustomEvent("splitty-error", {
@@ -215,10 +245,12 @@ function ExpenseForm({ entry, settlement, preferences: p, close, saved }: {
             categoryMode: categoryChoice === "auto" ? "auto" : "manual",
             splitType, ...(split === "percent" ? { percentageA: Number(share.replace(",", ".")) } : {})
           } : {}),
-          ...(entry?.insuranceSubmittedAt ? { insuranceSubmittedAt: entry.insuranceSubmittedAt } : {})
+          ...(entry?.insuranceSubmittedAt ? { insuranceSubmittedAt: entry.insuranceSubmittedAt } : {}),
+          ...(entry?.skipInsuranceTodo ? { skipInsuranceTodo: true } : {})
         };
       }
-      await queueEntries([value]);
+      if (!entry && !settlement) await queueNewReceipts([value]);
+      else await queueEntries([value]);
       saved(value); close();
     } catch (e) { setError(e instanceof Error ? e.message : "Could not save this expense."); }
     finally { setBusy(false); }
@@ -320,7 +352,7 @@ function ImportForm({ preferences: p, close, saved }: { preferences: Preferences
     if (!preview || preview.errors.length) return;
     setBusy(true); setError("");
     try {
-      await queueEntries(preview.entries);
+      await queueNewReceipts(preview.entries);
       saved(); close();
     } catch (e) { setError(e instanceof Error ? e.message : "Import failed. No entries were added."); }
     finally { setBusy(false); }
@@ -575,7 +607,7 @@ function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, to
         <span className="todo-clear-icon" aria-hidden="true"><Sun size={30} /></span>
         <h2>{t("All caught up!")}</h2>
         <p>{t("Nothing left to chase. Enjoy your day.")}</p>
-        {!todos.length && <p className="todo-clear-hint">{t("Add your own to-dos here. Doctor and pharmacy expenses also appear automatically for insurance submission.")}</p>}
+        {!todos.length && <p className="todo-clear-hint">{t("Add your own to-dos here. You can turn automatic insurance to-dos on or off in Settings.")}</p>}
       </div>}
     </div>
     <p className="sr-only" aria-live="polite">{announcement}</p>
@@ -848,7 +880,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
         lastPollAt.current = Date.now();
         setLastSynced(new Date());
         setSyncStatus(await database.conflicts.count() + await database.todoConflicts.count() ? "Some edits need your attention"
-          : await database.outbox.count() + await database.todoOutbox.count() ? "Saved locally · changes waiting to sync" : "Up to date");
+          : (await localQueueState(database)).pending ? "Saved locally · changes waiting to sync" : "Up to date");
         // Saves during an in-flight pass need another pass, not a dropped request.
       } while (syncRequested.current && navigator.onLine && !removingLocalData.current);
     })().catch(async (e: unknown) => {
@@ -1095,13 +1127,10 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     if (!identity?.userId || identity.userId.startsWith("legacy-") || !database.name.startsWith("splitty-account-")) return;
     setSignOutBusy(true); setSyncActionError("");
     try {
-     const [expenseWrites, todoWrites, conflicts, todoConflicts] = await Promise.all([
-       database.outbox.count(),
-       database.todoOutbox.count(),
-       database.conflicts.count(),
-       database.todoConflicts.count()
+     const [queue, conflicts, todoConflicts] = await Promise.all([
+       localQueueState(database), database.conflicts.count(), database.todoConflicts.count()
      ]);
-     const unsynced = expenseWrites + todoWrites + conflicts + todoConflicts;
+     const unsynced = queue.pending + conflicts + todoConflicts;
      const warning = unsynced
        ? t("This device has {count} unsynced changes or conflicts. Removing local data permanently discards them. Synced household data is not deleted. Continue?", { count: number(unsynced) })
        : t("Remove this account's data from this device? Synced household data is not deleted.");
@@ -1361,6 +1390,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
             })}{shown.length > limit && <button className="secondary load-more" onClick={() => setLimit(limit + 100)}>{t("Show more ({count})", { count: number(shown.length - limit) })}</button>}</div>}
         </section>
       </> : <section className="settings-page"><header className="page-heading"><div><h1>{t("Settings")}</h1><p>{p.nameA} & {p.nameB}</p></div></header>
+        <AccountDetails identity={identity} />
         <section className="settings-card"><h2 className="section-label">{t("Language")}</h2>
           <label className="settings-row"><span className="settings-tile" aria-hidden="true"><Languages size={19} /></span><span className="entry-description"><strong>{t("App language")}</strong></span>
             <Select label={t("App language")} value={language} onChange={(value) => void updatePreferences({ language: value }).catch((e: Error) => setError(e.message))}
@@ -1397,6 +1427,13 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
               "account/delete", "Delete your account", "Delete your account? Your sessions will be revoked immediately and deletion will be scheduled."
             )}>{t("Delete your account")}</button>
           </div>}
+        </section>
+        <section className="settings-card"><h2 className="section-label">{t("To-dos")}</h2>
+          <label className="settings-row insurance-setting"><span className="settings-tile" aria-hidden="true"><ClipboardCheck size={19} /></span>
+            <span className="entry-description"><strong>{t("Automatic insurance to-dos")}</strong></span>
+            <input type="checkbox" checked={automaticInsuranceTodos(p)} aria-describedby="insurance-todo-note"
+              onChange={(event) => void queueInsuranceTodoSetting(event.target.checked).then(saved).catch((e: Error) => setError(e.message))} /></label>
+          <p id="insurance-todo-note" className="settings-note">{t("Create a to-do for each new doctor or pharmacy receipt. This setting is shared with your household. Existing receipts and to-dos stay as they are.")}</p>
         </section>
         <section className="settings-card"><h2 className="section-label">{t("Backups")}</h2>
           <button className="settings-row" onClick={backup} aria-label={t("Download a backup")} aria-describedby="backup-download-hint"><span className="settings-tile" aria-hidden="true"><Download size={19} /></span>

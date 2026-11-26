@@ -1,7 +1,48 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { beginEntraSignIn } from "../api/src/entra";
+import { beginEntraSignIn, identityClaims } from "../api/src/entra";
+import { profilePictureUrl } from "../shared/profile";
 import type { Config } from "../api/src/config";
+
+describe("sign-in profile claims", () => {
+  const issuer = "https://splittytest.ciamlogin.com/tenant/v2.0";
+  const claims = { iss: issuer, sub: "synthetic-subject", email: "alex@example.invalid" };
+
+  it.each([
+    ["google.com", "google"],
+    ["https://accounts.google.com/", "google"],
+    ["live.com", "microsoft"],
+    ["https://login.microsoftonline.com/tenant/v2.0", "microsoft"],
+    ["https://sts.windows.net/9188040d-6c67-4c5b-b112-36a304b66dad/", "microsoft"],
+    [issuer, "email"],
+    ["email", "email"],
+    [undefined, "unknown"],
+    ["https://accounts.google.com.example.invalid", "unknown"]
+  ])("recognizes %s without guessing from the email domain", (idp, provider) => {
+    expect(identityClaims({ ...claims, email: "alex@gmail.com", idp }).signInProvider).toBe(provider);
+  });
+
+  it("keeps supplied profile details separate from the household name fallback", () => {
+    expect(identityClaims({
+      ...claims, name: "  Alex Sample  ", picture: "https://profiles.example.invalid/alex.png"
+    })).toMatchObject({
+      displayName: "Alex Sample", email: claims.email, pictureUrl: "https://profiles.example.invalid/alex.png"
+    });
+    const profile = identityClaims({ ...claims, name: " ", picture: "javascript:alert(1)" });
+    expect(profile.displayName).toBeUndefined();
+    expect(profile.pictureUrl).toBeUndefined();
+    expect(profile.name).toBe("alex");
+    expect(identityClaims({ ...claims, email: undefined, emails: [claims.email] }).email).toBe(claims.email);
+  });
+
+  it.each([
+    undefined, 123, "", "not a URL", "http://profiles.example.invalid/alex.png",
+    "data:image/svg+xml,test", "https://user:password@profiles.example.invalid/alex.png",
+    `https://profiles.example.invalid/${"a".repeat(2048)}`
+  ])("rejects unusable profile picture %s", (picture) => {
+    expect(profilePictureUrl(picture)).toBeUndefined();
+  });
+});
 
 describe("Entra authorization request", () => {
   it("persists one-time state and PKCE material before redirecting", async () => {

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "./fixtures";
-import { signIn as signInMember } from "./helpers";
+import { signIn as signInMember, synchronize, upToDate } from "./helpers";
 import { confirmAction } from "./controls";
 
 async function signIn(page: Page, member: "A" | "B" = "A") {
@@ -109,6 +109,67 @@ test("doctor and pharmacy expenses create insurance to-dos that can be checked o
   await dialog.getByLabel("Beschreibung", { exact: true }).fill("Apotheke Rezept");
   await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
   await expect(page.getByRole("region", { name: "Erledigt" })).toContainText("Apotheke Rezept");
+});
+
+test("the household insurance setting skips only new receipts, including offline saves", async ({ page, context, browser }) => {
+  const second = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const other = await second.newPage();
+  const tab = (p: Page, name: string) => p.getByRole("navigation").getByRole("button", { name, exact: true }).click();
+  const setting = (p: Page) => p.getByRole("checkbox", { name: "Automatische Versicherungs-To-dos" });
+  try {
+    await signIn(page);
+    await add(page, "Arzt vorher");
+    await tab(page, "To-dos");
+    await addTodo(page, "Eigene Aufgabe");
+    await page.getByRole("checkbox", { name: /Arzt vorher/ }).click();
+    await expect(page.getByRole("region", { name: "Erledigt" })).toContainText("Arzt vorher");
+    await upToDate(page);
+    await page.evaluate(async () => { await navigator.serviceWorker.ready; });
+    await page.reload();
+    await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
+    await context.setOffline(true);
+    await tab(page, "Einstellungen");
+    await expect(setting(page)).toBeChecked();
+    await setting(page).press("Space");
+    await expect(setting(page)).not.toBeChecked();
+    await page.reload();
+    await tab(page, "Einstellungen");
+    await expect(setting(page)).not.toBeChecked();
+    await tab(page, "Ausgaben");
+    await add(page, "Apotheke offline");
+    await context.setOffline(false);
+    await upToDate(page);
+
+    await signIn(other, "B");
+    await tab(other, "Einstellungen");
+    await expect(setting(other)).not.toBeChecked();
+    await tab(other, "Ausgaben");
+    await add(other, "Arzt ohne Erinnerung");
+    await tab(other, "Einstellungen");
+    await setting(other).click();
+    await expect(setting(other)).toBeChecked();
+    await upToDate(other);
+    await synchronize(page);
+    await tab(page, "Einstellungen");
+    await expect(setting(page)).toBeChecked();
+    await tab(page, "Ausgaben");
+    await add(page, "Apotheke danach");
+    await upToDate(page);
+    await other.reload();
+    await upToDate(other);
+
+    for (const device of [page, other]) {
+      await expect(device.locator(".expense-row")).toHaveCount(4);
+      await tab(device, "To-dos");
+      const open = device.getByRole("region", { name: "Offene To-dos" });
+      await expect(open.getByRole("listitem")).toHaveCount(2);
+      await expect(open).toContainText("Eigene Aufgabe");
+      await expect(open).toContainText("Apotheke danach");
+      const done = device.getByRole("region", { name: "Erledigt" });
+      await expect(done.getByRole("listitem")).toHaveCount(1);
+      await expect(done.getByRole("checkbox", { name: /Arzt vorher/ })).toBeChecked();
+    }
+  } finally { await second.close(); }
 });
 
 test("manual and insurance to-dos celebrate in the open list before moving to done", async ({ page }) => {

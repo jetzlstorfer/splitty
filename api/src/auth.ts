@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import type { TableClient } from "@azure/data-tables";
 import type { Member } from "../../shared/model";
+import type { AccountProfile } from "../../shared/profile";
 import { HttpError, type Config } from "./config";
 import { optionalEntity, statusCode } from "./storage";
 
@@ -12,7 +13,7 @@ const householdPartition = (householdId: string) => `h-${householdId}`;
 const sessionName = (config: Config) => config.local ? "splitty-local" : "__Host-splitty";
 const sessionMaxAge = 400 * 24 * 60 * 60;
 
-export interface AuthContext {
+export interface AuthContext extends AccountProfile {
   userId: string;
   householdId: string;
   member: Member;
@@ -94,7 +95,11 @@ export async function createUserSession(
     userId: context.userId,
     householdId: context.householdId,
     member: context.member,
-    membershipId: membership.membershipId
+    membershipId: membership.membershipId,
+    signInProvider: context.signInProvider,
+    displayName: context.displayName,
+    email: context.email,
+    pictureUrl: context.pictureUrl
   });
   return { cookie: sessionCookie(config, raw, sessionMaxAge), deviceKey: raw };
 }
@@ -132,7 +137,11 @@ async function verifySession(value: string | null, config: Config, table: TableC
       userId: session.userId,
       householdId: session.householdId,
       member: session.member,
-      sessionId: key
+      sessionId: key,
+      signInProvider: session.signInProvider,
+      displayName: session.displayName,
+      email: session.email,
+      pictureUrl: session.pictureUrl
     };
     const membership = await requireMembership(table, context);
     if (session.membershipId !== membership.membershipId) {

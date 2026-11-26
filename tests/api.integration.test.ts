@@ -97,6 +97,53 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     const callback = await call("auth/callback?state=not-the-cookie&code=unused", undefined, "wrong-state");
     expect(callback.status).toBe(400);
   });
+  it("returns the current session's provider and profile after sign-in and cookie restoration", async () => {
+    const config = getConfig();
+    const { auth } = await tables(config);
+    const subject = crypto.randomUUID();
+    async function signIn(idp: string, name: string, picture?: string) {
+      const start = await beginEntraSignIn(config, auth, {
+        getAuthCodeUrl: async () => "https://splittytest.ciamlogin.com/authorize"
+      });
+      const cookie = start.headers.get("set-cookie")!.split(";")[0];
+      const state = cookie.slice(cookie.indexOf("=") + 1);
+      return completeEntraSignIn(new Request(`${origin}/api/auth/callback?state=${state}&code=synthetic-code`, {
+        headers: { cookie }
+      }), config, auth, {
+        acquireTokenByCode: async () => ({
+          authority: config.entra!.authority, uniqueId: subject, tenantId: "test", scopes: [], account: null,
+          idToken: "", idTokenClaims: {
+            iss: config.entra!.authority, sub: subject, email: "alex@example.invalid", name, idp, picture
+          },
+          accessToken: "", fromCache: false, expiresOn: null, tokenType: "Bearer", correlationId: ""
+        })
+      });
+    }
+    const first = await signIn("google.com", "Alex Sample", "https://profiles.example.invalid/alex.png");
+    const firstCookie = first.headers.get("set-cookie")!.split(";")[0];
+    const firstMe = await call("me", undefined, firstCookie);
+    expect(firstMe.status).toBe(200);
+    const profile = await firstMe.json();
+    partitions.push(profile.householdId);
+    expect(profile).toMatchObject({
+      signInProvider: "google", displayName: "Alex Sample", email: "alex@example.invalid",
+      pictureUrl: "https://profiles.example.invalid/alex.png"
+    });
+    expect(profile).not.toHaveProperty("subject");
+    const resumed = await call("auth/resume", { deviceKey: firstCookie.slice(firstCookie.indexOf("=") + 1) });
+    expect(resumed.status).toBe(200);
+    expect(await (await call("me", undefined, resumed.headers.get("set-cookie")!.split(";")[0])).json())
+      .toEqual(profile);
+
+    const second = await signIn("live.com", "Alex Updated");
+    const secondProfile = await (await call("me", undefined, second.headers.get("set-cookie")!.split(";")[0])).json();
+    expect(secondProfile).toMatchObject({ signInProvider: "microsoft", displayName: "Alex Updated" });
+    expect(secondProfile).not.toHaveProperty("pictureUrl");
+    expect(await (await call("me", undefined, firstCookie)).json()).toEqual(profile);
+    const legacy = await (await call("me", undefined, await login("a"))).json();
+    expect(legacy).not.toHaveProperty("email");
+    expect(legacy).not.toHaveProperty("pictureUrl");
+  });
   it("shares the insurance reminder setting only within the authenticated household and rejects stale changes", async () => {
     const path = "household/insurance-todos", a = await login("a"), b = await login("b");
     const change = { enabled: false, revision: 0 };

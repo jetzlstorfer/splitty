@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { ConfidentialClientApplication } from "@azure/msal-node";
 import type { TableClient } from "@azure/data-tables";
 import type { Member } from "../../shared/model";
+import { profilePictureUrl, type AccountProfile } from "../../shared/profile";
 import { createMembership, createUserSession, type AuthContext } from "./auth";
 import { HttpError, type Config } from "./config";
 import { consumeInvitation, inspectInvitation, type InvitationTarget } from "./invitations";
@@ -26,7 +27,7 @@ interface LoginTransaction {
 interface UserRecord {
   userId: string; subject: string; issuer: string; householdId: string;
   member: Member | ""; membershipInitialized?: boolean; deletionRequestedAt?: number;
-  legacyClaimed?: boolean;
+  legacyClaimed?: boolean; name?: string; email?: string;
 }
 interface HouseholdRecord { nameA: string; nameB: string; deletedAt?: number }
 interface BootstrapRecord { userId: string; deviceKey: string; expiresAt: number }
@@ -116,7 +117,7 @@ function cookieValue(request: Request, name: string): string | null {
   return cookie?.slice(cookie.indexOf("=") + 1) ?? null;
 }
 
-function identityClaims(value: unknown): { issuer: string; subject: string; name: string; email: string } {
+export function identityClaims(value: unknown): AccountProfile & { issuer: string; subject: string; name: string; email: string } {
   if (!value || typeof value !== "object") throw new HttpError(401, "The identity provider returned an invalid sign-in response.");
   const claims = value as Record<string, unknown>;
   const issuer = claims.iss, subject = claims.sub;
@@ -126,10 +127,16 @@ function identityClaims(value: unknown): { issuer: string; subject: string; name
     || typeof email !== "string" || !email || email.length > 320) {
     throw new HttpError(401, "The identity provider did not return a usable account.");
   }
-  const name = typeof claims.name === "string" && claims.name.trim()
-    ? claims.name.trim().slice(0, 80)
-    : email.slice(0, email.indexOf("@") > 0 ? email.indexOf("@") : 80);
-  return { issuer, subject, name, email };
+  const displayName = typeof claims.name === "string" ? claims.name.trim().slice(0, 80) || undefined : undefined;
+  const name = displayName ?? email.slice(0, email.indexOf("@") > 0 ? email.indexOf("@") : 80);
+  const idp = typeof claims.idp === "string" ? claims.idp.toLowerCase().replace(/\/$/, "") : "";
+  let signInProvider: AccountProfile["signInProvider"] = "unknown";
+  if (["google.com", "accounts.google.com", "https://accounts.google.com"].includes(idp)) signInProvider = "google";
+  else if (idp === "live.com" || /^https:\/\/(?:login\.microsoftonline\.com|sts\.windows\.net)\/[^/]+(?:\/v2\.0)?$/.test(idp)) {
+    signInProvider = "microsoft";
+  } else if (idp === "email" || (idp && idp === issuer.toLowerCase().replace(/\/$/, "")
+    && /^https:\/\/[^/]+\.ciamlogin\.com\//.test(idp))) signInProvider = "email";
+  return { issuer, subject, name, email, displayName, signInProvider, pictureUrl: profilePictureUrl(claims.picture) };
 }
 
 async function ensureUser(
@@ -333,7 +340,13 @@ export async function completeEntraSignIn(
     throw new HttpError(400, "Invalid household claim.");
   }
   const context = await ensureUser(table, config, claims, invitation, transaction.legacyMember);
-  const { cookie, deviceKey } = await createUserSession(config, table, context);
+  const { cookie, deviceKey } = await createUserSession(config, table, {
+    ...context,
+    signInProvider: claims.signInProvider,
+    displayName: claims.displayName,
+    email: claims.email,
+    pictureUrl: claims.pictureUrl
+  });
   const bootstrapCode = randomValue();
   await table.createEntity({
     partitionKey: bootstrapPartition,
@@ -371,9 +384,16 @@ export async function getHouseholdNames(
   return { nameA: household.nameA, nameB: household.nameB };
 }
 
-export async function isLegacyClaimed(
-  table: TableClient, userId: string, householdId: string
-): Promise<boolean> {
-  const user = await optionalEntity<UserRecord>(table, userPartition, `u-${userId}`);
-  return user?.userId === userId && user.householdId === householdId && user.legacyClaimed === true;
+export async function getAccountDetails(
+  table: TableClient, identity: AuthContext
+): Promise<AccountProfile & { legacyClaimed: boolean }> {
+  const user = await optionalEntity<UserRecord>(table, userPartition, `u-${identity.userId}`);
+  const currentUser = user?.userId === identity.userId && user.householdId === identity.householdId ? user : undefined;
+  return {
+    legacyClaimed: currentUser?.legacyClaimed === true,
+    signInProvider: identity.signInProvider,
+    displayName: identity.displayName ?? currentUser?.name,
+    email: identity.email ?? currentUser?.email,
+    pictureUrl: profilePictureUrl(identity.pictureUrl)
+  };
 }

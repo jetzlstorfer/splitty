@@ -2,11 +2,12 @@ import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo
 import { liveQuery } from "dexie";
 import {
   BarChart3, Check, ChevronDown, ChevronRight, ClipboardCheck,
-  Download, GripVertical, Languages, Lock, Pencil, Plus, Receipt, RefreshCw, RotateCcw, Search, Settings, Smartphone, Sparkles, Sun, Trash2, Upload, X
+  Download, GripVertical, Languages, Lock, Pencil, Plus, Receipt, RefreshCw, RotateCcw, Search, Settings, Smartphone, Sparkles, Sun, Trash2, Upload, UserRound, X
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { calculateShareA, expenseBalance, parseMoney, type Entry, type Member, type SplitType } from "../shared/model";
 import { translate } from "../shared/i18n";
+import { profilePictureUrl } from "../shared/profile";
 import { MAX_TODO_TITLE, MAX_TODO_DESCRIPTION, type Todo } from "../shared/todo";
 import { activateAnonymousDatabase, automaticInsuranceTodos, clearAccountDatabase, db, localQueueState, queueEntries, queueInsuranceTodoSetting, queueNewReceipts, queueTodos, resolveConflict, resolveStoreConflict, todoStore, updatePreferences, setDeviceKey, type Conflict, type Preferences } from "./db";
 import { missingBackupRecords, readBackup, restoreBackup } from "./backup";
@@ -37,6 +38,35 @@ interface InstallPromptEvent extends Event {
 interface AuthOptions { entraEnabled: boolean; legacyEnabled: boolean; newHouseholdsEnabled?: boolean }
 interface Invitation { id: string; slot: Member; expiresAt: number }
 const authOptionsKey = "splitty-auth-options";
+
+function AccountDetails({ identity }: { identity: Identity | null }) {
+  const { t } = useLocale();
+  const [failedPicture, setFailedPicture] = useState<string>();
+  const picture = profilePictureUrl(identity?.pictureUrl);
+  const legacy = identity && (!identity.userId || identity.userId.startsWith("legacy-"));
+  const provider = identity?.signInProvider;
+  const signInMethod = !identity ? t("Not signed in") : legacy ? t("Signed in with a member token")
+    : provider === "google" ? t("Signed in with Google")
+    : provider === "microsoft" ? t("Signed in with Microsoft")
+    : provider === "email" ? t("Signed in with email") : t("Sign-in provider unavailable");
+  return <section className="settings-card" aria-label={t("Account")}>
+    <h2 className="section-label">{t("Account")}</h2>
+    <div className="settings-row account-details">
+      <span className="avatar" aria-hidden="true">
+        {picture && picture !== failedPicture
+          ? <img src={picture} alt="" referrerPolicy="no-referrer" onError={() => setFailedPicture(picture)} />
+          : identity?.displayName?.trim().charAt(0).toUpperCase() || <UserRound size={20} />}
+      </span>
+      <span className="entry-description">
+        <strong>{identity?.displayName || signInMethod}</strong>
+        {identity?.displayName && <small>{signInMethod}</small>}
+        {identity?.email && <small>{identity.email}</small>}
+      </span>
+    </div>
+    {identity && !legacy && (!provider || provider === "unknown") &&
+      <p className="settings-note">{t("Sign in again to refresh your provider and profile details. Some providers do not share all details.")}</p>}
+  </section>;
+}
 
 function savedAuthOptions(): AuthOptions {
   try {
@@ -1353,6 +1383,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
             })}{shown.length > limit && <button className="secondary load-more" onClick={() => setLimit(limit + 100)}>{t("Show more ({count})", { count: number(shown.length - limit) })}</button>}</div>}
         </section>
       </> : <section className="settings-page"><header className="page-heading"><div><h1>{t("Settings")}</h1><p>{p.nameA} & {p.nameB}</p></div></header>
+        <AccountDetails identity={identity} />
         <section className="settings-card"><h2 className="section-label">{t("Language")}</h2>
           <label className="settings-row"><span className="settings-tile" aria-hidden="true"><Languages size={19} /></span><span className="entry-description"><strong>{t("App language")}</strong></span>
             <Select label={t("App language")} value={language} onChange={(value) => void updatePreferences({ language: value }).catch((e: Error) => setError(e.message))}

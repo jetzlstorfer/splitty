@@ -12,6 +12,13 @@ async function english(page: Page, theme = "light") {
   await chooseOption(page, page.getByLabel("App-Sprache", { exact: true }), "English");
 }
 
+async function mockHouseholdSync(page: Page) {
+  await page.route("**/api/household/insurance-todos", (route) =>
+    route.fulfill({ json: { enabled: true, revision: 0 } }));
+  await page.route(/\/api\/(?:todo-)?sync\?/, (route) =>
+    route.fulfill({ json: { entries: [], cursor: 0, more: false } }));
+}
+
 async function expense(page: Page) {
   await page.getByRole("navigation").getByRole("button", { name: "Expenses", exact: true }).click();
   await page.getByRole("button", { name: "Add expense", exact: true }).click();
@@ -191,6 +198,7 @@ test.describe("touch controls", () => {
 
   test("signed-out household names show an edit cue and accept touch input", async ({ page }) => {
     await english(page);
+    await expect(page.getByRole("region", { name: "Account", exact: true })).toContainText("Not signed in");
     const first = page.getByLabel("First person", { exact: true });
     const cues = page.locator(".settings-name-edit");
     await expect(cues).toHaveCount(2);
@@ -213,6 +221,7 @@ test.describe("touch controls", () => {
     await page.route(/\/api\/(?:todo-)?sync\?/, (route) =>
       route.fulfill({ json: { entries: [], cursor: 0, more: false } }));
     await english(page);
+    await expect(page.getByRole("region", { name: "Account", exact: true })).toContainText("Signed in with a member token");
     const first = page.getByLabel("First person", { exact: true });
     const second = page.getByLabel("Second person", { exact: true });
     await expect(first).toHaveValue("Alex");
@@ -239,10 +248,7 @@ test.describe("touch controls", () => {
     let renamed: unknown;
     await page.route("**/api/me", (route) =>
       route.fulfill({ json: { userId: "user-names", householdId: "household-names", member: "a", ...names } }));
-    await page.route("**/api/household/insurance-todos", (route) =>
-      route.fulfill({ json: { enabled: true, revision: 0 } }));
-    await page.route(/\/api\/(?:todo-)?sync\?/, (route) =>
-      route.fulfill({ json: { entries: [], cursor: 0, more: false } }));
+    await mockHouseholdSync(page);
     await page.route("**/api/household/member-name", async (route) => {
       renamed = route.request().postDataJSON();
       names.nameB = (renamed as { name: string }).name;
@@ -263,6 +269,71 @@ test.describe("touch controls", () => {
     await expect.poll(() => renamed).toEqual({ slot: "b", name: "Jamie" });
     await expect(page.locator(".settings-page .page-heading p")).toHaveText("Alex & Jamie");
     await expect(second).toHaveValue("Jamie");
+  });
+
+  for (const provider of ["email", "google", "microsoft"] as const) {
+    test(`account settings show ${provider} and the available profile in both languages and themes`, async ({ page }, info) => {
+      const email = `${"alex".repeat(35)}@example.invalid`;
+      await page.route("**/api/me", (route) => route.fulfill({ json: {
+        userId: "user-profile", householdId: "household-profile", member: "a", nameA: "Alex", nameB: "Sam",
+        signInProvider: provider, displayName: "Alex Profile", email,
+        pictureUrl: "https://profiles.example.invalid/avatar.png"
+      } }));
+      await mockHouseholdSync(page);
+      await page.route("https://profiles.example.invalid/avatar.png", (route) => route.fulfill({
+        contentType: "image/png",
+        body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a6XcAAAAASUVORK5CYII=", "base64")
+      }));
+      await page.goto("/");
+      await page.getByRole("navigation").getByRole("button", { name: "Einstellungen", exact: true }).tap();
+      const german = page.getByRole("region", { name: "Konto", exact: true });
+      const label = provider === "email" ? "E-Mail" : provider === "google" ? "Google" : "Microsoft";
+      await expect(german).toContainText(`Mit ${label} angemeldet`);
+      await expect(german.getByText("Alex Profile", { exact: true })).toBeVisible();
+      await chooseOption(page, page.getByLabel("App-Sprache", { exact: true }), "English");
+      const account = page.getByRole("region", { name: "Account", exact: true });
+      await expect(account).toContainText(`Signed in with ${provider === "email" ? "email" : label}`);
+      await expect(account.getByText(email, { exact: true })).toBeVisible();
+      await expect(account.locator("img")).toHaveAttribute("referrerpolicy", "no-referrer");
+      await expect.poll(() => account.locator("img").evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1);
+      for (const width of [320, 393, 1280]) {
+        await page.setViewportSize({ width, height: 900 });
+        for (const theme of ["light", "dark"] as const) {
+          await page.emulateMedia({ colorScheme: theme });
+          await fits(page);
+          await expect(account.getByText(email, { exact: true })).toBeVisible();
+        }
+      }
+      if (provider === "google") await page.screenshot({ path: info.outputPath("account-settings.png"), fullPage: true });
+    });
+  }
+
+  test("account settings handle older sessions and unavailable profile photos", async ({ page }) => {
+    const identity = {
+      userId: "user-profile", householdId: "household-profile", member: "a", nameA: "Alex", nameB: "Sam",
+      displayName: "Alex Profile", pictureUrl: "https://profiles.example.invalid/missing.png"
+    };
+    await page.route("**/api/me", (route) => route.fulfill({ json: identity }));
+    await mockHouseholdSync(page);
+    await page.route("https://profiles.example.invalid/missing.png", (route) => route.fulfill({ status: 404, body: "" }));
+    await english(page);
+    const account = page.getByRole("region", { name: "Account", exact: true });
+    await expect(account).toContainText("Sign-in provider unavailable");
+    await expect(account).toContainText("Sign in again");
+    await expect(account.locator("img")).toHaveCount(0);
+    await expect(account.locator(".avatar")).toHaveText("A");
+  });
+
+  test("account settings show an account icon when no name or photo is supplied", async ({ page }) => {
+    await page.route("**/api/me", (route) => route.fulfill({ json: {
+      userId: "user-profile", householdId: "household-profile", member: "a", nameA: "Alex", nameB: "Sam",
+      signInProvider: "email"
+    } }));
+    await mockHouseholdSync(page);
+    await english(page);
+    const account = page.getByRole("region", { name: "Account", exact: true });
+    await expect(account).toContainText("Signed in with email");
+    await expect(account.locator(".avatar svg")).toBeVisible();
   });
 });
 

@@ -40,8 +40,11 @@ interface AuthOptions { entraEnabled: boolean; legacyEnabled: boolean; newHouseh
 interface Invitation { id: string; slot: Member; expiresAt: number }
 const authOptionsKey = "splitty-auth-options";
 
-function AccountDetails({ identity }: { identity: Identity | null }) {
-  const { t } = useLocale();
+function AccountDetails({ identity, online, busy, error, popoverId, onSignOut }: {
+  identity: Identity | null; online: boolean; busy: boolean; error: string; popoverId: string;
+  onSignOut: () => void;
+}) {
+  const { t, message } = useLocale();
   const [failedPicture, setFailedPicture] = useState<string>();
   const picture = profilePictureUrl(identity?.pictureUrl);
   const legacy = identity && (!identity.userId || identity.userId.startsWith("legacy-"));
@@ -68,6 +71,13 @@ function AccountDetails({ identity }: { identity: Identity | null }) {
       <p className="settings-note">{t("Sign in again to refresh your provider and profile details. Some providers do not share all details.")}</p>}
     {provider === "unknown" &&
       <p className="settings-note">{t("Entra did not identify a single sign-in method for this session.")}</p>}
+    {!identity && <div className="button-row">
+      <button className="text-button" popoverTarget={popoverId} popoverTargetAction="show">{t("Sign in")}</button>
+    </div>}
+    {identity && <div className="button-row">
+      <button className="text-button" disabled={!online || busy} aria-busy={busy} onClick={onSignOut}>{t("Sign out")}</button>
+    </div>}
+    {error && <p className="error" role="alert">{message(error)}</p>}
   </section>;
 }
 
@@ -128,12 +138,12 @@ function useLedger(): Snapshot | null {
   return value;
 }
 
-function SyncPopover({ online, busy, pending, attention, upToDate, status, children }: {
+function SyncPopover({ id, online, busy, pending, attention, upToDate, status, children }: {
+  id: string;
   online: boolean; busy: boolean; pending: number; attention: boolean; upToDate: boolean;
   status: string; children: ReactNode;
 }) {
   const { t, number } = useLocale();
-  const id = useId();
   const [open, setOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -745,6 +755,7 @@ export default function App() {
 function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const { t, language, locale, number, money, amount, message, person, payer } = useLocale();
   const confirm = useConfirm();
+  const syncPopoverId = useId();
   const [tab, setTab] = useState<"expenses" | "todos" | "search" | "statistics" | "settings">("expenses");
   const [form, setForm] = useState<"expense" | "settlement" | Entry | null>(null);
   const [todoForm, setTodoForm] = useState<"new" | Todo | null>(null);
@@ -1233,7 +1244,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     <header className="topbar"><a className="wordmark" href="/" aria-label={t("Splitty home")}><img key={logoPulse.sequence} className={`brand-mark ${syncBusy ? "is-syncing" : logoPulse.active ? "is-saving" : ""}`} src="/icon.svg" width="36" height="36" alt="" />Splitty</a>
       <div className="topbar-actions">
       {!installed && (installPrompt || iosDevice) && <button className="pill-button install-button" aria-label={t("Install")} onClick={() => void install()}><Download size={16} aria-hidden="true" /><span className="install-button-label">{t("Install")}</span></button>}
-      <SyncPopover online={online} busy={syncBusy} pending={ledger.pending} attention={needsAttention} upToDate={upToDate} status={message(currentStatus)}>
+      <SyncPopover id={syncPopoverId} online={online} busy={syncBusy} pending={ledger.pending} attention={needsAttention} upToDate={upToDate} status={message(currentStatus)}>
         <dl className="sync-details">
           <div><dt>{t("Connection")}</dt><dd>{t(online ? "Online" : "Offline")}</dd></div>
           <div><dt>{t("Changes waiting to sync")}</dt><dd>{number(ledger.pending)}</dd></div>
@@ -1243,7 +1254,6 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
         {syncActionError && <p className="error" role="alert">{message(syncActionError)}</p>}
         {identity && <p>{t("Signed in as {name}.", { name: person(p, identity.member) })}</p>}
         <div className="button-row"><button className="secondary" disabled={!online || syncBusy || signInBusy || signOutBusy} onClick={() => void sync()}><RefreshCw size={16} />{t("Sync now")}</button>
-          {identity && <button className="text-button" disabled={!online || syncBusy || signOutBusy} aria-busy={signOutBusy} onClick={() => void signOut()}>{t("Sign out")}</button>}
           {identity?.userId && !identity.userId.startsWith("legacy-") && db.name.startsWith("splitty-account-")
             && <button className="text-button" disabled={!online || syncBusy || signOutBusy} aria-busy={signOutBusy} onClick={() => void removeLocalAccountData()}>{t("Remove local data from this device")}</button>}</div>
         {identity && identity.householdId && authOptions.entraEnabled && <section className="invitation-panel" aria-label={t("Household invitations")}>
@@ -1392,7 +1402,8 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
             })}{shown.length > limit && <button className="secondary load-more" onClick={() => setLimit(limit + 100)}>{t("Show more ({count})", { count: number(shown.length - limit) })}</button>}</div>}
         </section>
       </> : <section className="settings-page"><header className="page-heading"><div><h1>{t("Settings")}</h1><p>{p.nameA} & {p.nameB}</p></div></header>
-        <AccountDetails identity={identity} />
+        <AccountDetails identity={identity} online={online} busy={syncBusy || signOutBusy} error={syncActionError} popoverId={syncPopoverId}
+          onSignOut={() => void signOut()} />
         <section className="settings-card"><h2 className="section-label">{t("Language")}</h2>
           <label className="settings-row"><span className="settings-tile" aria-hidden="true"><Languages size={19} /></span><span className="entry-description"><strong>{t("App language")}</strong></span>
             <Select label={t("App language")} value={language} onChange={(value) => void updatePreferences({ language: value }).catch((e: Error) => setError(e.message))}

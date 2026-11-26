@@ -58,7 +58,7 @@ async function expectActionFits(button: Locator) {
 }
 
 for (const language of ["de", "en"] as const) for (const theme of ["light", "dark"] as const) {
-  test(`${language} sync action labels fit mobile viewports in ${theme} mode`, async ({ page }, info) => {
+  test(`${language} sync and account actions fit mobile viewports in ${theme} mode`, async ({ page }, info) => {
     if (language === "en") await useEnglish(page);
     else await page.goto("/");
     await signIn(page);
@@ -66,10 +66,11 @@ for (const language of ["de", "en"] as const) for (const theme of ["light", "dar
     await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
     const popover = page.locator(".sync-popover");
     const sync = popover.getByRole("button", { name: language === "de" ? "Jetzt synchronisieren" : "Sync now", exact: true });
-    const signOut = popover.getByRole("button", { name: language === "de" ? "Abmelden" : "Sign out", exact: true });
+    const signOut = page.getByRole("button", { name: language === "de" ? "Abmelden" : "Sign out", exact: true });
     const close = popover.getByRole("button", { name: language === "de" ? "Schließen" : "Close", exact: true });
     await syncIndicator(page).tap();
     await expect(popover).toBeVisible();
+    await expect(popover.getByRole("button", { name: language === "de" ? "Abmelden" : "Sign out", exact: true })).toHaveCount(0);
 
     for (const viewport of viewports) {
       await test.step(`${viewport.width}x${viewport.height}`, async () => {
@@ -79,7 +80,6 @@ for (const language of ["de", "en"] as const) for (const theme of ["light", "dar
           await page.screenshot({ path: info.outputPath(`sync-${language}-${theme}-${viewport.width}.png`) });
         }
         await expectActionFits(sync);
-        await expectActionFits(signOut);
         const bounds = (await popover.boundingBox())!;
         expect(bounds.x).toBeGreaterThanOrEqual(12);
         expect(bounds.x + bounds.width).toBeLessThanOrEqual(viewport.width - 12);
@@ -97,8 +97,27 @@ for (const language of ["de", "en"] as const) for (const theme of ["light", "dar
     await sync.tap();
     await upToDate(page);
     await expect(popover).toBeVisible();
+    await page.getByRole("navigation").getByRole("button", { name: language === "de" ? "Einstellungen" : "Settings", exact: true }).tap();
+    await expect(popover).not.toBeVisible();
+    await expect(signOut).toBeVisible();
+    for (const viewport of viewports.slice(0, 2)) {
+      await page.setViewportSize(viewport);
+      await expectActionFits(signOut);
+    }
     await signOut.tap();
+    await openSync(page);
     await expect(popover.getByRole("button", { name: language === "de" ? "Anmelden" : "Sign in", exact: true })).toBeVisible();
+    await close.tap();
+    await page.getByRole("navigation").getByRole("button", { name: language === "de" ? "Einstellungen" : "Settings", exact: true }).tap();
+    const accountSignIn = page.getByRole("region", { name: language === "de" ? "Konto" : "Account", exact: true })
+      .getByRole("button", { name: language === "de" ? "Anmelden" : "Sign in", exact: true });
+    await expect(popover).not.toBeVisible();
+    await accountSignIn.tap();
+    await expect(popover).toBeVisible();
+    await expect(popover.getByLabel(language === "de" ? "Mitglieds-Token" : "Member token", { exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(popover).not.toBeVisible();
+    await openSync(page);
     for (const viewport of viewports.slice(0, 2)) {
       await page.setViewportSize(viewport);
       await expectActionFits(sync);

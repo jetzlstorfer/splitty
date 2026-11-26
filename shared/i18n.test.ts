@@ -20,11 +20,11 @@ describe("German and English translations", () => {
     expect(localizeMessage("Failed to fetch", "de")).toMatch(/^Die Netzwerkanfrage/);
     expect(localizeMessage("CSV could not be read: Too many fields", "de")).toMatch(/^Die CSV konnte nicht/);
     expect(localizeMessage("Unknown browser failure", "de")).toMatch(/^Ein unerwarteter Fehler/);
-    expect(localizeMessage("Your member token was rotated. Sign in again.", "de")).toBe("Dein Mitglieds-Token wurde erneuert. Melde dich erneut an.");
-    expect(localizeMessage("Your member token was rotated. Sign in again.", "en")).toBe("Your member token was rotated. Sign in again.");
+    expect(localizeMessage("Signed in for local development", "de")).toBe("Für die lokale Entwicklung angemeldet");
+    expect(localizeMessage("Signed in for local development", "en")).toBe("Signed in for local development");
   });
   it("covers static errors exposed by the model, storage and API", () => {
-    for (const file of ["shared\\model.ts", "shared\\todo.ts", "src\\db.ts", "src\\sync.ts", "src\\backup.ts", "src\\importer.ts", "src\\receiptOcr.ts", "api\\src\\handler.ts", "api\\src\\config.ts", "api\\src\\auth.ts", "api\\src\\entra.ts", "api\\src\\invitations.ts", "api\\src\\legacyMigration.ts"]) {
+    for (const file of ["shared\\model.ts", "shared\\todo.ts", "src\\db.ts", "src\\sync.ts", "src\\backup.ts", "src\\importer.ts", "src\\receiptOcr.ts", "api\\src\\handler.ts", "api\\src\\config.ts", "api\\src\\auth.ts", "api\\src\\entra.ts", "api\\src\\localSignIn.ts", "api\\src\\invitations.ts"]) {
       const source = readFileSync(file.replaceAll("\\", process.platform === "win32" ? "\\" : "/"), "utf8");
       const matches = source.matchAll(/throw new (?:Error|HttpError|ApiError)\((?:\d+, )?"([^"]+)"/g);
       for (const match of matches) {

@@ -233,11 +233,13 @@ test.describe("touch controls", () => {
   });
 
   test("signed-in household names are visibly locked, explained and ringed only for keyboard focus", async ({ page }) => {
-    await page.route("**/api/me", (route) => route.fulfill({ json: { member: "a", nameA: "Alex", nameB: "Sam" } }));
+    await page.route("**/api/me", (route) => route.fulfill({ json: {
+      member: "a", nameA: "Alex", nameB: "Sam", signInProvider: "local"
+    } }));
     await page.route(/\/api\/(?:todo-)?sync\?/, (route) =>
       route.fulfill({ json: { entries: [], cursor: 0, more: false } }));
     await english(page);
-    await expect(page.getByRole("region", { name: "Account", exact: true })).toContainText("Signed in with a member token");
+    await expect(page.getByRole("region", { name: "Account", exact: true })).toContainText("Signed in for local development");
     const first = page.getByLabel("First person", { exact: true });
     const second = page.getByLabel("Second person", { exact: true });
     await expect(first).toHaveValue("Alex");

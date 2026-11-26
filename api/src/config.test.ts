@@ -7,7 +7,7 @@ const clientId = "00000000-0000-4000-8000-000000000002";
 
 function setBaseEnvironment() {
   for (const key of [
-    "HOUSEHOLD_ID", "MEMBER_A_TOKEN", "MEMBER_B_TOKEN",
+    "LOCAL_HOUSEHOLD_ID", "LOCAL_MEMBER_A_NAME", "LOCAL_MEMBER_B_NAME",
     "ALLOW_NEW_HOUSEHOLDS",
     "TABLE_STORAGE_CONNECTION_STRING", "TABLE_STORAGE_ACCOUNT_NAME",
     "TABLE_STORAGE_TENANT_ID", "TABLE_STORAGE_CLIENT_ID", "TABLE_STORAGE_CLIENT_SECRET"
@@ -48,6 +48,27 @@ describe("storage configuration", () => {
   it("accepts only explicit household-registration values", () => {
     vi.stubEnv("ALLOW_NEW_HOUSEHOLDS", "yes");
     expect(() => getConfig()).toThrow("ALLOW_NEW_HOUSEHOLDS must be true or false.");
+  });
+
+  it("enables local sign-in only for an explicitly configured local household", () => {
+    vi.stubEnv("APP_ORIGIN", "http://127.0.0.1:5173");
+    vi.stubEnv("LOCAL_DEVELOPMENT", "true");
+    vi.stubEnv("LOCAL_HOUSEHOLD_ID", "synthetic-household");
+    vi.stubEnv("TABLE_STORAGE_CONNECTION_STRING", "UseDevelopmentStorage=true");
+    const config = getConfig();
+    expect(config.localSignIn).toEqual({
+      household: "synthetic-household", nameA: "Alex", nameB: "Sam"
+    });
+
+    vi.stubEnv("LOCAL_HOUSEHOLD_ID", "");
+    vi.stubEnv("LOCAL_DEVELOPMENT", "false");
+    vi.stubEnv("APP_ORIGIN", "https://splitty.example");
+    expect(() => getConfig()).not.toThrow();
+  });
+
+  it("rejects local household configuration outside local development", () => {
+    vi.stubEnv("LOCAL_HOUSEHOLD_ID", "synthetic-household");
+    expect(() => getConfig()).toThrow("LOCAL_HOUSEHOLD_ID requires LOCAL_DEVELOPMENT=true");
   });
 
   it("accepts a complete table-storage service-principal configuration", () => {

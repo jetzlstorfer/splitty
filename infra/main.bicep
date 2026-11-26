@@ -29,20 +29,6 @@ param storageClientSecret string = ''
 @description('Object ID of the storage service principal, used for its data-plane role assignment.')
 param storagePrincipalObjectId string = ''
 
-@description('A stable identifier for the legacy shared household. Leave empty for hosted multi-tenant sign-in.')
-param householdId string = ''
-
-param memberAName string = 'First person'
-param memberBName string = 'Second person'
-
-@secure()
-@description('Reusable 43-character base64url token for the first person.')
-param memberAToken string = ''
-
-@secure()
-@description('Reusable 43-character base64url token for the second person.')
-param memberBToken string = ''
-
 @description('Entra External ID authority URL, for example https://tenant.ciamlogin.com.')
 param entraAuthority string = ''
 
@@ -213,13 +199,7 @@ resource settings 'Microsoft.Web/staticSites/config@2023-12-01' = {
       TABLE_STORAGE_CLIENT_SECRET: storageClientSecret
     } : {
       TABLE_STORAGE_CONNECTION_STRING: 'DefaultEndpointsProtocol=https;AccountName=${storage.name};AccountKey=${storage.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
-    }, (!empty(householdId) || !empty(memberAToken) || !empty(memberBToken)) ? {
-      HOUSEHOLD_ID: householdId
-      MEMBER_A_TOKEN: memberAToken
-      MEMBER_B_TOKEN: memberBToken
-      MEMBER_A_NAME: memberAName
-      MEMBER_B_NAME: memberBName
-    } : {}, (!empty(entraAuthority) || !empty(entraClientId) || !empty(entraClientSecret)) ? {
+    }, (!empty(entraAuthority) || !empty(entraClientId) || !empty(entraClientSecret)) ? {
       ENTRA_AUTHORITY: entraAuthority
       ENTRA_CLIENT_ID: entraClientId
       ENTRA_CLIENT_SECRET: entraClientSecret

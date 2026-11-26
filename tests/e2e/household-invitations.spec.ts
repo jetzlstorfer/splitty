@@ -1,33 +1,30 @@
 import { expect, test } from "./fixtures";
-import { useEnglish } from "./helpers";
+import { signIn, useEnglish } from "./helpers";
 
-test("claims an existing household before provider sign-in while new household registration is closed", async ({ page, baseURL }) => {
+test("keeps new household registration closed and sends existing members to invitations", async ({ page, baseURL }) => {
   await page.route("**/api/auth/config", (route) =>
-    route.fulfill({ json: { entraEnabled: true, legacyEnabled: true, newHouseholdsEnabled: false } }));
+    route.fulfill({ json: { entraEnabled: true, localSignInEnabled: false, newHouseholdsEnabled: false } }));
   await page.route("**/api/auth/start", async (route) => {
-    expect(route.request().postDataJSON()).toEqual({ legacyToken: "A".repeat(43) });
-    await route.fulfill({ json: { authorizationUrl: `${baseURL}/authorize` } });
+    await route.fulfill({ status: 302, headers: { location: `${baseURL}/authorize` } });
   });
   await useEnglish(page);
   const indicator = page.getByRole("button", { name: "Sync status", exact: true });
   await indicator.click();
   const popover = page.getByRole("dialog", { name: "Synchronization", exact: true });
-  await expect(popover).toContainText("New household registration is closed.");
-  await popover.getByLabel("Existing household member token").fill("A".repeat(43));
-  await popover.getByRole("button", { name: "Continue and claim existing household", exact: true }).click();
+  await expect(popover).toContainText("New household registration is currently closed. Ask a household member for an invitation.");
+  await expect(popover.getByRole("button", { name: /member token/i })).toHaveCount(0);
+  await popover.getByRole("button", { name: "Continue with email, Google, or Microsoft", exact: true }).click();
   await page.waitForURL(`${baseURL}/authorize`);
 });
 
 test("creates, copies, revokes, and carries an invitation through provider sign-in", async ({ page, browser, baseURL }) => {
   await page.route("**/api/auth/config", (route) =>
-    route.fulfill({ json: { entraEnabled: true, legacyEnabled: true, newHouseholdsEnabled: true } }));
+    route.fulfill({ json: { entraEnabled: true, localSignInEnabled: true, newHouseholdsEnabled: true } }));
   await useEnglish(page);
   const indicator = page.getByRole("button", { name: "Sync status", exact: true });
+  await signIn(page);
   await indicator.click();
   const popover = page.getByRole("dialog", { name: "Synchronization", exact: true });
-  await popover.getByLabel("Member token", { exact: true }).fill("A".repeat(43));
-  await popover.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(popover.getByText("Signed in as Alex.", { exact: true })).toBeVisible();
   await expect(popover.getByRole("region", { name: "Household invitations" })).toBeVisible();
   await expect(popover).toContainText("takes over the invited member slot's existing balance");
 
@@ -66,7 +63,7 @@ test("creates, copies, revokes, and carries an invitation through provider sign-
 
     const guest = await guestContext.newPage();
     await guest.route("**/api/auth/config", (route) =>
-      route.fulfill({ json: { entraEnabled: true, legacyEnabled: false, newHouseholdsEnabled: true } }));
+      route.fulfill({ json: { entraEnabled: true, localSignInEnabled: false, newHouseholdsEnabled: true } }));
     await guest.goto(secondLink);
     await guest.getByRole("button", { name: "Synchronisierungsstatus", exact: true }).click();
     const providerButton = guest.getByRole("button", { name: "Mit E-Mail, Google oder Microsoft fortfahren", exact: true });

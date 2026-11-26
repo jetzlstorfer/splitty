@@ -1,5 +1,5 @@
 export interface AccountProfile {
-  signInProvider?: "email" | "google" | "microsoft" | "unknown";
+  signInProvider?: "email" | "google" | "microsoft" | "local" | "unknown";
   displayName?: string;
   email?: string;
   pictureUrl?: string;

@@ -4,15 +4,11 @@ export class HttpError extends Error {
 
 export interface Config {
   origin: string;
-  household?: string;
   storage:
     | { kind: "connectionString"; connection: string }
     | { kind: "rbac"; accountName: string; tenantId: string; clientId: string; clientSecret: string };
-  memberAToken?: string;
-  memberBToken?: string;
-  nameA: string;
-  nameB: string;
   local: boolean;
+  localSignIn?: { household: string; nameA: string; nameB: string };
   allowNewHouseholds: boolean;
   entra?: { authority: string; clientId: string; clientSecret: string };
 }
@@ -36,15 +32,15 @@ export function getConfig(): Config {
     || origin.origin !== env.APP_ORIGIN) {
     throw new HttpError(503, "Invalid or unsafe backend configuration.");
   }
-  const legacyValues = [env.HOUSEHOLD_ID, env.MEMBER_A_TOKEN, env.MEMBER_B_TOKEN];
-  const hasLegacy = legacyValues.some(Boolean);
-  if (hasLegacy && (legacyValues.some((value) => !value)
-    || !/^[a-zA-Z0-9_-]{1,100}$/.test(env.HOUSEHOLD_ID!)
-    || !/^[a-zA-Z0-9_-]{43}$/.test(env.MEMBER_A_TOKEN!)
-    || !/^[a-zA-Z0-9_-]{43}$/.test(env.MEMBER_B_TOKEN!)
-    || env.MEMBER_A_TOKEN === env.MEMBER_B_TOKEN)) {
-    throw new HttpError(503, "Configure a valid legacy household and two different 43-character member tokens.");
+  const localHousehold = env.LOCAL_HOUSEHOLD_ID?.trim();
+  if (localHousehold && (!local || !/^[a-zA-Z0-9_-]{1,100}$/.test(localHousehold))) {
+    throw new HttpError(503, "LOCAL_HOUSEHOLD_ID requires LOCAL_DEVELOPMENT=true and a valid household identifier.");
   }
+  const localSignIn = localHousehold ? {
+    household: localHousehold,
+    nameA: env.LOCAL_MEMBER_A_NAME?.trim().slice(0, 60) || "Alex",
+    nameB: env.LOCAL_MEMBER_B_NAME?.trim().slice(0, 60) || "Sam"
+  } : undefined;
   const entraValues = [env.ENTRA_AUTHORITY, env.ENTRA_CLIENT_ID, env.ENTRA_CLIENT_SECRET];
   const hasEntra = entraValues.some(Boolean);
   if (hasEntra && entraValues.some((value) => !value)) {
@@ -95,12 +91,6 @@ export function getConfig(): Config {
       clientSecret: env.TABLE_STORAGE_CLIENT_SECRET!
     };
   }
-  if (!hasLegacy && !hasEntra) throw new HttpError(503, "Configure Entra sign-in or the legacy member-token settings.");
-  return {
-    origin: origin.origin, household: env.HOUSEHOLD_ID, storage,
-    memberAToken: env.MEMBER_A_TOKEN, memberBToken: env.MEMBER_B_TOKEN,
-    nameA: env.MEMBER_A_NAME?.trim() || "First person",
-    nameB: env.MEMBER_B_NAME?.trim() || "Second person",
-    local, entra, allowNewHouseholds
-  };
+  if (!hasEntra && !localSignIn) throw new HttpError(503, "Configure Entra sign-in, or LOCAL_HOUSEHOLD_ID for local development.");
+  return { origin: origin.origin, storage, local, localSignIn, entra, allowNewHouseholds };
 }

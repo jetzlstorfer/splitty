@@ -22,8 +22,6 @@ const port = Number(options.port);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Use --port with a valid port number.");
 
 const household = "local-seeded";
-// Synthetic loopback-only tokens, matching the browser-test fixtures.
-const memberAToken = "A".repeat(43), memberBToken = "B".repeat(43);
 const directory = resolve(".azure", "seeded");
 
 async function freePort() {
@@ -177,9 +175,8 @@ const api: Plugin = {
 
 const storage = await startStorage();
 Object.assign(process.env, {
-  LOCAL_DEVELOPMENT: "true", APP_ORIGIN: `http://127.0.0.1:${port}`, HOUSEHOLD_ID: household,
-  TABLE_STORAGE_CONNECTION_STRING: storage.connection, MEMBER_A_TOKEN: memberAToken, MEMBER_B_TOKEN: memberBToken,
-  MEMBER_A_NAME: "Alex", MEMBER_B_NAME: "Sam"
+  LOCAL_DEVELOPMENT: "true", APP_ORIGIN: `http://127.0.0.1:${port}`, LOCAL_HOUSEHOLD_ID: household,
+  TABLE_STORAGE_CONNECTION_STRING: storage.connection, LOCAL_MEMBER_A_NAME: "Alex", LOCAL_MEMBER_B_NAME: "Sam"
 });
 try {
   const seeded = await seed();
@@ -191,9 +188,7 @@ try {
   console.log(`
 Splitty seeded session: ${process.env.APP_ORIGIN}
 ${seeded ? "Seeded a synthetic household with expenses and to-dos." : "Reusing existing seeded data (use --reset to start over)."}
-Sign in from the cloud icon with a synthetic member token:
-  Alex: ${memberAToken}
-  Sam:  ${memberBToken}
+Sign in from the cloud icon using either development member button.
 Data is stored in .azure\\seeded. After --reset, also clear this origin's site data in your browser.
 Press Ctrl+C to stop.`);
 } catch (error) {

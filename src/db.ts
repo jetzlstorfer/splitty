@@ -121,10 +121,6 @@ export async function activateAccountDatabase(userId: string, householdId: strin
   if (!/^[a-zA-Z0-9_-]{1,100}$/.test(userId) || !/^[a-zA-Z0-9_-]{1,100}$/.test(householdId)) {
     throw new Error("Invalid sign-in response.");
   }
-  if (userId.startsWith("legacy-")) {
-    await selectDatabase("splitty");
-    return;
-  }
   const input = new TextEncoder().encode(`${userId}\0${householdId}`);
   const hash = await crypto.subtle.digest("SHA-256", input);
   const suffix = [...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, "0")).join("");

@@ -4,7 +4,6 @@ import { QRCodeSVG } from "qrcode.react";
 import type { Todo } from "../shared/todo";
 import { resolveConflict, resolveStoreConflict, todoStore, type Preferences } from "./db";
 import { useLocale } from "./i18n";
-import { Form } from "./Controls";
 import SyncIcon from "./SyncIcon";
 import type { AccountController } from "./useAccount";
 import type { Snapshot } from "./useLedger";
@@ -56,9 +55,9 @@ export function SyncPanel({ ledger, preferences: p, conflictCount, sync, account
   const { t, locale, number, money, message, person } = useLocale();
   const { online, identity, busy, lastSynced, actionError, setActionError, sync: syncNow } = sync;
   const {
-    authOptions, memberToken, setMemberToken, legacyClaimToken, setLegacyClaimToken, signInBusy, signOutBusy,
+    authOptions, signInBusy, signOutBusy,
     invitations, invitationLink, invitationBusy, invitationCopied, canRemoveLocalData,
-    signIn, startProviderSignIn, createHouseholdInvitation, copyInvitationLink, revokeHouseholdInvitation,
+    startProviderSignIn, createHouseholdInvitation, copyInvitationLink, revokeHouseholdInvitation,
     removeLocalAccountData
   } = account;
   const todoVersion = (todo: Todo | null | undefined) => !todo ? t("Not present") : todo.deleted ? t("Deleted")
@@ -100,20 +99,16 @@ export function SyncPanel({ ledger, preferences: p, conflictCount, sync, account
         {authOptions.entraEnabled && <>
           <button className="primary" disabled={busy || signInBusy || !online} onClick={() => void startProviderSignIn()}>{t("Continue with email, Google, or Microsoft")}</button>
           {authOptions.newHouseholdsEnabled === false && !new URLSearchParams(location.hash.slice(1)).has("invite")
-            && <p className="muted">{t("New household registration is closed. Existing members can claim their household with a member token.")}</p>}
-          {authOptions.legacyEnabled && <Form onSubmit={(event) => {
-            event.preventDefault();
-            if (!legacyClaimToken) return;
-            void startProviderSignIn(legacyClaimToken);
-          }}>
-            <label>{t("Existing household member token")}<input type="password" autoComplete="off" autoCapitalize="off" spellCheck={false} required maxLength={43} value={legacyClaimToken} onChange={(event) => setLegacyClaimToken(event.target.value)} /></label>
-            <button className="secondary" disabled={busy || signInBusy || !online}>{t(signInBusy ? "Signing in…" : "Continue and claim existing household")}</button>
-            <p className="muted">{t("Your existing household history and this device's offline changes will be kept.")}</p>
-          </Form>}
+            && <p className="muted">{t("New household registration is currently closed. Ask a household member for an invitation.")}</p>}
         </>}
-        {authOptions.legacyEnabled && <Form onSubmit={(event) => void signIn(event)}><label>{t("Member token")}<input type="password" autoComplete="off" autoCapitalize="off" spellCheck={false} required maxLength={43} value={memberToken} onChange={(event) => setMemberToken(event.target.value)} /></label>
-          <button className="primary" disabled={signInBusy || busy || !online}>{t(signInBusy ? "Signing in…" : "Sign in")}</button>
-          <p className="muted">{t("This device stays signed in until you sign out or the member token is rotated.")}</p></Form>}
+        {authOptions.localSignInEnabled && <div className="button-row">
+          <button className="primary" disabled={signInBusy || busy || !online} onClick={() => void account.signIn("a")}>
+            {t(signInBusy ? "Signing in…" : "Development sign-in as first member")}
+          </button>
+          <button className="secondary" disabled={signInBusy || busy || !online} onClick={() => void account.signIn("b")}>
+            {t(signInBusy ? "Signing in…" : "Development sign-in as second member")}
+          </button>
+        </div>}
       </div>}
     {!!ledger.conflicts.length && <section className="conflict-panel" aria-label={t("Conflicting edits")}><h3>{t("Conflicting edits")}</h3><p>{t("These entries changed on another device. Choose which version to keep.")}</p>{ledger.conflicts.map((conflict) => {
       const local = ledger.entries.find((entry) => entry.id === conflict.entryId);

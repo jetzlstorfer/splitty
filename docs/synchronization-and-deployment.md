@@ -27,22 +27,33 @@ Storage replication is not protection from accidental deletion. Keep JSON backup
 
 ## Deployment
 
-Resources are not provisioned automatically. Deploy the Bicep template to a resource group, providing the two member names and tokens, a stable household ID, and globally unique resource names. Token parameters are secure; never commit tokens or deployment parameter files.
+Resources are not provisioned automatically. For a new environment, create the
+Entra External ID application and deploy [`infra/main.bicep`](../infra/main.bicep)
+with globally unique app and storage names plus its `entraAuthority`,
+`entraClientId`, and secure `entraClientSecret` parameters. Never commit secrets
+or deployment parameter files. Do not redeploy the template to the existing
+production resource group as part of the sign-in retirement.
 
-1. Generate two independent tokens with `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"` and store them in a password manager.
-2. Deploy [`infra/main.bicep`](../infra/main.bicep) to the intended resource group.
-3. Add the Static Web App deployment token—not either member token—as the GitHub `production` environment secret `AZURE_STATIC_WEB_APPS_API_TOKEN`.
-4. Push or merge to `main` to run [Deploy to Azure](../.github/workflows/deploy.yml), or start the workflow manually from the intended branch.
-5. Open the HTTPS app URL, sign in with the matching member token on each device, import once, and confirm both devices show the shared balance.
+1. Configure the Entra External ID application and its callback at
+   `https://<app-origin>/api/auth/callback`.
+2. Deploy Bicep to the intended new resource group.
+3. Add the Static Web App deployment token as the GitHub `production`
+   environment secret `AZURE_STATIC_WEB_APPS_API_TOKEN`.
+4. Push or merge to `main` to run [Deploy to Azure](../.github/workflows/deploy.yml),
+   or start the workflow manually from the intended branch.
+5. Keep `ALLOW_NEW_HOUSEHOLDS=false` until scheduled jobs, backups, monitoring,
+   alerts, and the legal pages have been verified. Then sign in on each device,
+   import existing local history once, and confirm both devices show the shared
+   balance.
 
 Both automatic and manual deployments depend on the reusable [Check workflow](../.github/workflows/check.yml), including lint, unit tests, TypeScript checks, builds, and API integration tests. Pull requests and manual deployments also install browsers and run the Playwright suite. Automatic deployments on `main` pass `run-e2e: false` to avoid repeating the PR browser suite; other callers default to running it. Direct pushes to `main` also skip browser tests, so use pull requests for changes and require the PR check before merging. If enabled checks fail or are cancelled, the deployment job is skipped.
 
 After all enabled checks pass, the check job uploads the frontend and API build output as an artifact for that workflow run, using the repository's artifact retention policy. The deployment job downloads those same builds and installs only the API's production dependencies; it does not repeat lint, tests, or builds. Pull-request checks do not upload deployment artifacts. The Azurite integration test run remains separate because the normal unit-test run skips it.
 
-For an existing Static Web App, configure `MEMBER_A_TOKEN` and `MEMBER_B_TOKEN` with the generated values and keep `LOCAL_DEVELOPMENT=false`. A custom domain must use the exact HTTPS origin in `APP_ORIGIN` (no trailing slash); the API and frontend must share that origin.
+For an existing Static Web App, configure Entra and keep `LOCAL_DEVELOPMENT=false`. A custom domain must use the exact HTTPS origin in `APP_ORIGIN` (no trailing slash); the API and frontend must share that origin.
 
-Member tokens act like passwords: anyone holding one can access the household. In production, sign-in exchanges the reusable token for a server-side session in an HttpOnly, Secure, SameSite cookie that lasts 400 days. The token itself is not stored in browser storage. Rotate tokens through Azure settings to revoke existing sessions. Signing out revokes the server session but deliberately keeps the device's local ledger.
+Production sign-in creates a server-side session in an HttpOnly, Secure, SameSite cookie that lasts 400 days. Signing out or revoking household membership invalidates the server session but deliberately keeps the device's local ledger.
 
-Some Android Chrome installs have dropped the session cookie while keeping IndexedDB. Sign-in therefore also returns the session value as a device key, stored in a separate IndexedDB table (never included in backups). When `/api/me` returns 401, the app exchanges that key for a fresh cookie via `POST /api/auth/resume`. The key is the same server session: signing out (which sends the key, so it works even without a cookie) or rotating the member token revokes it. Unlike the HttpOnly cookie, scripts running on the Splitty origin can read the key, so keep the app free of third-party scripts and use trusted devices.
+Some Android Chrome installs have dropped the session cookie while keeping IndexedDB. Sign-in therefore also returns the session value as a device key, stored in a separate IndexedDB table (never included in backups). When `/api/me` returns 401, the app exchanges that key for a fresh cookie via `POST /api/auth/resume`. The key is the same server session: signing out (which sends the key, so it works even without a cookie) or revoking membership invalidates it. Unlike the HttpOnly cookie, scripts running on the Splitty origin can read the key, so keep the app free of third-party scripts and use trusted devices.
 
 References: [Static Web Apps](https://learn.microsoft.com/azure/static-web-apps/overview), [Table Storage](https://learn.microsoft.com/azure/storage/tables/table-storage-overview), and [Storage concurrency](https://learn.microsoft.com/azure/storage/common/storage-concurrency).

@@ -67,7 +67,7 @@ for (const language of ["de", "en"] as const) {
   test(`${language} sync and account actions fit mobile viewports in light and dark mode`, async ({ page }, info) => {
     if (language === "en") await useEnglish(page);
     else await page.goto("/");
-    await signIn(page);
+    await signIn(page, "A", language);
     await page.emulateMedia({ reducedMotion: "reduce" });
     const popover = page.locator(".sync-popover");
     const sync = popover.getByRole("button", { name: language === "de" ? "Jetzt synchronisieren" : "Sync now", exact: true });
@@ -117,7 +117,10 @@ for (const language of ["de", "en"] as const) {
     }
     await signOut.tap();
     await openSync(page);
-    await expect(popover.getByRole("button", { name: language === "de" ? "Anmelden" : "Sign in", exact: true })).toBeVisible();
+    await expect(popover.getByRole("button", {
+      name: language === "de" ? "Als erstes Mitglied zur Entwicklung anmelden" : "Development sign-in as first member",
+      exact: true
+    })).toBeVisible();
     await close.tap();
     await page.getByRole("navigation").getByRole("button", { name: language === "de" ? "Einstellungen" : "Settings", exact: true }).tap();
     const accountSignIn = page.getByRole("region", { name: language === "de" ? "Konto" : "Account", exact: true })
@@ -126,7 +129,10 @@ for (const language of ["de", "en"] as const) {
     await accountSignIn.tap();
     await expect(popover).toBeVisible();
     await expect(page.getByRole("dialog", { name: language === "de" ? "Synchronisierung" : "Synchronization", exact: true })
-      .getByLabel(language === "de" ? "Mitglieds-Token" : "Member token", { exact: true })).toBeVisible();
+      .getByRole("button", {
+        name: language === "de" ? "Als erstes Mitglied zur Entwicklung anmelden" : "Development sign-in as first member",
+        exact: true
+      })).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(popover).not.toBeVisible();
     await expect(syncIndicator(page)).toHaveAttribute("aria-expanded", "false");

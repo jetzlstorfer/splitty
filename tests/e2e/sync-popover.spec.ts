@@ -39,6 +39,23 @@ for (const language of ["en", "de"] as const) {
   });
 }
 
+for (const language of ["en", "de"] as const) {
+  test(`Settings sign-in opens the shared cloud sign-in form in ${language}`, async ({ page }) => {
+    if (language === "en") await english(page);
+    else await page.goto("/");
+    await page.getByRole("navigation").getByRole("button", {
+      name: language === "en" ? "Settings" : "Einstellungen", exact: true
+    }).click();
+    const account = page.getByRole("region", { name: language === "en" ? "Account" : "Konto", exact: true });
+    const signIn = account.getByRole("button", { name: language === "en" ? "Sign in" : "Anmelden", exact: true });
+    await expect(signIn).toBeVisible();
+    await signIn.click();
+    const popover = page.getByRole("dialog", { name: language === "en" ? "Synchronization" : "Synchronisierung", exact: true });
+    await expect(popover).toBeVisible();
+    await expect(popover.getByLabel(language === "en" ? "Member token" : "Mitglieds-Token", { exact: true })).toBeVisible();
+  });
+}
+
 test("the cloud is the only sync entry point across tabs, widths and themes, with keyboard and touch dismissal", async ({ page }, info) => {
   await english(page);
   await expect(page.locator(".sync-status")).toHaveText("Sign in to sync");
@@ -170,7 +187,7 @@ test("busy sync stays inspectable and a failed sync can be retried from the popo
   } finally { release(); }
 });
 
-test("sign-in errors, offline queues, reload, reconnect and sign-out all live in the popover", async ({ page, context }) => {
+test("sign-in and sync stay in the popover while sign-out is in Settings", async ({ page, context }) => {
   let signInRequests = 0;
   page.on("request", (request) => { if (new URL(request.url()).pathname === "/api/auth/token") signInRequests++; });
   await page.goto("/");
@@ -233,10 +250,16 @@ test("sign-in errors, offline queues, reload, reconnect and sign-out all live in
   await expect(popover(page).locator(".sync-summary")).toHaveText("Up to date");
   await expect(detail(page, "Changes waiting to sync")).toHaveText("0");
   await expect(popover(page).getByText("Signed in as Alex.", { exact: true })).toBeVisible();
-  await popover(page).getByRole("button", { name: "Sign out", exact: true }).click();
+  await expect(popover(page).getByRole("button", { name: "Sign out", exact: true })).toHaveCount(0);
+  await page.getByRole("navigation").getByRole("button", { name: "Settings", exact: true }).click();
+  const account = page.getByRole("region", { name: "Account", exact: true });
+  await expect(account.getByRole("button", { name: "Sign out", exact: true })).toBeVisible();
+  await account.getByRole("button", { name: "Sign out", exact: true }).click();
+  await indicator(page).click();
   await expect(popover(page).locator(".sync-summary")).toHaveText("Signed out · local history remains on this device");
   await expect(popover(page).getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
   await indicator(page).click();
+  await page.getByRole("navigation").getByRole("button", { name: "Expenses", exact: true }).click();
   await expect(page.locator(".expense-row").filter({ hasText: expense })).toContainText("10.00");
   await page.getByRole("navigation").getByRole("button", { name: "To-dos", exact: true }).click();
   await expect(page.getByText(todo, { exact: true })).toBeVisible();

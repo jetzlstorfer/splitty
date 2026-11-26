@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useId, useMemo, useState } from "react";
 import {
   BarChart3, Check, ClipboardCheck, Download, Plus, Receipt, RefreshCw, Search, Settings, Sparkles, Upload, X
 } from "lucide-react";
@@ -44,6 +44,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const confirm = useConfirm();
   const sync = useSync(ledger?.pending);
   const account = useAccount(sync);
+  const syncPopoverId = useId();
   const [tab, setTab] = useState<"expenses" | "todos" | "search" | "statistics" | "settings">("expenses");
   const [form, setForm] = useState<"expense" | "settlement" | Entry | null>(null);
   const [todoForm, setTodoForm] = useState<"new" | Todo | null>(null);
@@ -176,7 +177,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     <header className="topbar"><a className="wordmark" href="/" aria-label={t("Splitty home")}><img key={logoPulse.sequence} className={`brand-mark ${sync.busy ? "is-syncing" : logoPulse.active ? "is-saving" : ""}`} src="/icon.svg" width="36" height="36" alt="" />Splitty</a>
       <div className="topbar-actions">
       {install.canInstall && <button className="pill-button install-button" aria-label={t("Install")} onClick={() => void install.install()}><Download size={16} aria-hidden="true" /><span className="install-button-label">{t("Install")}</span></button>}
-      <SyncPopover online={sync.online} busy={sync.busy} pending={ledger.pending} attention={status.needsAttention} upToDate={status.upToDate} status={describeSyncStatus(status.current, language)}>
+      <SyncPopover id={syncPopoverId} online={sync.online} busy={sync.busy} pending={ledger.pending} attention={status.needsAttention} upToDate={status.upToDate} status={describeSyncStatus(status.current, language)}>
         <SyncPanel ledger={ledger} preferences={p} conflictCount={conflictCount} sync={sync} account={account} conflictResolved={conflictResolved} />
       </SyncPopover>
       </div>
@@ -267,7 +268,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
               </SwipeableRow></div>;
             })}{shown.length > limit && <button className="secondary load-more" onClick={() => setLimit(limit + 100)}>{t("Show more ({count})", { count: number(shown.length - limit) })}</button>}</div>}
         </section>
-      </> : <SettingsPage preferences={p} identity={sync.identity} online={sync.online} account={account}
+      </> : <SettingsPage preferences={p} sync={sync} account={account} syncPopoverId={syncPopoverId}
         saved={saved} backup={backup} restore={restore} onError={setError} />}
       <LegalLinks />
     </main>

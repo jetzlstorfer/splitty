@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { RefreshCw, X } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import type { Todo } from "../shared/todo";
@@ -10,12 +10,11 @@ import type { AccountController } from "./useAccount";
 import type { Snapshot } from "./useLedger";
 import type { SyncController } from "./useSync";
 
-export function SyncPopover({ online, busy, pending, attention, upToDate, status, children }: {
-  online: boolean; busy: boolean; pending: number; attention: boolean; upToDate: boolean;
+export function SyncPopover({ id, online, busy, pending, attention, upToDate, status, children }: {
+  id: string; online: boolean; busy: boolean; pending: number; attention: boolean; upToDate: boolean;
   status: string; children: ReactNode;
 }) {
   const { t, number } = useLocale();
-  const id = useId();
   const [open, setOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -60,7 +59,7 @@ export function SyncPanel({ ledger, preferences: p, conflictCount, sync, account
     authOptions, memberToken, setMemberToken, legacyClaimToken, setLegacyClaimToken, signInBusy, signOutBusy,
     invitations, invitationLink, invitationBusy, invitationCopied, canRemoveLocalData,
     signIn, startProviderSignIn, createHouseholdInvitation, copyInvitationLink, revokeHouseholdInvitation,
-    signOut, removeLocalAccountData
+    removeLocalAccountData
   } = account;
   const todoVersion = (todo: Todo | null | undefined) => !todo ? t("Not present") : todo.deleted ? t("Deleted")
     : `${todo.title}${todo.description ? `\n${todo.description}` : ""}\n${t(todo.done ? "Done" : "Open to-dos")}`;
@@ -74,7 +73,6 @@ export function SyncPanel({ ledger, preferences: p, conflictCount, sync, account
     {actionError && <p className="error" role="alert">{message(actionError)}</p>}
     {identity && <p>{t("Signed in as {name}.", { name: person(p, identity.member) })}</p>}
     <div className="button-row"><button className="secondary" disabled={!online || busy || signInBusy || signOutBusy} onClick={() => void syncNow()}><RefreshCw size={16} />{t("Sync now")}</button>
-      {identity && <button className="text-button" disabled={!online || busy || signOutBusy} aria-busy={signOutBusy} onClick={() => void signOut()}>{t("Sign out")}</button>}
       {canRemoveLocalData
         && <button className="text-button" disabled={!online || busy || signOutBusy} aria-busy={signOutBusy} onClick={() => void removeLocalAccountData()}>{t("Remove local data from this device")}</button>}</div>
     {identity && identity.householdId && authOptions.entraEnabled && <section className="invitation-panel" aria-label={t("Household invitations")}>

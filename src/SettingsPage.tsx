@@ -3,13 +3,17 @@ import { ChevronRight, ClipboardCheck, Download, Languages, Lock, Pencil, Rotate
 import type { Member } from "../shared/model";
 import { profilePictureUrl } from "../shared/profile";
 import { automaticInsuranceTodos, queueInsuranceTodoSetting, updatePreferences, type Preferences } from "./db";
-import type { Identity } from "./sync";
+import type { SyncController } from "./useSync";
 import { useLocale } from "./i18n";
 import { Select } from "./Controls";
 import type { AccountController } from "./useAccount";
 
-function AccountDetails({ identity }: { identity: Identity | null }) {
-  const { t } = useLocale();
+type AccountSyncState = Pick<SyncController, "identity" | "online" | "busy" | "actionError">;
+
+function AccountDetails({ sync: { identity, online, busy, actionError }, account, syncPopoverId }: {
+  sync: AccountSyncState; account: Pick<AccountController, "signOut" | "signOutBusy">; syncPopoverId: string;
+}) {
+  const { t, message } = useLocale();
   const [failedPicture, setFailedPicture] = useState<string>();
   const picture = profilePictureUrl(identity?.pictureUrl);
   const legacy = identity && (!identity.userId || identity.userId.startsWith("legacy-"));
@@ -36,18 +40,25 @@ function AccountDetails({ identity }: { identity: Identity | null }) {
       <p className="settings-note">{t("Sign in again to refresh your provider and profile details. Some providers do not share all details.")}</p>}
     {provider === "unknown" &&
       <p className="settings-note">{t("Entra did not identify a single sign-in method for this session.")}</p>}
+    <div className="button-row">
+      {identity
+        ? <button className="text-button" disabled={!online || busy || account.signOutBusy} aria-busy={busy || account.signOutBusy} onClick={() => void account.signOut()}>{t("Sign out")}</button>
+        : <button className="text-button" popoverTarget={syncPopoverId} popoverTargetAction="show">{t("Sign in")}</button>}
+    </div>
+    {actionError && <p className="error" role="alert">{message(actionError)}</p>}
   </section>;
 }
 
-export default function SettingsPage({ preferences: p, identity, online, account, saved, backup, restore, onError }: {
-  preferences: Preferences; identity: Identity | null; online: boolean;
-  account: Pick<AccountController, "providerAccount" | "signOutBusy" | "saveHouseholdName" | "runHouseholdAction">;
+export default function SettingsPage({ preferences: p, sync, account, syncPopoverId, saved, backup, restore, onError }: {
+  preferences: Preferences; sync: AccountSyncState; syncPopoverId: string;
+  account: Pick<AccountController, "providerAccount" | "signOutBusy" | "signOut" | "saveHouseholdName" | "runHouseholdAction">;
   saved: () => void; backup: () => void; restore: (file?: File) => void | Promise<void>; onError: (message: string) => void;
 }) {
   const { t, language } = useLocale();
+  const { identity, online } = sync;
   const { providerAccount, signOutBusy, saveHouseholdName, runHouseholdAction } = account;
   return <section className="settings-page"><header className="page-heading"><div><h1>{t("Settings")}</h1><p>{p.nameA} & {p.nameB}</p></div></header>
-    <AccountDetails identity={identity} />
+    <AccountDetails sync={sync} account={account} syncPopoverId={syncPopoverId} />
     <section className="settings-card"><h2 className="section-label">{t("Language")}</h2>
       <label className="settings-row"><span className="settings-tile" aria-hidden="true"><Languages size={19} /></span><span className="entry-description"><strong>{t("App language")}</strong></span>
         <Select label={t("App language")} value={language} onChange={(value) => void updatePreferences({ language: value }).catch((e: Error) => onError(e.message))}

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
+import type { TableClient } from "@azure/data-tables";
 import { describe, expect, it } from "vitest";
-import { beginEntraSignIn, identityClaims } from "../api/src/entra";
+import { beginEntraSignIn, getAccountDetails, identityClaims } from "../api/src/entra";
 import { directoryProvider } from "../api/src/signInProvider";
 import { profilePictureUrl } from "../shared/profile";
 import type { Config } from "../api/src/config";
@@ -63,6 +64,19 @@ describe("sign-in profile claims", () => {
     expect(profile.pictureUrl).toBeUndefined();
     expect(profile.name).toBe("alex");
     expect(identityClaims({ ...claims, email: undefined, emails: [claims.email] }).email).toBe(claims.email);
+  });
+
+  it("treats External ID's placeholder display name as missing", async () => {
+    const profile = identityClaims({ ...claims, name: "unknown" });
+    expect(profile.displayName).toBeUndefined();
+    expect(profile.name).toBe("alex");
+    const user = { userId: "user-synthetic", householdId: "household-synthetic", email: claims.email, name: "Unknown" };
+    const table = { getEntity: async () => user } as unknown as TableClient;
+    const identity = { ...user, member: "a" as const, signInProvider: "microsoft" as const, displayName: "unknown" };
+    expect((await getAccountDetails(table, identity)).displayName).toBeUndefined();
+    expect((await getAccountDetails(table, { ...identity, displayName: undefined })).displayName).toBeUndefined();
+    expect((await getAccountDetails({ getEntity: async () => ({ ...user, name: "Alex Sample" }) } as unknown as TableClient,
+      identity)).displayName).toBe("Alex Sample");
   });
 
   it.each([

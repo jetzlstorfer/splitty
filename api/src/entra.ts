@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { ConfidentialClientApplication } from "@azure/msal-node";
 import type { TableClient } from "@azure/data-tables";
 import type { Member } from "../../shared/model";
-import { profilePictureUrl, type AccountProfile } from "../../shared/profile";
+import { profileDisplayName, profilePictureUrl, type AccountProfile } from "../../shared/profile";
 import { createMembership, createUserSession, type AuthContext } from "./auth";
 import { HttpError, type Config } from "./config";
 import { consumeInvitation, inspectInvitation, type InvitationTarget } from "./invitations";
@@ -130,7 +130,7 @@ export function identityClaims(value: unknown): AccountProfile & { issuer: strin
     || typeof email !== "string" || !email || email.length > 320) {
     throw new HttpError(401, "The identity provider did not return a usable account.");
   }
-  const displayName = typeof claims.name === "string" ? claims.name.trim().slice(0, 80) || undefined : undefined;
+  const displayName = profileDisplayName(claims.name);
   const name = displayName ?? email.slice(0, email.indexOf("@") > 0 ? email.indexOf("@") : 80);
   return { issuer, subject, name, email, displayName, signInProvider: tokenProvider(claims, issuer), pictureUrl: profilePictureUrl(claims.picture) };
 }
@@ -391,7 +391,7 @@ export async function getAccountDetails(
   return {
     legacyClaimed: currentUser?.legacyClaimed === true,
     signInProvider: identity.signInProvider,
-    displayName: identity.displayName ?? currentUser?.name,
+    displayName: profileDisplayName(identity.displayName) ?? profileDisplayName(currentUser?.name),
     email: identity.email ?? currentUser?.email,
     pictureUrl: profilePictureUrl(identity.pictureUrl)
   };

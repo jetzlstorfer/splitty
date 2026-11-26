@@ -7,12 +7,13 @@
     "node": "^22.13.0 || >=24.0.0"
   },
   "scripts": {
-    "setup:dependencies": "npm config get registry && npm view typescript version --fetch-retries=1 --fetch-timeout=15000 --fetch-retry-mintimeout=1000 --fetch-retry-maxtimeout=2000 && npm ci && npm ci --prefix api",
+    "setup:dependencies": "npm config get registry && npm view typescript version --fetch-retries=1 --fetch-timeout=15000 --fetch-retry-mintimeout=1000 --fetch-retry-maxtimeout=2000 && npm ci && npm ci --prefix api && npm ci --prefix jobs",
     "setup:approved": "npm --registry=https://packagefeedproxy.microsoft.io/npm/ --strict-ssl=true run setup:dependencies",
     "dev": "vite --host 127.0.0.1",
     "dev:seeded": "node api/node_modules/tsx/dist/cli.mjs scripts/dev-seeded.ts",
     "build": "tsc -p tsconfig.json && vite build",
     "build:api": "npm --prefix api run build",
+    "build:jobs": "npm --prefix jobs run build",
     "preview": "vite preview --host 127.0.0.1",
     "test": "vitest run",
     "test:watch": "vitest",

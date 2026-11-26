@@ -23,7 +23,7 @@ Devices converge when reopened and connected; there is no promise of background 
 
 [`infra/main.bicep`](../infra/main.bicep) describes an Azure Static Web App (Free) and an Azure Storage account using Standard LRS Table Storage. The frontend and managed Functions API share an HTTPS origin; Table Storage holds household entries, ordered changes, operation receipts, and server-side device sessions. Local-only use does not require Azure.
 
-Storage replication is not protection from accidental deletion. Keep JSON backups separately. Do not prune change logs without a coordinated snapshot and cursor migration for all devices. Table Storage and API operations can incur costs; check current regional pricing and set budget alerts. Alerts are not spending caps.
+Storage replication is not protection from accidental deletion. Keep JSON backups separately; the optional [scheduled backup job](operations.md#scheduled-jobs) adds immutable server-side backups. Do not prune change logs without a coordinated snapshot and cursor migration for all devices. Table Storage and API operations can incur costs; check current regional pricing and set budget alerts (the template can create one, see [operations](operations.md#infrastructure)). Alerts are not spending caps.
 
 ## Deployment
 

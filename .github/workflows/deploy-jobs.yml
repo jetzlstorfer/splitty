@@ -1,0 +1,64 @@
+name: Deploy scheduled jobs
+# Publishes the timer-triggered Functions app (backup, purge, cleanup). It only runs once the
+# repository variable JOBS_FUNCTION_APP_NAME is set (see the "Scheduled jobs" section of the README).
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - jobs/**
+      - shared/**
+      - .github/workflows/deploy-jobs.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: deploy-jobs
+  cancel-in-progress: false
+jobs:
+  check:
+    if: ${{ vars.JOBS_FUNCTION_APP_NAME != '' }}
+    uses: ./.github/workflows/check.yml
+    with:
+      run-e2e: false
+  deploy:
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Verify Azure credentials
+        env:
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          if [ -z "$AZURE_CLIENT_ID" ] || [ -z "$AZURE_TENANT_ID" ] || [ -z "$AZURE_SUBSCRIPTION_ID" ]; then
+            echo "::error::Set AZURE_CLIENT_ID, AZURE_TENANT_ID and AZURE_SUBSCRIPTION_ID as variables of the production environment. The identity needs a federated credential for this environment and Website Contributor on the Functions app."
+            exit 1
+          fi
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: jobs/package-lock.json
+      - run: npm ci --prefix jobs
+      - run: npm run build:jobs
+      - name: Remove development dependencies
+        run: npm prune --omit=dev --prefix jobs
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Publish scheduled jobs
+        uses: Azure/functions-action@v1
+        with:
+          app-name: ${{ vars.JOBS_FUNCTION_APP_NAME }}
+          package: jobs
+          sku: flexconsumption
+          respect-funcignore: true

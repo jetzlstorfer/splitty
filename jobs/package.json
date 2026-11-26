@@ -1,0 +1,20 @@
+{
+  "name": "splitty-jobs",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/jobs/src/functions.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "func start"
+  },
+  "dependencies": {
+    "@azure/data-tables": "^13.3.0",
+    "@azure/functions": "^4.17.0",
+    "@azure/identity": "^4.14.1",
+    "@azure/storage-blob": "^12.34.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "~5.7.2"
+  }
+}

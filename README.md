@@ -74,6 +74,10 @@ For the shared multi-household design and Azure cost outlook, see the [multi-ten
 
 These pages do not enable account sign-in or public registration.
 
+Google uses the public `google1b3a5bb6a7449fa9.html` file in `public/` to verify
+ownership of `https://splitty.jetzlstorfer.org/` for OAuth branding. Keep it at
+the site root after verification; Google periodically checks it again.
+
 ## Local receipt scanning
 
 In a **new expense**, choose **Beleg scannen (optional) / Scan receipt (optional)**,

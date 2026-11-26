@@ -59,6 +59,8 @@ flowchart LR
 
 Local-only use needs no account or Azure resources. Shared sync requires a backend. Browser storage can be cleared or evicted, so download a backup before replacing a device or clearing site data. This app is not end-to-end encrypted.
 
+Settings shows your sign-in method (email, Google, Microsoft, or member token), plus the name, email address, and HTTPS profile picture supplied at sign-in. Photos are optional and fall back to an initial or account icon. Existing sessions may need a fresh sign-in to populate these details. Provider detection uses Entra's ID-token `idp` claim; if it is absent or unrecognized, Settings reports that the provider is unavailable rather than inferring it from your email address. Names and pictures are shown only when Entra passes them through. No additional Graph permissions are requested.
+
 For conflict handling, data retention, and the full sync lifecycle, see [synchronization and deployment](docs/synchronization-and-deployment.md).
 
 For the shared multi-household design and Azure cost outlook, see the [multi-tenant plan](docs/multi-tenant-plan.md). The code includes Entra-based accounts, existing-household claims, local-history adoption, household-scoped sessions and storage, invitations, lifecycle controls, and quota/rate enforcement; public sign-up is not production-ready until migration is rehearsed and scheduled backup/deletion, provider validation, and operational/legal review are complete.

@@ -23,7 +23,9 @@ const usageDay = (now: number) => new Date(now).toISOString().slice(0, 10);
 const retryAfterUtcMidnight = (now: number) =>
   Math.max(1, Math.ceil((Date.parse(`${usageDay(now)}T23:59:59.999Z`) + 1 - now) / 1000));
 
-export function createLedger<T extends VersionedRecord>(validate: (value: unknown) => T, prefix = "") {
+export function createLedger<T extends VersionedRecord>(
+  validate: (value: unknown) => T, prefix = "", mergeEdit?: (entry: T, previous: T) => T
+) {
   const changeKey = (sequence: number) => `${prefix}c-${String(sequence).padStart(16, "0")}`;
   const sequenceKey = `${prefix}sequence`;
   const countField = prefix ? "activeTodos" : "activeExpenses";
@@ -119,7 +121,8 @@ export function createLedger<T extends VersionedRecord>(validate: (value: unknow
       }
       const sequence = meta.sequence + 1;
       if (!Number.isSafeInteger(sequence)) throw new Error("Ledger sequence limit reached.");
-      const entry = { ...mutation.entry, revision: mutation.expectedRevision + 1, updatedAt: new Date().toISOString() };
+      const value = previous && mergeEdit ? mergeEdit(mutation.entry, previous) : mutation.entry;
+      const entry = { ...value, revision: mutation.expectedRevision + 1, updatedAt: new Date().toISOString() };
       try {
         // The sequence CAS serializes writes; the log, receipt and entry commit atomically.
         await table.submitTransaction([
@@ -171,6 +174,8 @@ export function createLedger<T extends VersionedRecord>(validate: (value: unknow
   return { applyMutation, readChanges };
 }
 
-export const expenseLedger = createLedger(validateEntry);
+// Older installed apps omit unknown fields when editing a receipt.
+export const expenseLedger = createLedger(validateEntry, "", (entry, previous) =>
+  previous.skipInsuranceTodo ? { ...entry, skipInsuranceTodo: true } : entry);
 export const todoLedger = createLedger(validateTodo, "todo-");
 export const { applyMutation, readChanges } = expenseLedger;

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mutation } from "../shared/model";
 import type { Todo } from "../shared/todo";
 import { example, exampleTodo } from "../tests/fixtures";
-import { activateAnonymousDatabase, db, getDeviceKey, getPreferences, queueTodos, setDeviceKey } from "./db";
+import { activateAnonymousDatabase, automaticInsuranceTodos, db, getDeviceKey, getPreferences, queueInsuranceTodoSetting, queueTodos, setDeviceKey } from "./db";
 import { ApiError, identify, signInDevice, signOutDevice, syncPollingInterval, synchronize } from "./sync";
 
 beforeEach(async () => {
@@ -113,6 +113,24 @@ describe("device session recovery", () => {
 });
 
 describe("todo synchronization", () => {
+  it("retains a newer insurance setting saved while a previous change is being acknowledged", async () => {
+    const context = { userId: "legacy-member", householdId: "test-household" };
+    const changes: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (path: string, init: RequestInit) => {
+      if (path !== "/api/household/insurance-todos") return Response.json({ entries: [], cursor: 0, more: false });
+      const { enabled, revision } = JSON.parse(String(init.body));
+      changes.push({ enabled, revision });
+      if (!enabled) await queueInsuranceTodoSetting(true);
+      return Response.json({ enabled, revision: revision + 1 });
+    }));
+    await queueInsuranceTodoSetting(false);
+    await synchronize(db, context);
+    expect(automaticInsuranceTodos(await getPreferences())).toBe(true);
+    expect((await getPreferences()).pendingInsuranceTodoSetting?.enabled).toBe(true);
+    await synchronize(db, context);
+    expect(changes).toEqual([{ enabled: false, revision: 0 }, { enabled: true, revision: 1 }]);
+    expect((await getPreferences()).pendingInsuranceTodoSetting).toBeUndefined();
+  });
   it("bounds escaped payloads, clears acknowledged writes, and keeps stream cursors separate", async () => {
     const posted: Mutation<Todo>[][] = [];
     const history: Todo[] = [];

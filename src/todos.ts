@@ -7,7 +7,7 @@ type ManualTodo = { kind: "manual"; todo: Todo; done: boolean };
 export type HouseholdTodo = (InsuranceTodo & { kind: "insurance" }) | ManualTodo;
 
 export function needsInsuranceSubmission(entry: Entry): boolean {
-  if (entry.deleted || entry.kind === "settlement") return false;
+  if (entry.deleted || entry.kind === "settlement" || entry.skipInsuranceTodo) return false;
   const category = expenseCategory(entry.description, entry.category, entry.kind, entry.categoryMode);
   return category === "health" || category === "pharmacy";
 }

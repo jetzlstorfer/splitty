@@ -3,26 +3,29 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { sessionCookie, signInWithToken } from "./auth";
 import type { Config } from "./config";
 
+const connection = "UseDevelopmentStorage=true";
 const config: Config = {
   origin: "https://splitty.example",
   household: "test-auth",
-  connection: "UseDevelopmentStorage=true",
+  storage: { kind: "connectionString", connection },
   memberAToken: "A".repeat(43),
   memberBToken: "B".repeat(43),
   nameA: "Alex",
   nameB: "Sam",
-  local: false
+  local: false,
+  allowNewHouseholds: false
 };
 
 afterEach(() => vi.restoreAllMocks());
 
 describe("device session cookies", () => {
   it.each([false, true])("persists sign-in across browser sessions (local=%s)", async (local) => {
-    const table = TableClient.fromConnectionString(config.connection, "SplittyAuth");
+    const table = TableClient.fromConnectionString(connection, "SplittyAuth");
     const create = vi.spyOn(table, "createEntity").mockResolvedValue({});
-    const cookie = await signInWithToken(config.memberAToken, { ...config, local }, table);
+    const { cookie, deviceKey } = await signInWithToken(config.memberAToken, { ...config, local }, table);
 
     expect(cookie).toMatch(new RegExp(`^${local ? "splitty-local" : "__Host-splitty"}=[a-zA-Z0-9_-]{43};`));
+    expect(cookie.split(";")[0].split("=")[1]).toBe(deviceKey);
     expect(cookie).toContain("; Max-Age=34560000");
     expect(cookie).toContain("; Path=/; HttpOnly; SameSite=Lax");
     expect(cookie.includes("; Secure")).toBe(!local);

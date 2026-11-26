@@ -1,9 +1,15 @@
 import type { TableClient } from "@azure/data-tables";
 import { validateChange, validateEntry, type MutationResult, type VersionedRecord } from "../../shared/model";
 import { validateTodo } from "../../shared/todo";
-import { authenticate, logout, sessionCookie, signInWithToken } from "./auth";
+import { authenticate, isSessionKey, logout, resumeSession, sessionCookie, signInWithToken } from "./auth";
 import { getConfig, HttpError } from "./config";
+import { beginEntraSignIn, completeEntraSignIn, getHouseholdNames, isLegacyClaimed, redeemDeviceKey } from "./entra";
 import { expenseLedger, todoLedger, type createLedger } from "./ledger";
+import { createInvitation, listInvitations, revokeInvitation } from "./invitations";
+import {
+  deleteAccount, deleteHousehold, leaveHousehold, removeOtherMember, renameHouseholdMember
+} from "./households";
+import { consumeRateLimit, signInRateLimitKey } from "./rateLimit";
 import { tables } from "./storage";
 
 const headers = {
@@ -30,28 +36,115 @@ export async function handler(request: Request, logError: (message: string) => v
     const config = getConfig();
     const url = new URL(request.url), path = url.pathname.replace(/^\/api\/?/, "").replace(/\/$/, "");
     if (request.method !== "GET" && request.method !== "POST") throw new HttpError(405, "Method not allowed.");
+    const { auth, ledger } = await tables(config);
+    if (path === "auth/config" && request.method === "GET") {
+      return json({
+        entraEnabled: !!config.entra,
+        legacyEnabled: !!(config.household && config.memberAToken && config.memberBToken),
+        newHouseholdsEnabled: config.allowNewHouseholds
+      });
+    }
+    if (["auth/start", "auth/callback", "auth/token", "auth/resume"].includes(path)) {
+      if (!config.local) {
+        await consumeRateLimit(auth, signInRateLimitKey(request.headers.get("x-forwarded-for")), 20, 60_000);
+      }
+    }
+    if (path === "auth/start" && request.method === "GET") return await beginEntraSignIn(config, auth);
+    if (path === "auth/callback" && request.method === "GET") return await completeEntraSignIn(request, config, auth);
     if (request.method === "POST") {
       if (request.headers.get("origin") !== config.origin) throw new HttpError(403, "Request origin is not allowed.");
       if (request.headers.get("content-type")?.split(";")[0].trim() !== "application/json") throw new HttpError(415, "Use application/json.");
     }
-    const { auth, ledger } = await tables(config);
+    if (path === "auth/start" && request.method === "POST") {
+      const data = await body(request);
+      return await beginEntraSignIn(config, auth, undefined, data.inviteCode, true, data.legacyToken);
+    }
     if (path === "auth/token" && request.method === "POST") {
       const data = await body(request);
       if (typeof data.token !== "string" || !/^[a-zA-Z0-9_-]{43}$/.test(data.token)) throw new HttpError(400, "Enter a valid member token.");
-      const cookie = await signInWithToken(data.token, config, auth);
-      return json({ signedIn: true }, 200, { "Set-Cookie": cookie });
+      const { cookie, deviceKey } = await signInWithToken(data.token, config, auth);
+      return json({ signedIn: true, deviceKey }, 200, { "Set-Cookie": cookie });
+    }
+    if (path === "auth/resume" && request.method === "POST") {
+      const data = await body(request);
+      if (!isSessionKey(data.deviceKey)) throw new HttpError(400, "Invalid device key.");
+      const cookie = await resumeSession(data.deviceKey, config, auth);
+      return json({ resumed: true }, 200, { "Set-Cookie": cookie });
     }
     if (path === "auth/logout" && request.method === "POST") {
-      await logout(request, config, auth);
+      const data = await body(request);
+      await logout(request, config, auth, isSessionKey(data.deviceKey) ? data.deviceKey : undefined);
       return json({ signedOut: true }, 200, { "Set-Cookie": sessionCookie(config, "", 0) });
     }
-    const member = await authenticate(request, config, auth);
-    if (path === "me" && request.method === "GET") return json({ member, nameA: config.nameA, nameB: config.nameB });
-    if (path === "sync") return await syncRequest(request, url, ledger, config.household, validateEntry, expenseLedger);
-    if (path === "todo-sync") return await syncRequest(request, url, ledger, config.household, validateTodo, todoLedger);
+    const identity = await authenticate(request, config, auth);
+    if (identity.sessionId) await consumeRateLimit(auth, `session:${identity.sessionId}`, 600, 10 * 60_000);
+    if (path === "auth/device-key" && request.method === "POST") {
+      const data = await body(request);
+      return json({ deviceKey: await redeemDeviceKey(auth, identity, data.code) });
+    }
+    if (path === "me" && request.method === "GET") {
+      return json({
+        userId: identity.userId,
+        householdId: identity.householdId,
+        member: identity.member,
+        legacyClaimed: await isLegacyClaimed(auth, identity.userId, identity.householdId),
+        ...(await getHouseholdNames(auth, identity.householdId) ?? { nameA: config.nameA, nameB: config.nameB })
+      });
+    }
+    if (path === "household/invitations" && request.method === "GET") {
+      return json({ invitations: await listInvitations(auth, identity) });
+    }
+    if (path === "household/invitations" && request.method === "POST") {
+      const created = await createInvitation(auth, identity);
+      return json(created, 201);
+    }
+    if (path === "household/invitations/revoke" && request.method === "POST") {
+      const data = await body(request);
+      await revokeInvitation(auth, identity, data.id);
+      return json({ revoked: true });
+    }
+    if (path === "household/member-name" && request.method === "POST") {
+      const data = await body(request);
+      await renameHouseholdMember(auth, identity, data.slot, data.name);
+      return json({ renamed: true });
+    }
+    if (path === "household/leave" && request.method === "POST") {
+      await leaveHousehold(auth, identity);
+      await logout(request, config, auth);
+      return json({ left: true }, 200, { "Set-Cookie": sessionCookie(config, "", 0) });
+    }
+    if (path === "household/remove-member" && request.method === "POST") {
+      await removeOtherMember(auth, identity);
+      return json({ removed: true });
+    }
+    if (path === "household/delete" && request.method === "POST") {
+      await deleteHousehold(auth, identity);
+      await logout(request, config, auth);
+      return json({ deleted: true }, 200, { "Set-Cookie": sessionCookie(config, "", 0) });
+    }
+    if (path === "account/delete" && request.method === "POST") {
+      await deleteAccount(auth, identity);
+      await logout(request, config, auth);
+      return json({ deletionScheduled: true }, 200, { "Set-Cookie": sessionCookie(config, "", 0) });
+    }
+    if (path === "sync" || path === "todo-sync") {
+      const requestUser = request.headers.get("x-splitty-user");
+      const requestHousehold = request.headers.get("x-splitty-household");
+      const hasContext = requestUser !== null || requestHousehold !== null;
+      if ((!identity.userId.startsWith("legacy-") && (!requestUser || !requestHousehold))
+        || (hasContext && (requestUser !== identity.userId || requestHousehold !== identity.householdId))) {
+        throw new HttpError(409, "The signed-in household changed. Retry sync on this device.");
+      }
+    }
+    if (path === "sync") return await syncRequest(request, url, ledger, identity.householdId, validateEntry, expenseLedger);
+    if (path === "todo-sync") return await syncRequest(request, url, ledger, identity.householdId, validateTodo, todoLedger);
     throw new HttpError(404, "Endpoint not found.");
   } catch (error) {
-    if (error instanceof HttpError) return json({ error: error.message }, error.status);
+    if (error instanceof HttpError) return json(
+      { error: error.message },
+      error.status,
+      error.retryAfterSeconds ? { "Retry-After": String(error.retryAfterSeconds) } : undefined
+    );
     // Avoid logging financial payloads, cookies or member tokens.
     logError(`Splitty request failed (${error instanceof Error ? error.name : "unknown error"}).`);
     return json({ error: "The server could not complete this request. Your changes remain saved on your device. Retry shortly." }, 500);

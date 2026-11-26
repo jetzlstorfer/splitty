@@ -1,12 +1,9 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
+import { useEnglish } from "./helpers";
 
 async function openExpense(page: Page, english = true) {
-  await page.goto("/");
-  if (english) {
-    await page.getByRole("button", { name: "Einstellungen", exact: true }).click();
-    await page.getByLabel("App-Sprache", { exact: true }).selectOption("en");
-    await page.getByRole("button", { name: "Expenses", exact: true }).click();
-  }
+  if (english) await useEnglish(page);
+  else await page.goto("/");
   await page.getByRole("button", { name: english ? "Add expense" : "Ausgabe hinzufügen", exact: true }).click();
   return page.getByRole("dialog");
 }
@@ -28,11 +25,11 @@ async function prepareScanner(page: Page) {
   await page.getByRole("button", { name: "Scan receipt (optional)", exact: true }).click();
   await page.getByRole("button", { name: "Download scanner", exact: true }).click();
   await expect(page.getByText("Scanner downloaded. You can scan offline on this device.", { exact: true })).toBeVisible();
-  await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
 }
 
-test("real local OCR creates only a reviewed expense and works after an offline reload", async ({ page, context }, info) => {
+test("real local OCR creates only a reviewed expense and works after an offline reload", async ({ page, context, baseURL }, info) => {
   test.setTimeout(120_000);
+  const origin = new URL(baseURL!).origin;
   const requests: { url: string; method: string }[] = [];
   context.on("request", (request) => requests.push({ url: request.url(), method: request.method() }));
   let dialog = await openExpense(page);
@@ -57,6 +54,9 @@ test("real local OCR creates only a reviewed expense and works after an offline 
   await expect(page.locator(".expense-row")).toHaveCount(1);
   await expect(page.locator(".balance-amount")).toContainText("12.50");
 
+  await page.evaluate(async () => { await navigator.serviceWorker.ready; });
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
   await context.setOffline(true);
   await page.reload();
   await page.getByRole("button", { name: "Add expense", exact: true }).click();
@@ -69,7 +69,7 @@ test("real local OCR creates only a reviewed expense and works after an offline 
   await expect(dialog.getByRole("textbox", { name: "Amount in EUR" })).toHaveValue("24.90");
   await dialog.getByRole("button", { name: "Close", exact: true }).click();
   await expect(page.locator(".expense-row")).toHaveCount(1);
-  expect(requests.filter((request) => !request.url.startsWith("http://127.0.0.1:5173/"))).toEqual([]);
+  expect(requests.filter((request) => new URL(request.url).origin !== origin)).toEqual([]);
   expect(requests.filter((request) => request.method !== "GET")).toEqual([]);
 });
 
@@ -105,6 +105,9 @@ test("cancellation, bad photos, and retries leave manual entry intact", async ({
   const image = await receiptImage(page, ["HOFER", "19.10.2026", "SUMME EUR 24,90"]);
   await dialog.getByLabel("Choose receipt image", { exact: true }).setInputFiles(image);
   await expect.poll(() => page.workers().length).toBeGreaterThan(0);
+  await expect(dialog.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+  await dialog.getByRole("textbox", { name: "Amount in EUR" }).press("Enter");
+  await expect(dialog).toBeVisible();
   await dialog.getByRole("button", { name: "Cancel scan", exact: true }).click();
   await expect.poll(() => page.workers().length).toBe(0);
   await expect(dialog.getByRole("alert")).toHaveText("Receipt scanning cancelled. Retry or enter the expense manually.");

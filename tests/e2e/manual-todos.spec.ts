@@ -1,16 +1,14 @@
 import { readFile } from "node:fs/promises";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "./fixtures";
+import { failNextConflictResolution, signIn as signInMember, synchronize as sync, upToDate } from "./helpers";
+import { chooseOption, confirmAction } from "./controls";
 
 const row = (page: Page, title: string) => page.getByRole("listitem").filter({ has: page.getByText(title, { exact: true }) });
 const todos = (page: Page) => page.getByRole("navigation").getByRole("button", { name: "To-dos" }).click();
-const upToDate = (page: Page) => expect(page.getByRole("status")).toHaveText("Auf dem neuesten Stand");
 
 async function signIn(page: Page, member: "A" | "B") {
   await page.goto("/");
-  await page.getByRole("button", { name: "Einstellungen", exact: true }).click();
-  await page.getByLabel("Mitglieds-Token").fill(member.repeat(43));
-  await page.getByRole("button", { name: "Anmelden", exact: true }).click();
-  await upToDate(page);
+  await signInMember(page, member);
   await todos(page);
 }
 
@@ -23,6 +21,17 @@ async function add(page: Page, title: string, description = "") {
   await expect(dialog).not.toBeVisible();
 }
 
+async function addInsuranceExpense(page: Page) {
+  await page.getByRole("navigation").getByRole("button", { name: "Ausgaben", exact: true }).click();
+  await page.getByRole("button", { name: "Ausgabe hinzufügen", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Beschreibung", { exact: true }).fill("Apotheke");
+  await dialog.getByRole("textbox", { name: "Betrag in EUR" }).fill("20");
+  await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await todos(page);
+}
+
 async function edit(page: Page, title: string, next: string, description: string) {
   await page.getByRole("button", { name: `To-do-Aktionen: ${title}`, exact: true }).click();
   await page.getByRole("button", { name: `To-do bearbeiten: ${title}`, exact: true }).click();
@@ -33,11 +42,6 @@ async function edit(page: Page, title: string, next: string, description: string
   await expect(dialog).not.toBeVisible();
 }
 
-async function sync(page: Page) {
-  await page.getByRole("button", { name: "Geräte synchronisieren" }).click();
-  await upToDate(page);
-}
-
 async function toggle(page: Page, title: string, done: boolean) {
   await row(page, title).getByRole("checkbox").click();
   await expect(row(page, title).getByRole("checkbox")).toBeChecked({ checked: done });
@@ -46,9 +50,14 @@ async function toggle(page: Page, title: string, done: boolean) {
 async function remove(page: Page, title: string) {
   await page.getByRole("button", { name: `To-do-Aktionen: ${title}`, exact: true }).click();
   await page.getByRole("button", { name: `To-do bearbeiten: ${title}`, exact: true }).click();
-  page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "To-do löschen", exact: true }).click();
+  await confirmAction(page, "To-do löschen");
   await expect(row(page, title)).toHaveCount(0);
+}
+
+function waitForTodoMutation(page: Page) {
+  return page.waitForResponse((response) =>
+    new URL(response.url()).pathname.endsWith("/api/todo-sync") && response.request().method() === "POST");
 }
 
 for (const reducedMotion of ["no-preference", "reduce"] as const) {
@@ -72,17 +81,17 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
     await expect(dialog).not.toBeVisible();
     await todos(page);
-    await expect(page.locator(".entry-count")).toHaveText("2");
+    await expect(page.locator(".todos-page .page-heading p")).toHaveText("2 offen");
     await row(page, "Call dentist").getByRole("checkbox").focus();
     await page.keyboard.press("Space");
     await expect(row(page, "Call dentist").getByRole("checkbox")).toBeChecked();
-    await expect(page.locator(".entry-count")).toHaveText("1");
+    await expect(page.locator(".todos-page .page-heading p")).toHaveText("1 offen");
     await expect(clear).toHaveCount(0);
     await page.getByRole("listitem").filter({ hasText: "Apotheke" }).getByRole("checkbox").click();
     await expect(page.getByRole("listitem").filter({ hasText: "Apotheke" }).getByRole("checkbox")).toBeChecked();
     await expect(clear).toBeVisible();
     await expect(clear.locator(".todo-clear-hint")).toHaveCount(0);
-    await expect(page.locator(".entry-count")).toHaveText("0");
+    await expect(page.locator(".todos-page .page-heading p")).toHaveText("0 offen");
     await expect(page.getByRole("region", { name: "Erledigt", exact: true }).getByRole("listitem")).toHaveCount(2);
     await expect(page.getByRole("region", { name: "Offene To-dos", exact: true })).toHaveCount(0);
     await expect(clear.locator("..")).toHaveAttribute("aria-live", "polite");
@@ -101,7 +110,7 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     }
 
     await page.getByRole("navigation").getByRole("button", { name: "Einstellungen", exact: true }).click();
-    await page.getByLabel("App-Sprache", { exact: true }).selectOption("en");
+    await chooseOption(page, page.getByLabel("App-Sprache", { exact: true }), "English");
     await todos(page);
     await expect(clear.getByRole("heading", { level: 2 })).toHaveText("All caught up!");
     await expect(clear).toContainText("Nothing left to chase. Enjoy your day.");
@@ -155,6 +164,100 @@ test("todo and expense add buttons share their floating position, styling, and k
   }
 });
 
+test("todo rows match expense text and column alignment in both themes", async ({ page }, info) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+  await todos(page);
+  await add(page, "Call dentist", "Shared household details");
+  await addInsuranceExpense(page);
+  const geometry = (item: Locator) => item.evaluate((element) => {
+    const icon = element.querySelector(".entry-icon")!.getBoundingClientRect();
+    const title = element.querySelector(".entry-description strong")!;
+    const titleStyle = getComputedStyle(title);
+    const subtitleStyle = getComputedStyle(element.querySelector(".entry-description small")!);
+    return {
+      height: element.getBoundingClientRect().height, iconWidth: icon.width, iconHeight: icon.height,
+      color: titleStyle.color, fontSize: titleStyle.fontSize,
+      fontWeight: titleStyle.fontWeight, lineHeight: titleStyle.lineHeight,
+      subtitleColor: subtitleStyle.color, subtitleSize: subtitleStyle.fontSize
+    };
+  });
+  const manual = row(page, "Call dentist");
+  const insurance = page.getByRole("listitem").filter({ hasText: "Bei Versicherung einreichen" });
+
+  for (const width of [320, 393, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const theme of ["light", "dark"]) {
+      await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
+      await page.getByRole("navigation").getByRole("button", { name: "Ausgaben", exact: true }).click();
+      const expense = page.locator(".expense-row");
+      const expected = await geometry(expense);
+      expect(expected.color).toBe(await page.locator("body").evaluate((element) => getComputedStyle(element).color));
+      await todos(page);
+
+      for (const item of [manual, insurance]) {
+        expect(await geometry(item.locator(".todo-row"))).toEqual(expected);
+        const checkbox = (await item.getByRole("checkbox").boundingBox())!;
+        expect(checkbox.height).toBe(22);
+        await expect(item.getByRole("checkbox")).not.toBeChecked();
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      if (width === 393) await page.screenshot({ path: info.outputPath(`todo-rows-${theme}.png`) });
+    }
+  }
+});
+
+test("todo content opens details while only the checkbox completes or reopens it", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+  await todos(page);
+  await add(page, "Call dentist", "Shared household details");
+  await addInsuranceExpense(page);
+  const items = [
+    { item: row(page, "Call dentist"), dialogName: "To-do bearbeiten", field: "Titel", value: "Call dentist" },
+    { item: page.getByRole("listitem").filter({ hasText: "Bei Versicherung einreichen" }), dialogName: "Eintrag bearbeiten", field: "Beschreibung", value: "Apotheke" }
+  ];
+  for (const { item, dialogName, field, value } of items) {
+    const details = item.locator(".todo-details");
+    const checkbox = item.getByRole("checkbox");
+    const dialog = page.getByRole("dialog", { name: dialogName });
+    await expect(checkbox).toHaveAccessibleName(value === "Apotheke" ? "Bei Versicherung einreichen: Apotheke" : value);
+    for (const done of [false, true]) {
+      for (const target of [item.locator(".entry-icon"), item.locator(".entry-description strong"), item.locator(".entry-description small")]) {
+        await target.click();
+        await expect(dialog.getByLabel(field, { exact: true })).toHaveValue(value);
+        await dialog.getByRole("button", { name: "Schließen", exact: true }).click();
+        await expect(details).toBeFocused();
+        await expect(checkbox).toBeChecked({ checked: done });
+      }
+      for (const key of ["Enter", "Space"]) {
+        await details.focus();
+        await page.keyboard.press(key);
+        await expect(dialog).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(details).toBeFocused();
+        await expect(checkbox).toBeChecked({ checked: done });
+      }
+      await details.focus();
+      await page.keyboard.press("Shift+Tab");
+      await expect(checkbox).toBeFocused();
+      await page.keyboard.press("Space");
+      await expect(checkbox).toBeChecked({ checked: !done });
+      await expect(dialog).not.toBeVisible();
+    }
+    const label = item.locator(".todo-check");
+    await label.click({ position: { x: 1, y: 1 } });
+    await expect(checkbox).toBeChecked();
+    await label.click({ position: { x: 1, y: 1 } });
+    await expect(checkbox).not.toBeChecked();
+    await expect(dialog).not.toBeVisible();
+  }
+  await page.reload();
+  await todos(page);
+  await expect(page.getByRole("region", { name: "Offene To-dos" }).getByRole("checkbox")).toHaveCount(2);
+  await expect(page.getByRole("region", { name: "Erledigt", exact: true })).toHaveCount(0);
+});
+
 test("the floating todo button stays above navigation without covering the last item", async ({ page }) => {
   await page.goto("/");
   await todos(page);
@@ -178,12 +281,12 @@ test("manual todos persist with optional descriptions and leave expenses unchang
   await add(page, "Call dentist");
   await add(page, "Buy supplies", "Milk\nCoffee");
   await expect(row(page, "Buy supplies")).toContainText("Milk\nCoffee");
-  await expect(page.getByRole("heading", { name: /^To-dos/, level: 1 })).toContainText("2");
+  await expect(page.locator(".todos-page .page-heading p")).toHaveText("2 offen");
   await toggle(page, "Call dentist", true);
   await page.reload();
   await todos(page);
   await expect(row(page, "Call dentist").getByRole("checkbox")).toBeChecked();
-  await expect(page.getByRole("heading", { name: /^To-dos/, level: 1 })).toContainText("1");
+  await expect(page.locator(".todos-page .page-heading p")).toHaveText("1 offen");
   await edit(page, "Buy supplies", "Buy supplies", "");
   await expect(row(page, "Buy supplies").locator("small")).toHaveCount(0);
 
@@ -202,13 +305,144 @@ test("manual todos persist with optional descriptions and leave expenses unchang
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
   await page.getByRole("button", { name: "Ausgaben", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Noch keine Ausgaben" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Gemeinsam. Fair geteilt.", exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "Haushaltssaldo" })).toContainText("Alles ausgeglichen");
   await page.getByRole("button", { name: "Einstellungen", exact: true }).click();
-  await page.getByLabel("App-Sprache").selectOption("en");
+  await chooseOption(page, page.getByLabel("App-Sprache"), "English");
   await todos(page);
   await page.getByRole("button", { name: "Add to-do", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Add to-do" }).getByLabel("Description (optional)")).toBeVisible();
+});
+
+test("completing to-dos bursts confetti for manual and insurance items unless motion is reduced", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.goto("/");
+  await todos(page);
+  await add(page, "Call dentist");
+  await row(page, "Call dentist").getByRole("checkbox").click();
+  const manualBurst = row(page, "Call dentist").locator(".todo-confetti");
+  await expect(manualBurst).toBeVisible();
+  await expect(manualBurst.locator("i").first()).toHaveCSS("animation-name", "todo-confetti-burst");
+
+  await addInsuranceExpense(page);
+  const insurance = page.getByRole("listitem").filter({ hasText: "Bei Versicherung einreichen" });
+  await insurance.getByRole("checkbox").click();
+  const insuranceBurst = insurance.locator(".todo-confetti");
+  await expect(insuranceBurst).toBeVisible();
+  await expect(insuranceBurst.locator("i").first()).toHaveCSS("animation-name", "todo-confetti-burst");
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await add(page, "Quiet completion");
+  const quiet = row(page, "Quiet completion");
+  await quiet.getByRole("checkbox").click();
+  await expect(quiet.locator(".todo-confetti")).toBeHidden();
+});
+
+test("open manual todos reorder by mouse, touch, and keyboard and share the order with the household", async ({ browser }) => {
+  const aContext = await browser.newContext({ serviceWorkers: "block", hasTouch: true });
+  const bContext = await browser.newContext({ serviceWorkers: "block" });
+  const a = await aContext.newPage(), b = await bContext.newPage();
+  const order = (page: Page) => page.locator(".manual-todo:not(.done) .entry-description strong");
+  const handle = (page: Page, title: string) => page.getByRole("button", { name: `To-do verschieben: ${title}`, exact: true });
+  try {
+    await a.emulateMedia({ reducedMotion: "reduce" });
+    await signIn(a, "A");
+    await signIn(b, "B");
+    await expect(a.locator(".reorder-handle")).toHaveCount(0);
+    await a.clock.setFixedTime(new Date("2024-03-01T12:00:00Z"));
+    await add(a, "First");
+    await a.clock.setFixedTime(new Date("2024-03-02T12:00:00Z"));
+    await addInsuranceExpense(a);
+    await a.clock.setFixedTime(new Date("2024-03-03T12:00:00Z"));
+    await add(a, "Second");
+    await a.clock.setFixedTime(new Date("2024-03-03T13:00:00Z"));
+    await add(a, "Third");
+    await upToDate(a);
+    await expect(a.locator(".reorder-handle")).toHaveCount(3);
+    await expect(order(a)).toHaveText(["Third", "Second", "First"]);
+    await a.getByRole("navigation").getByRole("button", { name: "Ausgaben", exact: true }).click();
+    const balance = await a.getByRole("region", { name: "Haushaltssaldo" }).innerText();
+    await todos(a);
+
+    const firstBox = (await handle(a, "First").boundingBox())!, thirdBox = (await row(a, "Third").boundingBox())!;
+    await a.mouse.move(firstBox.x + firstBox.width / 2, firstBox.y + firstBox.height / 2);
+    await a.mouse.down();
+    await a.mouse.move(firstBox.x + firstBox.width / 2, thirdBox.y + 5, { steps: 30 });
+    await expect(row(a, "First")).toHaveClass(/reordering/);
+    const firstMutation = waitForTodoMutation(a);
+    await a.mouse.up();
+    await expect(order(a)).toHaveText(["First", "Third", "Second"]);
+    expect((await firstMutation).ok()).toBe(true);
+    await upToDate(a);
+    await expect(order(a)).toHaveText(["First", "Third", "Second"]);
+    await expect(row(a, "First").getByRole("checkbox")).not.toBeChecked();
+    await expect(a.getByRole("button", { name: "To-do-Aktionen: First", exact: true })).toHaveAttribute("aria-expanded", "false");
+    await expect(a.locator(".todo-item").nth(2)).toContainText("Apotheke");
+
+    const session = await aContext.newCDPSession(a);
+    const secondBox = (await handle(a, "Second").boundingBox())!, firstRow = (await row(a, "First").boundingBox())!;
+    const x = secondBox.x + secondBox.width / 2;
+    await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y: secondBox.y + secondBox.height / 2 }] });
+    for (let step = 1; step <= 30; step++) {
+      const y = secondBox.y + secondBox.height / 2 + (firstRow.y + 5 - secondBox.y - secondBox.height / 2) * step / 30;
+      await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y }] });
+    }
+    const secondMutation = waitForTodoMutation(a);
+    await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await expect(order(a)).toHaveText(["Second", "First", "Third"]);
+    await expect(a.locator(".todo-item").nth(2)).toContainText("Apotheke");
+    expect((await secondMutation).ok()).toBe(true);
+    await upToDate(a);
+    await expect(order(a)).toHaveText(["Second", "First", "Third"]);
+    expect(await a.evaluate(() => window.scrollY)).toBe(0);
+
+    await handle(a, "Third").focus();
+    const thirdMutation = waitForTodoMutation(a);
+    await a.keyboard.press("ArrowUp");
+    await expect(order(a)).toHaveText(["Second", "Third", "First"]);
+    await expect(a.locator(".todo-item").nth(2)).toContainText("Apotheke");
+    await expect(handle(a, "Third")).toBeFocused();
+    await expect(a.getByText("Third auf Position 2 von 3 verschoben.")).toBeAttached();
+    expect((await thirdMutation).ok()).toBe(true);
+    await upToDate(a);
+    await expect(order(a)).toHaveText(["Second", "Third", "First"]);
+
+    const topBox = (await handle(a, "Second").boundingBox())!, lastRow = (await row(a, "First").boundingBox())!;
+    await a.mouse.move(topBox.x + topBox.width / 2, topBox.y + topBox.height / 2);
+    await a.mouse.down();
+    await a.mouse.move(topBox.x + topBox.width / 2, lastRow.y + lastRow.height - 5, { steps: 30 });
+    const fourthMutation = waitForTodoMutation(a);
+    await a.mouse.up();
+    await expect(order(a)).toHaveText(["Third", "First", "Second"]);
+    expect((await fourthMutation).ok()).toBe(true);
+    await upToDate(a);
+    await expect(order(a)).toHaveText(["Third", "First", "Second"]);
+
+    await sync(b);
+    await expect(order(b)).toHaveText(["Third", "First", "Second"]);
+    await expect(b.locator(".todo-item").nth(2)).toContainText("Apotheke");
+    await b.reload();
+    await todos(b);
+    await expect(order(b)).toHaveText(["Third", "First", "Second"]);
+    await expect(b.locator(".todo-item").nth(2)).toContainText("Apotheke");
+    await toggle(b, "Second", true);
+    await expect(handle(b, "Second")).toHaveCount(0);
+    await toggle(b, "Second", false);
+    await expect(order(b)).toHaveText(["Third", "First", "Second"]);
+    await edit(b, "Second", "Second edited", "Keeps its place");
+    await expect(order(b)).toHaveText(["Third", "First", "Second edited"]);
+    await upToDate(b);
+    await sync(a);
+    await a.reload();
+    await todos(a);
+    await expect(order(a)).toHaveText(["Third", "First", "Second edited"]);
+    await expect(a.locator(".todo-item").nth(2)).toContainText("Apotheke");
+    await a.getByRole("navigation").getByRole("button", { name: "Ausgaben", exact: true }).click();
+    await expect(a.getByRole("region", { name: "Haushaltssaldo" })).toHaveText(balance, { useInnerText: true });
+  } finally {
+    await aContext.close();
+    await bContext.close();
+  }
 });
 
 test("both household members share offline creation, edits, completion, reopening, and deletion", async ({ browser }) => {
@@ -268,13 +502,22 @@ test("todo conflicts show both versions and allow keeping local edits or remote 
     await edit(b, title, title, "Remote details");
     await upToDate(b);
     await aContext.setOffline(false);
+    await a.getByRole("button", { name: "Synchronisierungsstatus" }).click();
     const conflict = a.getByRole("region", { name: "Widersprüchliche To-do-Änderungen" });
     await expect(conflict).toContainText("Local details");
     await expect(conflict).toContainText("Remote details");
     await expect(row(a, title).getByRole("checkbox")).toBeDisabled();
+    await expect(row(a, title).locator(".todo-details")).toBeDisabled();
     await expect(row(a, title).getByRole("button", { name: `To-do-Aktionen: ${title}` })).toBeDisabled();
+    await failNextConflictResolution(a, "todoConflicts");
+    await conflict.getByRole("button", { name: "Diese Version behalten" }).click();
+    await expect(a.locator(".sync-popover").getByRole("alert")).toHaveText("Ein unerwarteter Fehler ist aufgetreten. Deine gespeicherten Einträge bleiben auf diesem Gerät.");
+    await expect(conflict).toBeVisible();
     await conflict.getByRole("button", { name: "Diese Version behalten" }).click();
     await upToDate(a);
+    await expect(a.locator(".sync-popover").getByRole("alert")).toHaveCount(0);
+    await expect(a.getByRole("button", { name: "Synchronisierungsstatus" })).not.toHaveClass(/needs-attention/);
+    await a.getByRole("button", { name: "Synchronisierungsstatus" }).click();
     await sync(b);
     await expect(row(b, title)).toContainText("Local details");
 
@@ -283,10 +526,17 @@ test("todo conflicts show both versions and allow keeping local edits or remote 
     await remove(b, title);
     await upToDate(b);
     await aContext.setOffline(false);
+    await a.getByRole("button", { name: "Synchronisierungsstatus" }).click();
     await expect(conflict).toContainText("Another local edit");
     await expect(conflict).toContainText("Gelöscht");
+    await failNextConflictResolution(a, "todoConflicts");
+    await conflict.getByRole("button", { name: "Andere Version behalten" }).click();
+    await expect(a.locator(".sync-popover").getByRole("alert")).toHaveText("Ein unerwarteter Fehler ist aufgetreten. Deine gespeicherten Einträge bleiben auf diesem Gerät.");
+    await expect(conflict).toBeVisible();
     await conflict.getByRole("button", { name: "Andere Version behalten" }).click();
     await upToDate(a);
+    await expect(a.locator(".sync-popover").getByRole("alert")).toHaveCount(0);
+    await expect(a.getByRole("button", { name: "Synchronisierungsstatus" })).not.toHaveClass(/needs-attention/);
     await expect(row(a, title)).toHaveCount(0);
     await expect(conflict).not.toBeVisible();
   } finally {
@@ -317,7 +567,9 @@ test("manual completions saved during a slow sync are sent in the next pass", as
       await held;
       await route.fulfill({ response });
     });
-    await a.getByRole("button", { name: "Geräte synchronisieren" }).click();
+    await a.getByRole("button", { name: "Synchronisierungsstatus" }).click();
+    await a.getByRole("button", { name: "Jetzt synchronisieren" }).click();
+    await a.getByRole("button", { name: "Synchronisierungsstatus" }).click();
     await pullStarted;
     for (const title of titles) await toggle(a, title, true);
     await a.clock.runFor(1_000);
@@ -350,10 +602,10 @@ test("backups round-trip manual todos including descriptions and completion", as
     const restored = await context.newPage();
     await restored.goto("/");
     await restored.getByRole("button", { name: "Einstellungen", exact: true }).click();
-    restored.once("dialog", (dialog) => dialog.accept());
     await restored.getByLabel("Fehlende Einträge aus einer Sicherung wiederherstellen").setInputFiles({
       name: "backup.json", mimeType: "application/json", buffer: Buffer.from(contents)
     });
+    await confirmAction(restored, "Backup wiederherstellen");
     await todos(restored);
     await expect(row(restored, "Backup task")).toContainText("Details to preserve");
     await expect(row(restored, "Backup task").getByRole("checkbox")).toBeChecked();

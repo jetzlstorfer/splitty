@@ -18,9 +18,14 @@ describe("manual to-dos", () => {
   it.each([
     { title: "" }, { title: " \n " }, { title: null }, { description: 123 }, { description: null },
     { id: "../invalid" }, { done: 1 }, { deleted: null }, { revision: -1 }, { revision: 0.5 },
-    { createdAt: "never" }, { updatedAt: "never" }
+    { createdAt: "never" }, { updatedAt: "never" },
+    { position: "1" }, { position: Number.NaN }, { position: Number.POSITIVE_INFINITY }, { position: 1e13 }
   ])("rejects invalid fields: %j", (fields) => {
     expect(() => validateTodo({ ...exampleTodo(), ...fields })).toThrow();
+  });
+  it("keeps an optional household order position", () => {
+    expect(validateTodo(exampleTodo({ position: -1.5 })).position).toBe(-1.5);
+    expect(validateTodo(exampleTodo())).not.toHaveProperty("position");
   });
   it("validates versioned todo mutations using the same revision contract as expenses", () => {
     const change = { id: "change-1", entry: exampleTodo(), expectedRevision: 0 };

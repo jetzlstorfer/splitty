@@ -1,66 +1,137 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { liveQuery } from "dexie";
 import {
-  BarChart3, Check, ChevronDown, ClipboardCheck, Cloud, CloudOff,
-  Download, Languages, Plus, Receipt, RefreshCw, Search, Settings, Sparkles, Sun, Trash2, Upload, Users, X
+  BarChart3, Check, ChevronDown, ChevronRight, ClipboardCheck,
+  Download, GripVertical, Languages, Lock, Pencil, Plus, Receipt, RefreshCw, RotateCcw, Search, Settings, Smartphone, Sparkles, Sun, Trash2, Upload, X
 } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import { calculateShareA, expenseBalance, parseMoney, type Entry, type Member, type SplitType } from "../shared/model";
+import { translate } from "../shared/i18n";
 import { MAX_TODO_TITLE, MAX_TODO_DESCRIPTION, type Todo } from "../shared/todo";
-import { db, queueEntries, queueTodos, resolveConflict, resolveStoreConflict, todoStore, updatePreferences, getPreferences, type Conflict, type Preferences } from "./db";
+import { activateAnonymousDatabase, clearAccountDatabase, db, queueEntries, queueTodos, resolveConflict, resolveStoreConflict, todoStore, updatePreferences, getPreferences, setDeviceKey, type Conflict, type Preferences } from "./db";
 import { missingBackupRecords, readBackup, restoreBackup } from "./backup";
-import { previewImport, readCsv, type ImportPreview } from "./importer";
-import { api, ApiError, synchronize, type Identity } from "./sync";
+import type { ImportPreview } from "./importer";
+import { ApiError, api, identify, signInDevice, signOutDevice, syncPollingInterval, synchronize, type Identity } from "./sync";
 import { LanguageContext, useLocale } from "./i18n";
 import { categoryLabels, detectCategory, expenseCategory, normalizeText, storedCategory, type Category } from "./categories";
 import ExpenseIcon from "./ExpenseIcon";
+import SyncIcon from "./SyncIcon";
+import { LegalLinks } from "./LegalPage";
 import SwipeableRow from "./SwipeableRow";
-import Statistics from "./StatisticsPage";
-import { householdTodos, type HouseholdTodo } from "./todos";
 import ReceiptScanner from "./ReceiptScanner";
+import { householdTodos, reorderTodos, replaceManualSlots, type HouseholdTodo } from "./todos";
+import { ConfirmationProvider, DateField, Form, Select, Sheet, dateValue as today, useConfirm } from "./Controls";
 
-const today = () => {
-  const date = new Date();
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-};
+const loadStatistics = () => import("./StatisticsPage");
+const Statistics = lazy(loadStatistics);
 
 interface Snapshot {
   entries: Entry[]; todos: Todo[]; pending: number; preferences: Preferences;
   conflicts: Conflict[]; todoConflicts: Conflict<Todo>[];
 }
 
+interface InstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+}
+
+interface AuthOptions { entraEnabled: boolean; legacyEnabled: boolean; newHouseholdsEnabled?: boolean }
+interface Invitation { id: string; slot: Member; expiresAt: number }
+const authOptionsKey = "splitty-auth-options";
+
+function savedAuthOptions(): AuthOptions {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(authOptionsKey) ?? "null");
+    if (value && typeof value === "object" && "entraEnabled" in value && "legacyEnabled" in value
+      && typeof value.entraEnabled === "boolean" && typeof value.legacyEnabled === "boolean") {
+      return {
+        entraEnabled: value.entraEnabled,
+        legacyEnabled: value.legacyEnabled,
+        newHouseholdsEnabled: "newHouseholdsEnabled" in value && value.newHouseholdsEnabled === true
+      };
+    }
+  } catch { /* The API refresh below remains authoritative. */ }
+  return { entraEnabled: false, legacyEnabled: false };
+}
+
+function isInstalledPwa() {
+  const safariNavigator = navigator as Navigator & { standalone?: boolean };
+  return window.matchMedia("(display-mode: standalone)").matches || safariNavigator.standalone === true;
+}
+
+function isIosDevice() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
 function useLedger(): Snapshot | null {
   const [value, setValue] = useState<Snapshot | null>(null);
   useEffect(() => {
-    const subscription = liveQuery(async () => ({
-      entries: await db.entries.toArray(), todos: await db.todos.toArray(),
-      pending: await db.outbox.count() + await db.todoOutbox.count(),
-      preferences: await getPreferences(), conflicts: await db.conflicts.toArray(), todoConflicts: await db.todoConflicts.toArray()
-    })).subscribe({
-      next: setValue,
-      error: (error: unknown) => window.dispatchEvent(new CustomEvent("splitty-error", {
-        detail: `Local storage failed: ${error instanceof Error ? error.message : String(error)}`
-      }))
-    });
-    return () => subscription.unsubscribe();
+    let subscription: { unsubscribe: () => void } | undefined;
+    const subscribe = () => {
+      const database = db;
+      subscription = liveQuery(async () => {
+        const [entries, todos, outboxCount, todoOutboxCount, preferences, conflicts, todoConflicts] = await Promise.all([
+          database.entries.toArray(), database.todos.toArray(), database.outbox.count(), database.todoOutbox.count(),
+          getPreferences(database), database.conflicts.toArray(), database.todoConflicts.toArray()
+        ]);
+        return { entries, todos, pending: outboxCount + todoOutboxCount, preferences, conflicts, todoConflicts };
+      }).subscribe({
+        next: setValue,
+        error: (error: unknown) => window.dispatchEvent(new CustomEvent("splitty-error", {
+          detail: `Local storage failed: ${error instanceof Error ? error.message : String(error)}`
+        }))
+      });
+    };
+    const stop = () => { subscription?.unsubscribe(); subscription = undefined; setValue(null); };
+    subscribe();
+    window.addEventListener("splitty-database-changing", stop);
+    window.addEventListener("splitty-database-changed", subscribe);
+    return () => {
+      stop();
+      window.removeEventListener("splitty-database-changing", stop);
+      window.removeEventListener("splitty-database-changed", subscribe);
+    };
   }, []);
+
   return value;
 }
 
-function Sheet({ title, children, close, initialFocus }: { title: string; children: ReactNode; close: () => void; initialFocus?: string }) {
-  const { t } = useLocale();
-  const dialog = useRef<HTMLDialogElement>(null);
-  const heading = useId();
+function SyncPopover({ online, busy, pending, attention, upToDate, status, children }: {
+  online: boolean; busy: boolean; pending: number; attention: boolean; upToDate: boolean;
+  status: string; children: ReactNode;
+}) {
+  const { t, number } = useLocale();
+  const id = useId();
+  const [open, setOpen] = useState(false);
+  const popoverRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
-    const element = dialog.current;
-    element?.showModal();
-    if (initialFocus) element?.querySelector<HTMLElement>(initialFocus)?.focus();
-    // Close before React removes the dialog so the browser can restore focus to its opener.
-    return () => element?.close();
-  }, [initialFocus]);
-  return <dialog ref={dialog} onCancel={close} className="sheet" aria-labelledby={heading}>
-    <div className="sheet-head"><button className="icon-button" onClick={close} aria-label={t("Close")}><X size={22} /></button><h2 id={heading}>{title}</h2><span /></div>
-    {children}
-  </dialog>;
+    const popover = popoverRef.current;
+    const header = popover?.closest("header");
+    if (!popover || !header) return;
+    const align = () => popover.style.setProperty("--sync-header-bottom", `${header.getBoundingClientRect().bottom}px`);
+    align();
+    const observer = new ResizeObserver(align);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
+  return <div className="sync-control">
+    <button className={`sync-pill ${attention ? "needs-attention" : ""}`} popoverTarget={id}
+      aria-haspopup="dialog" aria-expanded={open} aria-controls={id} aria-busy={busy} aria-label={t("Sync status")}>
+      <SyncIcon state={!online ? "offline" : busy ? "syncing" : attention ? "attention" : upToDate ? "current" : "pending"} />
+      <span className={online && !attention ? "sr-only" : undefined}>{!online ? t("Offline") : busy ? t("Syncing…") : pending ? t("{count} pending", { count: number(pending) })
+        : attention ? t("Needs attention") : upToDate ? t("Up-to-date") : t("Saved on this device")}</span>
+    </button>
+    <span className="sync-status sr-only" role="status">{status}</span>
+    <div ref={popoverRef} id={id} popover="auto" role="dialog" aria-labelledby={`${id}-heading`} className="sync-popover"
+      onToggle={(event) => setOpen(event.newState === "open")}>
+      <div className="sync-popover-heading">
+        <h2 id={`${id}-heading`}>{t("Synchronization")}</h2>
+        <button className="icon-button" popoverTarget={id} popoverTargetAction="hide" aria-label={t("Close")}><X size={20} /></button>
+      </div>
+      <p className={`sync-summary ${attention ? "needs-attention" : ""}`}>{status}</p>
+      {children}
+    </div>
+  </div>;
 }
 
 function FilePicker({ label, accept, disabled, choose }: { label: string; accept: string; disabled?: boolean; choose: (file?: File) => void }) {
@@ -79,6 +150,7 @@ function ExpenseForm({ entry, settlement, preferences: p, close, saved }: {
   entry?: Entry; settlement: boolean; preferences: Preferences; close: () => void; saved: (entry?: Entry) => void;
 }) {
   const { t, message, money, payer, language } = useLocale();
+  const confirm = useConfirm();
   const imported = entry?.kind === "imported";
   const [description, setDescription] = useState(entry?.description ?? (settlement ? t("Payment") : ""));
   const [amount, setAmount] = useState(entry ? (entry.amountCents / 100).toFixed(2).replace(".", language === "de" ? "," : ".") : "");
@@ -95,6 +167,7 @@ function ExpenseForm({ entry, settlement, preferences: p, close, saved }: {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [scanBusy, setScanBusy] = useState(false);
+  const amountInput = useRef<HTMLInputElement>(null);
   const [categoryChoice, setCategoryChoice] = useState<Category | "auto">(() => {
     const category = entry ? storedCategory(entry.category) : undefined;
     if (entry?.categoryMode === "manual" && category && category !== "payment") return category;
@@ -152,7 +225,7 @@ function ExpenseForm({ entry, settlement, preferences: p, close, saved }: {
   }
 
   async function remove() {
-    if (!entry || !window.confirm(t("Delete this entry for both of you? This will sync when you are online."))) return;
+    if (!entry || !await confirm({ title: t("Delete entry"), description: t("Delete this entry for both of you? This will sync when you are online."), action: t("Delete entry"), dangerous: true })) return;
     setBusy(true);
     try { await queueEntries([{ ...entry, deleted: true }]); saved(); close(); }
     catch (e) { setError(e instanceof Error ? e.message : "Could not delete this entry."); }
@@ -161,22 +234,34 @@ function ExpenseForm({ entry, settlement, preferences: p, close, saved }: {
 
   const other = p.member === "a" ? p.nameB : p.nameA;
   return <Sheet title={t(entry ? "Edit entry" : settlement ? "Settle up" : "Add an expense")} close={close} initialFocus={!entry ? "#expense-description" : undefined}>
-    <form onSubmit={submit} className="expense-form" lang={language}>
+    <Form onSubmit={submit} className="expense-form" lang={language}>
       {!entry && !settlement && <ReceiptScanner onBusyChange={setScanBusy} apply={(draft) => {
         if (draft.merchant) setDescription(draft.merchant);
         if (draft.date) setDate(draft.date);
         if (draft.amountCents) setAmount((draft.amountCents / 100).toFixed(2).replace(".", language === "de" ? "," : "."));
       }} />}
-      <div className="description-field"><label htmlFor="expense-description">{t("Description")}</label><div className="description-input" data-category={category}><ExpenseIcon category={category} size={24} /><input id="expense-description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t(settlement ? "Payment" : "Enter a description")} required maxLength={500} /></div></div>
-      <label>{t("Amount in EUR")}<div className="amount-input"><span>€</span><input aria-label={t("Amount in EUR")} inputMode="decimal" value={amount} readOnly={imported} onChange={(e) => setAmount(e.target.value)} placeholder={language === "de" ? "0,00" : "0.00"} required /></div></label>
+      <div className="description-field"><label htmlFor="expense-description">{t("Description")}</label><div className="description-input" data-category={category}><ExpenseIcon category={category} size={24} /><input id="expense-description" value={description} enterKeyHint={imported ? undefined : "next"} onKeyDown={(event) => {
+        if (!imported && event.key === "Enter" && !event.nativeEvent.isComposing) {
+          event.preventDefault(); amountInput.current?.focus();
+        }
+      }} onChange={(e) => setDescription(e.target.value)} placeholder={t(settlement ? "Payment" : "Enter a description")} required maxLength={500} /></div></div>
+      <label>{t("Amount in EUR")}<div className="amount-input"><span>€</span><input ref={amountInput} aria-label={t("Amount in EUR")} inputMode="decimal" enterKeyHint={imported ? undefined : "done"} value={amount} readOnly={imported} onKeyDown={(event) => {
+        if (!imported && event.key === "Enter" && !event.nativeEvent.isComposing) {
+          event.preventDefault();
+          if (!busy && !scanBusy) event.currentTarget.form?.requestSubmit();
+        }
+      }} onChange={(e) => setAmount(e.target.value)} placeholder={language === "de" ? "0,00" : "0.00"} required /></div></label>
       {imported ? <p className="notice">{t("Imported balance: {amount} for {name}. The CSV does not reliably identify the original payer or split, so those amounts are preserved. Description and date can be edited.", { amount: money(entry.balanceA), name: p.nameA })}</p> : <>
-        <div className="split-summary">
-          <span>{t(settlement ? "Payment from" : "Paid by")}</span>
-          <select aria-label={t("Paid by")} value={paidBy} onChange={(e) => setPaidBy(e.target.value as Member)}>
-            <option value="a">{payer(p, "a")}</option><option value="b">{payer(p, "b")}</option>
-          </select>
-          {settlement && <span>{paidBy !== p.member ? t("to you") : other === t("Your wife") ? t("to your wife") : t("to {name}", { name: other })}</span>}
-        </div>
+        <fieldset className="payer-switch" aria-label={t("Paid by")}>
+          <legend>{t(settlement ? "Payment from" : "Paid by")}</legend>
+          <div className="payer-segments">
+            {(["a", "b"] as const).map((member) => <label key={member}>
+              <input type="radio" name="paid-by" value={member} checked={paidBy === member} onChange={() => setPaidBy(member)} />
+              <span><Check size={18} aria-hidden="true" />{payer(p, member)}</span>
+            </label>)}
+          </div>
+        </fieldset>
+        {settlement && <p className="payment-recipient">{paidBy !== p.member ? t("to you") : other === t("Your spouse") ? t("to your spouse") : t("to {name}", { name: other })}</p>}
         {!settlement && <>
           <button type="button" className="split-button" onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>
             <span>{split === "other" ? t("All for {name}", { name: other }) : t(split === "equal" ? "Split equally" : split === "self" ? "All for you" : "Custom split")}<small>{money(shareA)} · {p.nameA} &nbsp;/&nbsp; {money(cents - shareA)} · {p.nameB}</small></span><ChevronDown size={20} />
@@ -190,15 +275,15 @@ function ExpenseForm({ entry, settlement, preferences: p, close, saved }: {
           </fieldset>}
         </>}
       </>}
-      <label>{t("Date")}<input type="date" value={date} onChange={(e) => setDate(e.target.value)} required /></label>
-      {!imported && !settlement && <label className="category-picker">{t("Category")}<select aria-label={t("Category")} value={categoryChoice} onChange={(event) => setCategoryChoice(event.target.value as Category | "auto")}>
-        <option value="auto">{t("Automatic")}</option>
-        {(Object.keys(categoryLabels) as Category[]).filter((key) => key !== "payment").map((key) => <option key={key} value={key}>{t(categoryLabels[key])}</option>)}
-      </select><span className="category-detected" role="status">{t(categoryChoice === "auto" ? "Detected: {category}" : "Selected: {category}", { category: t(categoryLabels[category]) })}</span></label>}
+      <DateField value={date} onChange={setDate} />
+      {!imported && !settlement && <div className="category-picker"><label>{t("Category")}
+        <Select<Category | "auto"> label={t("Category")} value={categoryChoice} onChange={setCategoryChoice}
+          options={[{ value: "auto", label: t("Automatic") }, ...(Object.keys(categoryLabels) as Category[]).filter((key) => key !== "payment").map((key) => ({ value: key, label: t(categoryLabels[key]) }))]} />
+      </label><span className="category-detected" role="status">{t(categoryChoice === "auto" ? "Detected: {category}" : "Selected: {category}", { category: t(categoryLabels[category]) })}</span></div>}
       {error && <p className="error" role="alert">{message(error)}</p>}
       <button className="primary" disabled={busy || scanBusy} type="submit"><Check size={19} />{t(busy ? "Saving…" : "Save")}</button>
-      {entry && <button className="danger-link" type="button" disabled={busy} onClick={remove}><Trash2 size={16} />{t("Delete entry")}</button>}
-    </form>
+      {entry && <button className="danger-link" type="button" disabled={busy} onClick={(event) => { event.currentTarget.focus(); void remove(); }}><Trash2 size={16} />{t("Delete entry")}</button>}
+    </Form>
   </Sheet>;
 }
 
@@ -216,6 +301,7 @@ function ImportForm({ preferences: p, close, saved }: { preferences: Preferences
     try {
       if (file.size > 10_000_000) throw new Error("Choose an export smaller than 10 MB.");
       const content = await file.text();
+      const { readCsv } = await import("./importer");
       const parsed = readCsv(content);
       setText(content); setMembers(parsed.members);
       setMemberA(parsed.members.includes(p.nameA) ? p.nameA : parsed.members[0]);
@@ -223,7 +309,10 @@ function ImportForm({ preferences: p, close, saved }: { preferences: Preferences
   }
   async function inspect() {
     setBusy(true); setError("");
-    try { setPreview(await previewImport(text, memberA, new Set(await db.entries.toCollection().primaryKeys()))); }
+    try {
+      const { previewImport } = await import("./importer");
+      setPreview(await previewImport(text, memberA, new Set(await db.entries.toCollection().primaryKeys())));
+    }
     catch (e) { setError(e instanceof Error ? e.message : "Could not preview this import."); }
     finally { setBusy(false); }
   }
@@ -240,7 +329,7 @@ function ImportForm({ preferences: p, close, saved }: { preferences: Preferences
     <p>{t("Choose a CSV export for two people in EUR. Entries stay on this device until you confirm, then sync with your household.")}</p>
     <FilePicker label={t("Splitwise CSV")} accept=".csv,text/csv" choose={(file) => void choose(file)} disabled={busy} />
     {!!members.length && <>
-      <label>{t("Export column for {name}", { name: p.nameA })}<select value={memberA} disabled={busy} onChange={(e) => { setMemberA(e.target.value); setPreview(null); }}>{members.map((member) => <option key={member}>{member}</option>)}</select></label>
+      <label>{t("Export column for {name}", { name: p.nameA })}<Select label={t("Export column for {name}", { name: p.nameA })} value={memberA} disabled={busy} onChange={(value) => { setMemberA(value); setPreview(null); }} options={members.map((member) => ({ value: member, label: member }))} /></label>
       <p className="muted">{t("{source} maps to {name}. Use the same mapping on every device.", { source: members.find((member) => member !== memberA) ?? "", name: p.nameB })}</p>
       <button className="secondary" disabled={busy} onClick={inspect}>{t(busy ? "Reading history…" : "Preview import")}</button>
     </>}
@@ -258,6 +347,7 @@ function ImportForm({ preferences: p, close, saved }: { preferences: Preferences
 
 function TodoForm({ todo, close, saved }: { todo?: Todo; close: () => void; saved: () => void }) {
   const { t, message, language } = useLocale();
+  const confirm = useConfirm();
   const [title, setTitle] = useState(todo?.title ?? "");
   const [description, setDescription] = useState(todo?.description ?? "");
   const [busy, setBusy] = useState(false);
@@ -269,6 +359,7 @@ function TodoForm({ todo, close, saved }: { todo?: Todo; close: () => void; save
       const timestamp = new Date().toISOString();
       await queueTodos([deleted && todo ? { ...todo, deleted: true } : {
         id: todo?.id ?? crypto.randomUUID(), title, description, done: todo?.done ?? false,
+        ...(todo?.position !== undefined ? { position: todo.position } : {}),
         createdAt: todo?.createdAt ?? timestamp, updatedAt: timestamp, revision: todo?.revision ?? 0, deleted: false
       }]);
       saved(); close();
@@ -277,42 +368,208 @@ function TodoForm({ todo, close, saved }: { todo?: Todo; close: () => void; save
   }
 
   return <Sheet title={t(todo ? "Edit to-do" : "Add to-do")} close={close} initialFocus={!todo ? "#todo-title" : undefined}>
-    <form className="panel-content" lang={language} onSubmit={(event) => { event.preventDefault(); void save(); }}>
+    <Form className="panel-content" lang={language} onSubmit={(event) => { event.preventDefault(); void save(); }}>
       <label htmlFor="todo-title">{t("Title")}<input id="todo-title" required maxLength={MAX_TODO_TITLE} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
       <label>{t("Description (optional)")}<textarea rows={4} maxLength={MAX_TODO_DESCRIPTION} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
       {error && <p className="error" role="alert">{message(error)}</p>}
       <button className="primary" disabled={busy}>{t(busy ? "Saving…" : "Save")}</button>
-      {todo && <button type="button" className="danger-link" disabled={busy} onClick={() => {
-        if (window.confirm(t("Delete this to-do for everyone in your household? This will sync when you are online."))) void save(true);
+      {todo && <button type="button" className="danger-link" disabled={busy} onClick={async (event) => {
+        event.currentTarget.focus();
+        if (await confirm({ title: t("Delete to-do"), description: t("Delete this to-do for everyone in your household? This will sync when you are online."), action: t("Delete to-do"), dangerous: true })) await save(true);
       }}><Trash2 size={16} />{t("Delete to-do")}</button>}
-    </form>
+    </Form>
   </Sheet>;
 }
 
-function TodoList({ todos, manualTodos, conflicts, resolve, openCount, status, blocked, open, toggle, edit, toggleManual, remove, onError }: {
-  todos: HouseholdTodo[]; manualTodos: Todo[]; conflicts: Conflict<Todo>[];
-  resolve: (id: string, keepLocal: boolean) => void;
-  openCount: number; status: string; blocked: Set<string>;
+function householdTodoId(item: HouseholdTodo) {
+  return item.kind === "manual" ? `manual-${item.todo.id}` : `insurance-${item.entry.id}`;
+}
+
+function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, toggleManual, reorder, remove, onError }: {
+  todos: HouseholdTodo[]; conflicts: Conflict<Todo>[];
+  openCount: number; blocked: Set<string>;
   open: (entry: Entry) => void; toggle: (entry: Entry, submitted: boolean) => void;
   edit: (todo: Todo) => void; toggleManual: (todo: Todo, done: boolean) => void;
+  reorder: (changes: Todo[]) => Promise<void>;
   remove: (item: HouseholdTodo) => Promise<void>; onError: (error: unknown) => void;
 }) {
-  const { t, number, money, locale } = useLocale();
+  const { t, number, money } = useLocale();
   const [swipedTodo, setSwipedTodo] = useState<string | null>(null);
+  const swipedTodoRef = useRef<string | null>(null);
+  const [celebratingTodo, setCelebratingTodo] = useState<string | null>(null);
+  const [celebrationPosition, setCelebrationPosition] = useState<{ id: string; index: number } | null>(null);
+  const [preview, setPreview] = useState<string[] | null>(null);
+  const [dragging, setDragging] = useState<string | null>(null);
+  const draggingRef = useRef<string | null>(null);
+  const pendingDrag = useRef<{ id: string; pointer: number; x: number; y: number } | null>(null);
+  const stopDrag = useRef<(() => void) | null>(null);
+  useEffect(() => () => stopDrag.current?.(), []);
+  const [announcement, setAnnouncement] = useState("");
+  const openList = useRef<HTMLUListElement>(null);
+  const rowPositions = useRef(new Map<HTMLElement, number>());
+  const rowAnimations = useRef(new Map<HTMLElement, Animation>());
+  const dragPosition = useRef<{ element: HTMLElement; grabOffset: number; y: number } | null>(null);
+  const focusAfterMove = useRef<string | null>(null);
+  const reorderHint = useId();
   const manualBlocked = new Set(conflicts.map((conflict) => conflict.entryId));
-  const version = (todo: Todo | null | undefined) => !todo ? t("Not present") : todo.deleted ? t("Deleted")
-    : `${todo.title}${todo.description ? `\n${todo.description}` : ""}\n${t(todo.done ? "Done" : "Open to-dos")}`;
-  return <section className="todos-page"><header className="page-heading"><h1>{t("To-dos")}<span className="entry-count">{number(openCount)}</span></h1></header>
-    <p className="sync-status" role="status">{status}</p>
-    {!!conflicts.length && <section className="conflict-panel" aria-label={t("Conflicting to-do edits")}><h3>{t("Conflicting to-do edits")}</h3>
-      <p>{t("These to-dos changed on another device. Choose which version to keep.")}</p>
-      {conflicts.map((conflict) => <div key={conflict.entryId}>
-        <p className="todo-version"><strong>{t("This device")}</strong>{"\n"}{version(manualTodos.find((todo) => todo.id === conflict.entryId))}</p>
-        <p className="todo-version"><strong>{t("Other device")}</strong>{"\n"}{version(conflict.remote)}</p>
-        <div className="button-row"><button className="secondary" onClick={() => resolve(conflict.entryId, false)}>{t("Keep other device")}</button>
-          <button className="secondary" onClick={() => resolve(conflict.entryId, true)}>{t("Keep this device")}</button></div>
-      </div>)}
-    </section>}
+  const openManual = todos.flatMap((item) => item.kind === "manual" && !item.done ? [item.todo] : []);
+  const canReorder = openManual.length > 1 && openManual.every((todo) => !manualBlocked.has(todo.id));
+  useLayoutEffect(() => {
+    const list = openList.current;
+    const positions = new Map<HTMLElement, number>();
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (list) {
+      const listTop = list.getBoundingClientRect().top;
+      for (const element of list.querySelectorAll<HTMLElement>("[data-manual-id]")) {
+        const top = element.offsetTop;
+        positions.set(element, top);
+        if (element === dragPosition.current?.element) {
+          rowAnimations.current.get(element)?.cancel();
+          rowAnimations.current.delete(element);
+          element.style.transform = `translateY(${dragPosition.current.y - dragPosition.current.grabOffset - listTop - top}px)`;
+          continue;
+        }
+        const previous = rowPositions.current.get(element);
+        const settling = element.style.transform !== "";
+        if (previous === undefined || (previous === top && !settling)) continue;
+        // Include unfinished motion so rapid direction changes never snap a row.
+        const offset = element.getBoundingClientRect().top - listTop - top + previous - top;
+        rowAnimations.current.get(element)?.cancel();
+        element.style.transform = "";
+        rowAnimations.current.delete(element);
+        if (!reducedMotion && Math.abs(offset) > .5) {
+          const animation = element.animate([
+            { transform: `translateY(${offset}px)` }, { transform: "translateY(0)" }
+          ], { duration: 280, easing: "cubic-bezier(.22, 1, .36, 1)" });
+          rowAnimations.current.set(element, animation);
+          animation.onfinish = () => {
+            if (rowAnimations.current.get(element) === animation) rowAnimations.current.delete(element);
+          };
+        }
+      }
+    }
+    for (const [element, animation] of rowAnimations.current) {
+      if (!positions.has(element)) { animation.cancel(); rowAnimations.current.delete(element); }
+    }
+    rowPositions.current = positions;
+  });
+  useEffect(() => {
+    const animations = rowAnimations.current;
+    return () => { for (const animation of animations.values()) animation.cancel(); };
+  }, []);
+  useEffect(() => {
+    if (!celebratingTodo) return;
+    let timeout = window.setTimeout(finish, 850);
+    function finish() {
+      if (document.querySelector("dialog[open]")) {
+        timeout = window.setTimeout(finish, 100);
+        return;
+      }
+      if (swipedTodoRef.current !== celebratingTodo) setCelebrationPosition(null);
+      setCelebratingTodo(null);
+    }
+    return () => window.clearTimeout(timeout);
+  }, [celebratingTodo]);
+  useEffect(() => {
+    if (draggingRef.current) return;
+    setPreview(null);
+    if (focusAfterMove.current) {
+      openList.current?.querySelector<HTMLButtonElement>(`[data-reorder-id="${CSS.escape(focusAfterMove.current)}"]`)?.focus();
+      focusAfterMove.current = null;
+    }
+  }, [todos]);
+
+  function startDrag(id: string | null) { draggingRef.current = id; setDragging(id); }
+
+  function updateSwipedTodo(id: string | null) {
+    swipedTodoRef.current = id;
+    setSwipedTodo(id);
+    if (celebrationPosition && celebrationPosition.id !== id && celebrationPosition.id !== celebratingTodo) {
+      setCelebrationPosition(null);
+    }
+  }
+
+  function completeTodo(id: string, complete: () => void) {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      complete();
+      return;
+    }
+    const index = orderedGroup(todos.filter((item) => !item.done)).findIndex((item) => householdTodoId(item) === id);
+    if (index >= 0) setCelebrationPosition({ id, index });
+    setCelebratingTodo(id);
+    complete();
+  }
+
+  function beginDrag(todo: Todo, pointerId: number, startY: number, currentY: number) {
+    const list = openList.current;
+    const element = list?.querySelector<HTMLElement>(`[data-manual-id="${CSS.escape(todo.id)}"]`);
+    if (!list || !element) return;
+    dragPosition.current = { element, grabOffset: startY - element.getBoundingClientRect().top, y: currentY };
+    list.setPointerCapture(pointerId);
+    let order = openManual.map((item) => item.id);
+    updateSwipedTodo(null);
+    setPreview(order);
+    startDrag(todo.id);
+    const updatePosition = (y: number) => {
+      const drag = dragPosition.current;
+      if (!drag) return;
+      const listTop = list.getBoundingClientRect().top;
+      const rows = [...list.querySelectorAll<HTMLElement>("[data-manual-id]")];
+      const bottom = Math.max(...rows.map((row) => row.offsetTop + row.offsetHeight));
+      const top = Math.max(0, Math.min(bottom - element.offsetHeight, y - drag.grabOffset - listTop));
+      drag.y = listTop + top + drag.grabOffset;
+      element.style.transform = `translateY(${top - element.offsetTop}px)`;
+      const others = rows
+        .filter((element) => element.dataset.manualId !== todo.id);
+      const index = others.findIndex((element) => y < listTop + element.offsetTop + element.offsetHeight / 2);
+      const next = others.map((element) => element.dataset.manualId!);
+      next.splice(index === -1 ? next.length : index, 0, todo.id);
+      if (next.join() !== order.join()) { order = next; setPreview(next); }
+    };
+    const onMove = (event: globalThis.PointerEvent) => {
+      if (event.pointerId === pointerId) updatePosition(event.clientY);
+    };
+    const end = (event: globalThis.PointerEvent) => {
+      if (event.pointerId !== pointerId) return;
+      stopDrag.current?.();
+      dragPosition.current = null;
+      startDrag(null);
+      if (event.type === "pointercancel") setPreview(null);
+      else move(todo, order.indexOf(todo.id));
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+    stopDrag.current = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      if (list.hasPointerCapture(pointerId)) list.releasePointerCapture(pointerId);
+      stopDrag.current = null;
+    };
+    updatePosition(currentY);
+  }
+
+  function move(todo: Todo, to: number) {
+    const from = openManual.findIndex((item) => item.id === todo.id);
+    const changes = reorderTodos(openManual, from, to);
+    if (!changes.length) { setPreview(null); return; }
+    const order = openManual.filter((item) => item.id !== todo.id).map((item) => item.id);
+    order.splice(to, 0, todo.id);
+    setPreview(order);
+    setAnnouncement(t("Moved {title} to position {position} of {total}.", { title: todo.title, position: number(to + 1), total: number(openManual.length) }));
+    reorder(changes).catch((error: unknown) => { setPreview(null); focusAfterMove.current = null; onError(error); });
+  }
+
+  function orderedGroup(group: HouseholdTodo[]) {
+    if (!preview) return group;
+    const rank = new Map(preview.map((id, index) => [id, index]));
+    const manual = group.filter((item): item is Extract<HouseholdTodo, { kind: "manual" }> => item.kind === "manual" && !item.done)
+      .sort((a, b) => (rank.get(a.todo.id) ?? 0) - (rank.get(b.todo.id) ?? 0));
+    return replaceManualSlots(group, manual);
+  }
+
+  return <section className="todos-page"><header className="page-heading"><div><h1>{t("To-dos")}</h1><p>{t("{count} open", { count: number(openCount) })}</p></div></header>
     <div aria-live="polite" aria-atomic="true">
       {openCount === 0 && <div className="empty-state todo-clear-state">
         <span className="todo-clear-icon" aria-hidden="true"><Sun size={30} /></span>
@@ -321,48 +578,124 @@ function TodoList({ todos, manualTodos, conflicts, resolve, openCount, status, b
         {!todos.length && <p className="todo-clear-hint">{t("Add your own to-dos here. Doctor and pharmacy expenses also appear automatically for insurance submission.")}</p>}
       </div>}
     </div>
+    <p className="sr-only" aria-live="polite">{announcement}</p>
+    <p id={reorderHint} hidden>{t("Drag, or use the arrow keys, to change the order.")}</p>
     {[false, true].map((done) => {
-        const group = todos.filter((todo) => todo.done === done);
+        const group = orderedGroup(todos.filter((todo) => {
+          const id = householdTodoId(todo);
+          return celebratingTodo === id || swipedTodo === id ? !done : todo.done === done;
+        }));
+        if (!done && celebrationPosition && (celebratingTodo === celebrationPosition.id || swipedTodo === celebrationPosition.id)) {
+          const currentIndex = group.findIndex((item) => householdTodoId(item) === celebrationPosition.id);
+          if (currentIndex >= 0 && currentIndex !== celebrationPosition.index) {
+            const [item] = group.splice(currentIndex, 1);
+            if (item) group.splice(Math.min(celebrationPosition.index, group.length), 0, item);
+          }
+        }
         return !!group.length && <section key={String(done)} className="todo-group" aria-label={t(done ? "Done" : "Open to-dos")}>
-          {done && <div className="section-title"><h2>{t("Done")}<span>{number(group.length)}</span></h2></div>}
-          <ul className="todo-list">{group.map((item) => {
+          {done && <h2 className="section-label">{t("Done")}</h2>}
+          <ul className="todo-list" ref={done ? undefined : openList}>{group.map((item) => {
             if (item.kind === "manual") {
               const { todo } = item;
               const id = `manual-${todo.id}`;
-              return <li key={id} className={`todo-item manual-todo ${done ? "done" : ""}`}>
+              const reorderable = !done && canReorder;
+              return <li key={id} className={`todo-item manual-todo ${done ? "done" : ""}${dragging === todo.id ? " reordering" : ""}`}
+                data-manual-id={done ? undefined : todo.id}>
                 <SwipeableRow description={todo.title} disabled={manualBlocked.has(todo.id)} open={swipedTodo === id}
-                  setOpen={(open) => setSwipedTodo(open ? id : null)} edit={() => edit(todo)} remove={() => remove(item)} onError={onError}
+                  setOpen={(open) => updateSwipedTodo(open ? id : null)} edit={() => edit(todo)} remove={() => remove(item)} onError={onError}
                   actionsLabel={t("To-do actions")} editLabel={t("Edit to-do")} deleteLabel={t("Delete to-do")}
                   deleteConfirmation={t("Delete this to-do for everyone in your household? This will sync when you are online.")}>
-                <label className="todo-check"><input type="checkbox" checked={done} disabled={manualBlocked.has(todo.id)} onChange={(event) => toggleManual(todo, event.target.checked)} />
-                  <span className="entry-icon"><ClipboardCheck size={20} /></span>
-                  <span className="entry-description"><strong>{todo.title}</strong>{todo.description && <small>{todo.description}</small>}</span>
-                </label>
+                  <div className="todo-row">
+                    <label className="todo-check"><input type="checkbox" aria-label={todo.title} checked={item.done} disabled={manualBlocked.has(todo.id)} onChange={(event) => {
+                      const completed = event.target.checked;
+                      if (completed) completeTodo(id, () => toggleManual(todo, true));
+                      else {
+                        if (celebratingTodo === id) {
+                          setCelebratingTodo(null);
+                          setCelebrationPosition(null);
+                        }
+                        toggleManual(todo, false);
+                      }
+                    }} /></label>
+                    {celebratingTodo === id && <TodoConfetti />}
+                    <button id={`todo-details-${id}`} className="todo-details" disabled={manualBlocked.has(todo.id)} onClick={(event) => {
+                      event.currentTarget.focus({ preventScroll: true });
+                      edit(todo);
+                    }}>
+                      <span className="entry-icon"><ClipboardCheck size={20} /></span>
+                      <span className="entry-description"><strong>{todo.title}</strong>{todo.description && <small>{todo.description}</small>}</span>
+                    </button>
+                    {reorderable && <button type="button" className="reorder-handle icon-button" data-reorder-id={todo.id}
+                      aria-label={`${t("Reorder to-do")}: ${todo.title}`} aria-describedby={reorderHint}
+                      onPointerDown={(event) => {
+                        if (!event.isPrimary || event.button !== 0) return;
+                        pendingDrag.current = { id: todo.id, pointer: event.pointerId, x: event.clientX, y: event.clientY };
+                      }}
+                      onPointerMove={(event) => {
+                        const pending = pendingDrag.current;
+                        if (pending?.id !== todo.id || pending.pointer !== event.pointerId) return;
+                        const dx = event.clientX - pending.x, dy = event.clientY - pending.y;
+                        if (Math.max(Math.abs(dx), Math.abs(dy)) <= 8) return;
+                        pendingDrag.current = null;
+                        // Horizontal gestures stay with the swipe row; vertical ones reorder.
+                        if (Math.abs(dy) > Math.abs(dx)) beginDrag(todo, event.pointerId, pending.y, event.clientY);
+                      }}
+                      onPointerUp={() => { pendingDrag.current = null; }}
+                      onPointerCancel={() => { pendingDrag.current = null; }}
+                      onKeyDown={(event) => {
+                        const offset = event.key === "ArrowUp" ? -1 : event.key === "ArrowDown" ? 1 : 0;
+                        if (!offset) return;
+                        event.preventDefault();
+                        const to = openManual.findIndex((item) => item.id === todo.id) + offset;
+                        if (to < 0 || to >= openManual.length) return;
+                        focusAfterMove.current = todo.id;
+                        move(todo, to);
+                      }}>
+                      <GripVertical size={20} aria-hidden="true" />
+                    </button>}
+                  </div>
                 </SwipeableRow>
               </li>;
             }
             const { entry } = item;
             const category = expenseCategory(entry.description, entry.category, entry.kind, entry.categoryMode);
-            const details = t("Expense: {description} · {date} · {amount}", {
-              description: entry.description, amount: money(entry.amountCents),
-              date: new Date(`${entry.date}T12:00:00`).toLocaleDateString(locale, { day: "numeric", month: "short", year: "numeric" })
-            });
             const id = `insurance-${entry.id}`;
             return <li key={id} className={`todo-item ${done ? "done" : ""}`}>
               <SwipeableRow description={entry.description} disabled={blocked.has(entry.id)} open={swipedTodo === id}
-                setOpen={(open) => setSwipedTodo(open ? id : null)} edit={() => open(entry)} remove={() => remove(item)} onError={onError}
+                setOpen={(open) => updateSwipedTodo(open ? id : null)} edit={() => open(entry)} remove={() => remove(item)} onError={onError}
                 actionsLabel={t("To-do actions")} editLabel={t("Open expense")} deleteLabel={t("Delete entry")}
                 deleteConfirmation={t("Delete this entry for both of you? This will sync when you are online.")}>
-              <label className="todo-check"><input type="checkbox" checked={done} disabled={blocked.has(entry.id)} onChange={(event) => toggle(entry, event.target.checked)} />
-                <span className="entry-icon" data-category={category}><ExpenseIcon category={category} /></span>
-                <span className="entry-description"><strong>{t("Submit to insurance")}</strong><small>{details}</small></span>
-              </label>
+                <div className="todo-row">
+                  <label className="todo-check"><input type="checkbox" aria-label={`${t("Submit to insurance")}: ${entry.description}`} checked={item.done} disabled={blocked.has(entry.id)} onChange={(event) => {
+                    const completed = event.target.checked;
+                    if (completed) completeTodo(id, () => toggle(entry, true));
+                    else {
+                      if (celebratingTodo === id) {
+                        setCelebratingTodo(null);
+                        setCelebrationPosition(null);
+                      }
+                      toggle(entry, false);
+                    }
+                  }} /></label>
+                  {celebratingTodo === id && <TodoConfetti />}
+                  <button id={`todo-details-${id}`} className="todo-details" disabled={blocked.has(entry.id)} onClick={(event) => {
+                    event.currentTarget.focus({ preventScroll: true });
+                    open(entry);
+                  }}>
+                    <span className="entry-icon" data-category={category}><ExpenseIcon category={category} /></span>
+                    <span className="entry-description"><strong>{entry.description}</strong><small>{t("Submit to insurance · {amount}", { amount: money(entry.amountCents) })}</small></span>
+                  </button>
+                </div>
               </SwipeableRow>
             </li>;
           })}</ul>
         </section>;
       })}
   </section>;
+}
+
+function TodoConfetti() {
+  return <span className="todo-confetti" aria-hidden="true">{Array.from({ length: 10 }, (_, index) => <i key={index} />)}</span>;
 }
 
 export default function App() {
@@ -372,11 +705,12 @@ export default function App() {
     document.documentElement.lang = language;
     document.title = language === "de" ? "Splitty · Gemeinsame Ausgaben" : "Splitty · Shared expenses";
   }, [language]);
-  return <LanguageContext.Provider value={language}><AppContent ledger={ledger} /></LanguageContext.Provider>;
+  return <LanguageContext.Provider value={language}><ConfirmationProvider><AppContent ledger={ledger} /></ConfirmationProvider></LanguageContext.Provider>;
 }
 
 function AppContent({ ledger }: { ledger: Snapshot | null }) {
-  const { t, language, locale, number, money, message, person, payer } = useLocale();
+  const { t, language, locale, number, money, amount, message, person, payer } = useLocale();
+  const confirm = useConfirm();
   const [tab, setTab] = useState<"expenses" | "todos" | "search" | "statistics" | "settings">("expenses");
   const [form, setForm] = useState<"expense" | "settlement" | Entry | null>(null);
   const [todoForm, setTodoForm] = useState<"new" | Todo | null>(null);
@@ -388,14 +722,64 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [syncStatus, setSyncStatus] = useState("Saved on this device");
   const [syncBusy, setSyncBusy] = useState(navigator.onLine);
+  const [lastSynced, setLastSynced] = useState<Date | null>(null);
+  const [syncActionError, setSyncActionError] = useState("");
   const syncLock = useRef<Promise<void> | null>(null);
   const syncRequested = useRef(false);
+  const identityRefreshRequested = useRef(false);
+  const identityRef = useRef<Identity | null>(null);
+  const lastIdentityCheck = useRef(0);
+  const lastActivityAt = useRef(0);
+  const lastPollAt = useRef(0);
+  const removingLocalData = useRef(false);
   const [error, setError] = useState("");
   const [memberToken, setMemberToken] = useState("");
+  const [legacyClaimToken, setLegacyClaimToken] = useState("");
   const [signInBusy, setSignInBusy] = useState(false);
+  const [authOptions, setAuthOptions] = useState<AuthOptions>(savedAuthOptions);
+  const [invitations, setInvitations] = useState<Invitation[]>([]);
+  const [invitationLink, setInvitationLink] = useState("");
+  const [createdInvitationId, setCreatedInvitationId] = useState("");
+  const [invitationBusy, setInvitationBusy] = useState(false);
+  const [invitationCopied, setInvitationCopied] = useState(false);
+  const [signOutBusy, setSignOutBusy] = useState(false);
   const [update, setUpdate] = useState<(() => Promise<void>) | null>(null);
   const [saveFeedback, setSaveFeedback] = useState<{ entry: Entry; settled: boolean } | null>(null);
   const [logoPulse, setLogoPulse] = useState({ sequence: 0, active: false });
+  const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
+  const [installed, setInstalled] = useState(isInstalledPwa);
+  const [installGuideOpen, setInstallGuideOpen] = useState(false);
+  const iosDevice = isIosDevice();
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const pointer = () => { root.dataset.inputMode = "pointer"; };
+    const keyboard = () => { root.dataset.inputMode = "keyboard"; };
+    document.addEventListener("pointerdown", pointer, true);
+    document.addEventListener("keydown", keyboard, true);
+    return () => {
+      document.removeEventListener("pointerdown", pointer, true);
+      document.removeEventListener("keydown", keyboard, true);
+      delete root.dataset.inputMode;
+    };
+  }, []);
+
+  useEffect(() => {
+    loadStatistics().catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    const refresh = () => {
+      void api<AuthOptions>("auth/config").then((options) => {
+        setAuthOptions(options);
+        try { localStorage.setItem(authOptionsKey, JSON.stringify(options)); }
+        catch { /* Sign-in options can still be fetched again when online. */ }
+      }).catch(() => undefined);
+    };
+    refresh();
+    window.addEventListener("online", refresh);
+    return () => window.removeEventListener("online", refresh);
+  }, []);
 
   useEffect(() => {
     if (!logoPulse.active) return;
@@ -409,52 +793,137 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     return () => window.clearTimeout(timeout);
   }, [saveFeedback]);
 
-  const performSync = useCallback(() => {
-    if (!navigator.onLine) return Promise.resolve();
+  useEffect(() => {
+    const displayMode = window.matchMedia("(display-mode: standalone)");
+    const updateInstalled = () => setInstalled(isInstalledPwa());
+    const captureInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as InstallPromptEvent);
+    };
+    const installedApp = () => {
+      setInstalled(true);
+      setInstallPrompt(null);
+      setInstallGuideOpen(false);
+    };
+    window.addEventListener("beforeinstallprompt", captureInstallPrompt);
+    window.addEventListener("appinstalled", installedApp);
+    displayMode.addEventListener("change", updateInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", captureInstallPrompt);
+      window.removeEventListener("appinstalled", installedApp);
+      displayMode.removeEventListener("change", updateInstalled);
+    };
+  }, []);
+
+  const performSync = useCallback((refreshIdentity = false) => {
+    if (!navigator.onLine || removingLocalData.current) return Promise.resolve();
     syncRequested.current = true;
+    identityRefreshRequested.current ||= refreshIdentity;
     if (syncLock.current) return syncLock.current;
     syncLock.current = (async () => {
       do {
         syncRequested.current = false;
-        const me = await api<Identity>("me");
-        if ((me.member !== "a" && me.member !== "b") || !me.nameA || !me.nameB) throw new Error("Invalid sign-in response.");
+        const mustIdentify = identityRefreshRequested.current
+          || !identityRef.current || Date.now() - lastIdentityCheck.current >= 5 * 60_000;
+        identityRefreshRequested.current = false;
+        const me = mustIdentify ? await identify() : identityRef.current!;
+        if (mustIdentify) lastIdentityCheck.current = Date.now();
+        identityRef.current = me;
+        if ((me.member !== "a" && me.member !== "b")
+          || typeof me.nameA !== "string" || typeof me.nameB !== "string") {
+          throw new Error("Invalid sign-in response.");
+        }
+        const database = db;
         setIdentity(me);
-        await updatePreferences({ member: me.member, nameA: me.nameA, nameB: me.nameB });
+        await updatePreferences({ member: me.member, nameA: me.nameA, nameB: me.nameB }, database);
         setSyncStatus("Syncing…");
-        await synchronize();
-        setSyncStatus(await db.conflicts.count() + await db.todoConflicts.count() ? "Some edits need your attention"
-          : await db.outbox.count() + await db.todoOutbox.count() ? "Saved locally · changes waiting to sync" : "Up to date");
+        const syncContext = typeof me.userId === "string" && typeof me.householdId === "string"
+          ? { userId: me.userId, householdId: me.householdId }
+          : undefined;
+        await synchronize(database, syncContext);
+        if (db !== database) {
+          syncRequested.current = true;
+          continue;
+        }
+        lastPollAt.current = Date.now();
+        setLastSynced(new Date());
+        setSyncStatus(await database.conflicts.count() + await database.todoConflicts.count() ? "Some edits need your attention"
+          : await database.outbox.count() + await database.todoOutbox.count() ? "Saved locally · changes waiting to sync" : "Up to date");
         // Saves during an in-flight pass need another pass, not a dropped request.
-      } while (syncRequested.current && navigator.onLine);
-    })().catch((e: unknown) => {
-      if (e instanceof ApiError && e.status === 401) { setIdentity(null); setSyncStatus("Sign in to sync"); }
+      } while (syncRequested.current && navigator.onLine && !removingLocalData.current);
+    })().catch(async (e: unknown) => {
+      if (e instanceof ApiError && e.status === 401) {
+        await activateAnonymousDatabase();
+        identityRef.current = null;
+        lastIdentityCheck.current = 0;
+        setIdentity(null); setInvitations([]); setInvitationLink(""); setCreatedInvitationId("");
+        setSyncStatus("Sign in to sync");
+      }
       else setSyncStatus(e instanceof Error ? e.message : "Sync failed; your changes remain on this device.");
     }).finally(() => { syncLock.current = null; setSyncBusy(false); });
     return syncLock.current;
   }, []);
 
-  const sync = useCallback(async () => {
-    if (!navigator.onLine) return;
+  const sync = useCallback(async (refreshIdentity = false) => {
+    if (!navigator.onLine || removingLocalData.current) return;
     setSyncBusy(true);
-    await performSync();
+    await performSync(refreshIdentity);
   }, [performSync]);
 
   useEffect(() => {
-    const connected = () => { setOnline(true); void sync(); };
+    if (!identity?.householdId || !authOptions.entraEnabled || !online) return;
+    let active = true;
+    void api<{ invitations: Invitation[] }>("household/invitations").then((result) => {
+      if (!Array.isArray(result.invitations) || result.invitations.some((invite) =>
+        !invite || typeof invite.id !== "string" || (invite.slot !== "a" && invite.slot !== "b")
+        || typeof invite.expiresAt !== "number")) {
+        throw new Error("Invalid invitation response.");
+      }
+      if (active) setInvitations(result.invitations);
+    }).catch((e: unknown) => {
+      if (active) setSyncActionError(e instanceof Error ? e.message : "Could not load household invitations.");
+    });
+    return () => { active = false; };
+  }, [authOptions.entraEnabled, identity?.householdId, online]);
+
+  useEffect(() => {
+    lastActivityAt.current = Date.now();
+    lastPollAt.current = Date.now();
+    const connected = () => { setOnline(true); void sync(true); };
     const disconnected = () => { setOnline(false); setSyncBusy(false); setSyncStatus("Offline · changes stay on this device"); };
-    const focus = () => { if (document.visibilityState === "visible") void sync(); };
+    const focus = () => {
+      if (document.visibilityState === "visible") {
+        lastActivityAt.current = Date.now();
+        void sync(true);
+      }
+    };
+    const activity = () => { lastActivityAt.current = Date.now(); };
+    const databaseChanged = () => { void sync(true); };
     const failure = (event: Event) => setError(String((event as CustomEvent).detail));
     const available = (event: Event) => setUpdate(() => (event as CustomEvent<() => Promise<void>>).detail);
     window.addEventListener("online", connected); window.addEventListener("offline", disconnected);
     window.addEventListener("focus", focus);
+    window.addEventListener("pointerdown", activity, { passive: true });
+    window.addEventListener("keydown", activity);
     document.addEventListener("visibilitychange", focus);
+    window.addEventListener("splitty-database-changed", databaseChanged);
     window.addEventListener("splitty-error", failure); window.addEventListener("splitty-update", available);
     void performSync();
-    const interval = window.setInterval(() => { if (document.visibilityState === "visible") void sync(); }, 60_000);
+    const interval = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      const cadence = syncPollingInterval(now, lastActivityAt.current);
+      if (now - lastPollAt.current < cadence) return;
+      lastPollAt.current = now;
+      void sync();
+    }, 10_000);
     return () => {
       window.removeEventListener("online", connected); window.removeEventListener("offline", disconnected);
       window.removeEventListener("focus", focus);
+      window.removeEventListener("pointerdown", activity);
+      window.removeEventListener("keydown", activity);
       document.removeEventListener("visibilitychange", focus);
+      window.removeEventListener("splitty-database-changed", databaseChanged);
       window.removeEventListener("splitty-error", failure); window.removeEventListener("splitty-update", available);
       window.clearInterval(interval);
     };
@@ -467,7 +936,23 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   }, [ledger?.pending, sync]);
 
   const saved = () => { setSaveFeedback(null); setSyncStatus("Saved on this device"); void sync(); };
+  const conflictResolved = () => { setSyncActionError(""); saved(); };
   const pulseLogo = () => setLogoPulse((current) => ({ sequence: current.sequence + 1, active: true }));
+  const install = async () => {
+    if (!installPrompt) {
+      setInstallGuideOpen(true);
+      return;
+    }
+    const prompt = installPrompt;
+    setInstallPrompt(null);
+    try {
+      await prompt.prompt();
+      const choice = await prompt.userChoice;
+      if (choice.outcome === "accepted") setInstalled(true);
+    } catch {
+      setError(t("Could not start installation."));
+    }
+  };
 
   function navigate(next: typeof tab) {
     setSwipedEntry(null);
@@ -478,19 +963,169 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   }
 
   async function signIn(event: FormEvent) {
-    event.preventDefault(); setSignInBusy(true); setError("");
+    event.preventDefault(); setSignInBusy(true); setSyncActionError("");
     try {
-      await api("auth/token", { token: memberToken });
-      setMemberToken(""); setTab("settings"); await sync();
-    } catch (e) { setError(e instanceof Error ? e.message : "Could not sign in with this token."); }
+      await signInDevice(memberToken);
+      setMemberToken(""); await sync();
+    } catch (e) { setSyncActionError(e instanceof Error ? e.message : "Could not sign in with this token."); }
     finally { setSignInBusy(false); }
   }
 
-  async function signOut() {
+  async function startProviderSignIn(legacyToken?: string) {
+    const inviteCode = new URLSearchParams(location.hash.slice(1)).get("invite");
+    if (!inviteCode && !legacyToken) {
+      window.location.assign("/api/auth/start");
+      return;
+    }
+    setSignInBusy(true);
+    setSyncActionError("");
     try {
-      await api("auth/logout", {});
+      const result = await api<{ authorizationUrl?: unknown }>("auth/start", {
+        ...(inviteCode ? { inviteCode } : {}),
+        ...(legacyToken ? { legacyToken } : {})
+      });
+      if (typeof result.authorizationUrl !== "string") throw new Error("Invalid sign-in response.");
+      window.location.assign(result.authorizationUrl);
+    } catch (e) {
+      setSyncActionError(e instanceof Error ? e.message : "Could not start provider sign-in.");
+      setSignInBusy(false);
+    }
+  }
+
+  async function createHouseholdInvitation() {
+    setInvitationBusy(true);
+    setSyncActionError("");
+    setInvitationCopied(false);
+    try {
+      const result = await api<{ invitation: Invitation; code: string }>("household/invitations", {});
+      if (!result.invitation || typeof result.invitation.id !== "string"
+        || (result.invitation.slot !== "a" && result.invitation.slot !== "b")
+        || typeof result.invitation.expiresAt !== "number" || typeof result.code !== "string") {
+        throw new Error("Invalid invitation response.");
+      }
+      const link = new URL(location.pathname + location.search, location.origin);
+      link.hash = new URLSearchParams({ invite: result.code }).toString();
+      setInvitationLink(link.href);
+      setCreatedInvitationId(result.invitation.id);
+      setInvitations((current) => [...current.filter((invite) => invite.id !== result.invitation.id), result.invitation]);
+    } catch (e) {
+      setSyncActionError(e instanceof Error ? e.message : "Could not create an invitation.");
+    } finally { setInvitationBusy(false); }
+  }
+
+  async function copyInvitationLink() {
+    try {
+      await navigator.clipboard.writeText(invitationLink);
+      setInvitationCopied(true);
+    } catch {
+      setSyncActionError("Could not copy the invitation link. Select and copy the link above.");
+    }
+  }
+
+  async function revokeHouseholdInvitation(invitation: Invitation) {
+    setInvitationBusy(true);
+    setSyncActionError("");
+    try {
+      await api("household/invitations/revoke", { id: invitation.id });
+      setInvitations((current) => current.filter((item) => item.id !== invitation.id));
+      if (createdInvitationId === invitation.id) {
+        setInvitationLink("");
+        setCreatedInvitationId("");
+      }
+    } catch (e) {
+      setSyncActionError(e instanceof Error ? e.message : "Could not revoke the invitation.");
+    } finally { setInvitationBusy(false); }
+  }
+
+  async function saveHouseholdName(member: Member, value: string) {
+    const name = value.trim();
+    try {
+      await api("household/member-name", { slot: member, name });
+      await updatePreferences({ [member === "a" ? "nameA" : "nameB"]: name });
+      setIdentity((current) => current && ({
+        ...current,
+        [member === "a" ? "nameA" : "nameB"]: name
+      }));
+    } catch (e) {
+      setSyncActionError(e instanceof Error ? e.message : "Could not update the household member name.");
+    }
+  }
+
+  async function runHouseholdAction(
+    path: "household/leave" | "household/remove-member" | "household/delete" | "account/delete",
+    title: Parameters<typeof t>[0],
+    description: Parameters<typeof t>[0]
+  ) {
+    if (!await confirm({ title: t(title), description: t(description), action: t(title), dangerous: true })) return;
+    setSignOutBusy(true);
+    setSyncActionError("");
+    try {
+      await api(path, {});
+      if (path === "household/remove-member") {
+        await sync();
+        return;
+      }
+      await setDeviceKey(null);
+      await activateAnonymousDatabase();
+      setIdentity(null); setInvitations([]); setInvitationLink(""); setCreatedInvitationId("");
+      setLastSynced(null);
+      setSyncStatus(t("Your household access has ended."));
+      window.location.reload();
+    } catch (e) {
+      setSyncActionError(e instanceof Error ? e.message : "Could not update household access.");
+    } finally { setSignOutBusy(false); }
+  }
+
+  async function signOut() {
+    setSignOutBusy(true); setSyncActionError("");
+    try {
+      await signOutDevice();
+      await activateAnonymousDatabase();
+      identityRef.current = null;
+      lastIdentityCheck.current = 0;
+      setLastSynced(null);
       setIdentity(null); setSyncStatus("Signed out · local history remains on this device");
-    } catch (e) { setError(e instanceof Error ? e.message : "Could not sign out."); }
+      setInvitations([]); setInvitationLink(""); setCreatedInvitationId("");
+    } catch (e) { setSyncActionError(e instanceof Error ? e.message : "Could not sign out."); }
+    finally { setSignOutBusy(false); }
+  }
+
+  async function removeLocalAccountData() {
+    const database = db;
+    if (!identity?.userId || identity.userId.startsWith("legacy-") || !database.name.startsWith("splitty-account-")) return;
+    setSignOutBusy(true); setSyncActionError("");
+    try {
+     const [expenseWrites, todoWrites, conflicts, todoConflicts] = await Promise.all([
+       database.outbox.count(),
+       database.todoOutbox.count(),
+       database.conflicts.count(),
+       database.todoConflicts.count()
+     ]);
+     const unsynced = expenseWrites + todoWrites + conflicts + todoConflicts;
+     const warning = unsynced
+       ? t("This device has {count} unsynced changes or conflicts. Removing local data permanently discards them. Synced household data is not deleted. Continue?", { count: number(unsynced) })
+       : t("Remove this account's data from this device? Synced household data is not deleted.");
+     if (!await confirm({
+       title: t("Remove local data from this device"),
+       description: warning,
+       action: t("Remove local data from this device"),
+       dangerous: true
+     })) return;
+     removingLocalData.current = true;
+     if (syncLock.current) await syncLock.current;
+     await api("auth/logout", {});
+     await activateAnonymousDatabase();
+     await setDeviceKey(null);
+     await clearAccountDatabase(database);
+     identityRef.current = null;
+     lastIdentityCheck.current = 0;
+     setIdentity(null); setInvitations([]); setInvitationLink(""); setCreatedInvitationId("");
+     setLastSynced(null);
+     setSyncStatus("Local account data was removed from this device.");
+     window.location.reload();
+    } catch (e) {
+     setSyncActionError(e instanceof Error ? e.message : "Could not remove local account data.");
+    } finally { setSyncBusy(false); removingLocalData.current = false; setSignOutBusy(false); }
   }
 
   function backup() {
@@ -507,26 +1142,45 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
       if (file.size > 20_000_000) throw new Error("Choose a backup smaller than 20 MB.");
       const data = readBackup(JSON.parse(await file.text()));
       const missing = await missingBackupRecords(data);
-      if (!window.confirm(t("Restore {entries} missing entries and {todos} missing to-dos? Existing data will not be overwritten. Keep the same person A/B mapping as the original device.",
-        { entries: number(missing.entries.length), todos: number(missing.todos.length) }))) return;
+      if (!await confirm({ title: t("Restore backup"), description: t("Restore {entries} missing entries and {todos} missing to-dos? Existing data will not be overwritten. Keep the same person A/B mapping as the original device.",
+        { entries: number(missing.entries.length), todos: number(missing.todos.length) }), action: t("Restore backup") })) return;
       await restoreBackup(data);
       saved();
     } catch (e) { setError(e instanceof Error ? e.message : "Could not restore the backup."); }
   }
 
+  const active = useMemo(() => ledger?.entries.filter((entry) => !entry.deleted) ?? [], [ledger?.entries]);
+  const balanceA = useMemo(() => active.reduce((sum, entry) => sum + entry.balanceA, 0), [active]);
+  const query = tab === "search" ? normalizeText(search.trim()) : "";
+  const sortedActive = useMemo(() => active.slice().sort((a, b) =>
+    b.date.localeCompare(a.date) || b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id)
+  ), [active]);
+  const searchIndex = useMemo(() => tab !== "search" ? [] : sortedActive.map((entry) => ({
+    entry,
+    text: normalizeText(`${entry.description} ${entry.category} ${translate(language, categoryLabels[expenseCategory(entry.description, entry.category, entry.kind, entry.categoryMode)])} ${entry.date}`)
+  })), [language, sortedActive, tab]);
+  const shown = useMemo(() => tab === "search"
+    ? searchIndex.filter(({ text }) => !query || text.includes(query)).map(({ entry }) => entry)
+    : sortedActive, [query, searchIndex, sortedActive, tab]);
+  const conflictIds = useMemo(() => new Set(ledger?.conflicts.map((conflict) => conflict.entryId) ?? []), [ledger?.conflicts]);
+  const todos = useMemo(() => householdTodos(active, ledger?.todos ?? []), [active, ledger?.todos]);
+  const openTodos = useMemo(() => todos.filter((todo) => !todo.done).length, [todos]);
+
   if (!ledger) return <main className="loading"><img src="/icon.svg" width="64" height="64" alt="" /><h1>Splitty</h1><p>{t("Opening your shared ledger…")}</p>{error && <p className="error" role="alert">{message(error)}</p>}</main>;
 
   const p = { ...ledger.preferences, nameA: person(ledger.preferences, "a"), nameB: person(ledger.preferences, "b") };
+  const providerAccount = !!identity?.userId && !identity.userId.startsWith("legacy-");
   const other = p.member === "a" ? p.nameB : p.nameA;
-  const active = ledger.entries.filter((entry) => !entry.deleted);
-  const balanceA = active.reduce((sum, entry) => sum + entry.balanceA, 0);
   const balance = p.member === "a" ? balanceA : -balanceA;
-  const query = tab === "search" ? normalizeText(search.trim()) : "";
-  const shown = active.filter((entry) => !query || normalizeText(`${entry.description} ${entry.category} ${t(categoryLabels[expenseCategory(entry.description, entry.category, entry.kind, entry.categoryMode)])} ${entry.date}`).includes(query))
-    .sort((a, b) => b.date.localeCompare(a.date) || b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
-  const conflictIds = new Set(ledger.conflicts.map((conflict) => conflict.entryId));
-  const todos = householdTodos(active, ledger.todos);
-  const openTodos = todos.filter((todo) => !todo.done).length;
+  const conflictCount = ledger.conflicts.length + ledger.todoConflicts.length;
+  // Another tab can acknowledge shared queued writes after this tab's sync finishes.
+  const idleStatus = syncStatus === "Saved locally · changes waiting to sync" && !ledger.pending && !conflictCount ? "Up to date" : syncStatus;
+  const currentStatus = !online ? "Offline · changes stay on this device" : syncBusy ? "Syncing…" : idleStatus;
+  const upToDate = online && !syncBusy && !ledger.pending && !conflictCount && idleStatus === "Up to date";
+  const needsAttention = !!syncActionError || !!conflictCount ||
+    !["Up to date", "Syncing…", "Saved on this device", "Saved locally · changes waiting to sync", "Offline · changes stay on this device"].includes(currentStatus);
+  const todoVersion = (todo: Todo | null | undefined) => !todo ? t("Not present") : todo.deleted ? t("Deleted")
+    : `${todo.title}${todo.description ? `\n${todo.description}` : ""}\n${t(todo.done ? "Done" : "Open to-dos")}`;
   const expenseSaved = (entry?: Entry) => {
     saved();
     if (!entry) { setSaveFeedback(null); return; }
@@ -544,25 +1198,95 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     return queueEntries([submitted ? { ...rest, insuranceSubmittedAt: new Date().toISOString() } : rest]);
   };
 
-  return <div className="app-shell" onInvalidCapture={(event) => {
-    const input = event.target;
-    if (input instanceof HTMLInputElement || input instanceof HTMLSelectElement || input instanceof HTMLTextAreaElement) {
-      input.setCustomValidity(input.validity.valueMissing ? t("Please fill out this field.")
-        : input instanceof HTMLInputElement && input.type === "date" ? t("Enter a valid date.") : "");
-    }
-  }} onInputCapture={(event) => {
-    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement || event.target instanceof HTMLTextAreaElement) event.target.setCustomValidity("");
-  }}>
+  return <div className="app-shell">
     <header className="topbar"><a className="wordmark" href="/" aria-label={t("Splitty home")}><img key={logoPulse.sequence} className={`brand-mark ${syncBusy ? "is-syncing" : logoPulse.active ? "is-saving" : ""}`} src="/icon.svg" width="32" height="32" alt="" />Splitty</a>
-      <button className={`sync-pill ${online ? "" : "offline"}`} onClick={() => void sync()} disabled={syncBusy} aria-busy={syncBusy} aria-label={t("Synchronize devices")}>{online ? <Cloud size={16} /> : <CloudOff size={16} />}<span>{syncBusy ? t("Syncing") : ledger.pending ? t("{count} pending", { count: number(ledger.pending) }) : t(online ? "Sync" : "Offline")}</span></button>
+      <div className="topbar-actions">
+      {!installed && (installPrompt || iosDevice) && <button className="pill-button install-button" aria-label={t("Install")} onClick={() => void install()}><Download size={16} aria-hidden="true" /><span className="install-button-label">{t("Install")}</span></button>}
+      <SyncPopover online={online} busy={syncBusy} pending={ledger.pending} attention={needsAttention} upToDate={upToDate} status={message(currentStatus)}>
+        <dl className="sync-details">
+          <div><dt>{t("Connection")}</dt><dd>{t(online ? "Online" : "Offline")}</dd></div>
+          <div><dt>{t("Changes waiting to sync")}</dt><dd>{number(ledger.pending)}</dd></div>
+          {!!conflictCount && <div><dt>{t("Edits needing attention")}</dt><dd>{number(conflictCount)}</dd></div>}
+          <div><dt>{t("Last sync this session")}</dt><dd>{lastSynced ? <time dateTime={lastSynced.toISOString()}>{lastSynced.toLocaleString(locale, { dateStyle: "short", timeStyle: "short" })}</time> : t("Not yet synced")}</dd></div>
+        </dl>
+        {syncActionError && <p className="error" role="alert">{message(syncActionError)}</p>}
+        {identity && <p>{t("Signed in as {name}.", { name: person(p, identity.member) })}</p>}
+        <div className="button-row"><button className="secondary" disabled={!online || syncBusy || signInBusy || signOutBusy} onClick={() => void sync()}><RefreshCw size={16} />{t("Sync now")}</button>
+          {identity && <button className="text-button" disabled={!online || syncBusy || signOutBusy} aria-busy={signOutBusy} onClick={() => void signOut()}>{t("Sign out")}</button>}
+          {identity?.userId && !identity.userId.startsWith("legacy-") && db.name.startsWith("splitty-account-")
+            && <button className="text-button" disabled={!online || syncBusy || signOutBusy} aria-busy={signOutBusy} onClick={() => void removeLocalAccountData()}>{t("Remove local data from this device")}</button>}</div>
+        {identity && identity.householdId && authOptions.entraEnabled && <section className="invitation-panel" aria-label={t("Household invitations")}>
+          <h3>{t("Invite your partner")}</h3>
+          <p className="muted">{t("Invitation is valid for 7 days and takes over the invited member slot's existing balance.")}</p>
+          <button className="secondary" disabled={!online || invitationBusy} onClick={() => void createHouseholdInvitation()}>
+            {t(invitationBusy ? "Creating invitation…" : "Create invitation")}
+          </button>
+          {invitationLink && <div className="invitation-link">
+            <label>{t("Invitation link")}<input aria-label={t("Invitation link")} readOnly value={invitationLink} onFocus={(event) => event.currentTarget.select()} /></label>
+            <QRCodeSVG value={invitationLink} size={192} level="M" includeMargin role="img" aria-label={t("Invitation QR code")} />
+            <button className="secondary" disabled={invitationBusy} onClick={() => void copyInvitationLink()}>{t("Copy invite link")}</button>
+            {invitationCopied && <p role="status">{t("Invite was copied.")}</p>}
+          </div>}
+          {!!invitations.length && <ul>{invitations.map((invite) => <li key={invite.id}>
+            <p>{t("Pending invitation to {name}, expires {date}.", {
+              name: person(p, invite.slot),
+              date: new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(new Date(invite.expiresAt))
+            })}</p>
+            <button className="text-button" disabled={!online || invitationBusy} onClick={() => void revokeHouseholdInvitation(invite)}>{t("Revoke invitation")}</button>
+          </li>)}</ul>}
+        </section>}
+        {identity ? <p className="muted">{t("Signing out does not erase this device's offline history. Use a trusted device.")}</p> :
+          <div className="sync-sign-in">
+            {authOptions.entraEnabled && <>
+              <button className="primary" disabled={syncBusy || signInBusy || !online} onClick={() => void startProviderSignIn()}>{t("Continue with email, Google, or Microsoft")}</button>
+              {authOptions.newHouseholdsEnabled === false && !new URLSearchParams(location.hash.slice(1)).has("invite")
+                && <p className="muted">{t("New household registration is closed. Existing members can claim their household with a member token.")}</p>}
+              {authOptions.legacyEnabled && <Form onSubmit={(event) => {
+                event.preventDefault();
+                if (!legacyClaimToken) return;
+                void startProviderSignIn(legacyClaimToken);
+              }}>
+                <label>{t("Existing household member token")}<input type="password" autoComplete="off" autoCapitalize="off" spellCheck={false} required maxLength={43} value={legacyClaimToken} onChange={(event) => setLegacyClaimToken(event.target.value)} /></label>
+                <button className="secondary" disabled={syncBusy || signInBusy || !online}>{t(signInBusy ? "Signing in…" : "Continue and claim existing household")}</button>
+                <p className="muted">{t("Your existing household history and this device's offline changes will be kept.")}</p>
+              </Form>}
+            </>}
+            {authOptions.legacyEnabled && <Form onSubmit={(event) => void signIn(event)}><label>{t("Member token")}<input type="password" autoComplete="off" autoCapitalize="off" spellCheck={false} required maxLength={43} value={memberToken} onChange={(event) => setMemberToken(event.target.value)} /></label>
+              <button className="primary" disabled={signInBusy || syncBusy || !online}>{t(signInBusy ? "Signing in…" : "Sign in")}</button>
+              <p className="muted">{t("This device stays signed in until you sign out or the member token is rotated.")}</p></Form>}
+          </div>}
+        {!!ledger.conflicts.length && <section className="conflict-panel" aria-label={t("Conflicting edits")}><h3>{t("Conflicting edits")}</h3><p>{t("These entries changed on another device. Choose which version to keep.")}</p>{ledger.conflicts.map((conflict) => {
+          const local = ledger.entries.find((entry) => entry.id === conflict.entryId);
+          return <div key={conflict.entryId}><strong>{local?.description}</strong><p>{t("This device: {local} · Other device: {remote} ({name}'s balance)", { local: local?.deleted ? t("Deleted") : money(local?.balanceA ?? 0), remote: conflict.remote?.deleted ? t("Deleted") : conflict.remote ? money(conflict.remote.balanceA) : t("Not present"), name: p.nameA })}</p><div className="button-row">
+            <button className="secondary" onClick={() => void resolveConflict(conflict.entryId, false).then(conflictResolved).catch((e: Error) => setSyncActionError(e.message))}>{t("Keep other device")}</button>
+            <button className="secondary" onClick={() => void resolveConflict(conflict.entryId, true).then(conflictResolved).catch((e: Error) => setSyncActionError(e.message))}>{t("Keep this device")}</button>
+          </div></div>;
+        })}</section>}
+        {!!ledger.todoConflicts.length && <section className="conflict-panel" aria-label={t("Conflicting to-do edits")}><h3>{t("Conflicting to-do edits")}</h3>
+          <p>{t("These to-dos changed on another device. Choose which version to keep.")}</p>
+          {ledger.todoConflicts.map((conflict) => <div key={conflict.entryId}>
+            <p className="todo-version"><strong>{t("This device")}</strong>{"\n"}{todoVersion(ledger.todos.find((todo) => todo.id === conflict.entryId))}</p>
+            <p className="todo-version"><strong>{t("Other device")}</strong>{"\n"}{todoVersion(conflict.remote)}</p>
+            <div className="button-row"><button className="secondary" onClick={() => void resolveStoreConflict(conflict.entryId, false, todoStore()).then(conflictResolved).catch((e: Error) => setSyncActionError(e.message))}>{t("Keep other device")}</button>
+              <button className="secondary" onClick={() => void resolveStoreConflict(conflict.entryId, true, todoStore()).then(conflictResolved).catch((e: Error) => setSyncActionError(e.message))}>{t("Keep this device")}</button></div>
+          </div>)}
+        </section>}
+      </SyncPopover>
+      </div>
     </header>
     <main className={tab === "expenses" || tab === "todos" ? "with-expense-action" : undefined}>
       {error && <div className="banner error" role="alert">{message(error)}<button className="icon-button" aria-label={t("Dismiss error")} onClick={() => setError("")}><X size={18} /></button></div>}
-      {update && <div className="banner">{t("An app update is ready. Your saved entries will be kept.")}<button onClick={() => void update().catch((e: Error) => setError(e.message))} className="text-button">{t("Update")}</button></div>}
-      {tab === "todos" ? <TodoList todos={todos} openCount={openTodos} status={message(syncStatus)} blocked={conflictIds} open={setForm}
-        manualTodos={ledger.todos} conflicts={ledger.todoConflicts}
-        resolve={(id, keepLocal) => void resolveStoreConflict(id, keepLocal, todoStore()).then(saved).catch((e: Error) => setError(e.message))}
+      {update && <section className="update-card accent-hero" aria-labelledby="update-title">
+        <div role="status">
+          <h2 id="update-title"><Sparkles size={24} aria-hidden="true" />{t("New version available")}</h2>
+          <p>{t("Your saved entries will be kept.")}</p>
+        </div>
+        <button onClick={() => void update().catch((e: Error) => setError(e.message))} className="primary"><RefreshCw size={18} aria-hidden="true" />{t("Update")}</button>
+      </section>}
+      {tab === "todos" ? <TodoList todos={todos} openCount={openTodos} blocked={conflictIds} open={setForm}
+        conflicts={ledger.todoConflicts}
         edit={setTodoForm}
+        reorder={async (changes) => { await queueTodos(changes); saved(); }}
         remove={async (item) => {
           if (item.kind === "manual") await queueTodos([{ ...item.todo, deleted: true }]);
           else await queueEntries([{ ...item.entry, deleted: true }]);
@@ -570,11 +1294,10 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
         }}
         onError={(e) => setError(e instanceof Error ? e.message : "Could not save this to-do.")}
         toggleManual={(todo, done) => void queueTodos([{ ...todo, done }]).then(saved).catch((e: Error) => setError(e.message))}
-        toggle={(entry, submitted) => void markSubmitted(entry, submitted).then(saved).catch((e: Error) => setError(e.message))} /> : tab === "statistics" ? <Statistics entries={ledger.entries} preferences={p} /> : tab !== "settings" ? <>
+        toggle={(entry, submitted) => void markSubmitted(entry, submitted).then(saved).catch((e: Error) => setError(e.message))} /> : tab === "statistics" ? <Suspense fallback={<p className="loading">{t("Loading…")}</p>}><Statistics entries={ledger.entries} preferences={p} /></Suspense> : tab !== "settings" ? <>
         {tab === "expenses" ? <>
           <header className="page-heading">
-            <h1>{t("Expenses")}<span className="entry-count">{number(active.length)}</span></h1>
-            <p className="household-members">{p.nameA} & {p.nameB}</p>
+            <div><h1>{t("Expenses")}</h1><p className="household-members">{p.nameA} & {p.nameB}</p></div>
           </header>
           <section className={`balance-card ${balance === 0 ? "is-settled" : ""}`} aria-label={t("Household balance")}>
             <div className="balance-summary">
@@ -584,34 +1307,38 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
                   {saveFeedback?.settled && <Sparkles className="settled-sparkles" size={18} />}
                 </span>
                 <p>{t("You are all settled up")}</p>
-              </div> : <p>{balance < 0 && other === t("Your wife") ? t("You owe your wife") : t(balance > 0 ? "{name} owes you" : "You owe {name}", { name: other })}</p>}
+              </div> : <p>{balance < 0 && other === t("Your spouse") ? t("You owe your spouse") : t(balance > 0 ? "{name} owes you" : "You owe {name}", { name: other })}</p>}
               <div className={`balance-amount ${balance < 0 ? "owed" : balance === 0 ? "settled" : ""}`}>{money(Math.abs(balance))}</div>
               {balance === 0 && <small className="settled-note">{t("All square. Nicely done.")}</small>}
             </div>
             <button className="settle-button" onClick={() => setForm("settlement")}>{t("Settle up")}</button>
           </section>
         </> : <>
-          <header className="page-heading search-heading"><h1>{t("Search")}</h1><button className="text-button" onClick={() => setImporting(true)}><Upload size={18} />{t("Import")}</button></header>
-          <label className="search"><Search size={19} /><input aria-label={t("Search expenses")} type="search" placeholder={t("Search expenses")} value={search} onChange={(e) => { setSearch(e.target.value); setLimit(100); }} /></label>
-          <p className="search-hint">{t("Description, category or date")}</p>
+          <header className="page-heading">
+            <div><h1>{t("Search")}</h1><p>{shown.length === 1 ? t("1 entry") : t("{count} entries", { count: number(shown.length) })}</p></div>
+            <button className="pill-button" onClick={() => setImporting(true)}><Upload size={16} />{t("Import")}</button>
+          </header>
+          <label className="search"><Search size={19} /><input aria-label={t("Search expenses")} type="search" placeholder={t("Description, category or date")} value={search} onChange={(e) => { setSearch(e.target.value); setLimit(100); }} />{search && <button type="button" className="icon-button" aria-label={t("Clear search")} onClick={(event) => {
+            setSearch(""); setLimit(100); event.currentTarget.parentElement?.querySelector("input")?.focus();
+          }}><X size={18} /></button>}</label>
         </>}
-        {!!ledger.conflicts.length && <section className="conflict-panel"><h3>{t("Conflicting edits")}</h3><p>{t("These entries changed on another device. Choose which version to keep.")}</p>{ledger.conflicts.map((conflict) => {
-          const local = ledger.entries.find((entry) => entry.id === conflict.entryId);
-          return <div key={conflict.entryId}><strong>{local?.description}</strong><p>{t("This device: {local} · Other device: {remote} ({name}'s balance)", { local: local?.deleted ? t("Deleted") : money(local?.balanceA ?? 0), remote: conflict.remote?.deleted ? t("Deleted") : conflict.remote ? money(conflict.remote.balanceA) : t("Not present"), name: p.nameA })}</p><div className="button-row">
-            <button className="secondary" onClick={() => void resolveConflict(conflict.entryId, false).then(saved).catch((e: Error) => setError(e.message))}>{t("Keep other device")}</button>
-            <button className="secondary" onClick={() => void resolveConflict(conflict.entryId, true).then(saved).catch((e: Error) => setError(e.message))}>{t("Keep this device")}</button>
-          </div></div>;
-        })}</section>}
-        <p className="sync-status" role="status">{message(syncStatus)}</p>
         <section className="ledger-section" aria-label={t(tab === "search" ? "Search results" : "Expenses")}>
-          {tab === "search" && <div className="section-title"><h2>{t("Search results")}<span>{number(shown.length)}</span></h2></div>}
-          {!shown.length ? <div className="empty-state"><h2>{t(query ? "No matching expenses" : "No expenses yet")}</h2>{query && <p>{t("Try a different description, category or date.")}</p>}</div> :
+          {!shown.length ? tab === "expenses" ? <div className="empty-state expense-welcome">
+            <span className="expense-welcome-icon" aria-hidden="true"><Receipt size={30} /></span>
+            <h2>{t("Together, fairly split")}</h2>
+            <p>{t("Track shared expenses, split them your way and see who owes whom. Add your first expense to get started.")}</p>
+            <p className="expense-welcome-hint">{t("Saved on this device, even offline. Sign in via Sync to share across devices.")}</p>
+          </div> : <div className="empty-state"><h2>{t(query ? "No matching expenses" : "No expenses yet")}</h2>{query && <p>{t("Try a different description, category or date.")}</p>}</div> :
             <div className="expense-list">{shown.slice(0, limit).map((entry, index) => {
-              const month = new Date(`${entry.date}T12:00:00`).toLocaleDateString(locale, { month: "long", year: "numeric" });
+              const day = new Date(`${entry.date}T12:00:00`);
+              const month = day.toLocaleDateString(locale, { month: "long", ...(day.getFullYear() === new Date().getFullYear() ? {} : { year: "numeric" }) });
               const heading = index === 0 || entry.date.slice(0, 7) !== shown[index - 1].date.slice(0, 7);
               const contribution = p.member === "a" ? entry.balanceA : -entry.balanceA;
               const category = expenseCategory(entry.description, entry.category, entry.kind, entry.categoryMode);
               const payment = category === "payment";
+              const detail = entry.kind === "imported" ? t("{category} · imported", { category: t(categoryLabels[category]) })
+                : entry.kind === "settlement" ? t("Payment from {name}", { name: payer(p, entry.paidBy!) })
+                : t("{name} paid {amount}", { name: payer(p, entry.paidBy!), amount: money(entry.amountCents) });
               return <div key={entry.id}>{heading && <h3 className="month-heading">{month}</h3>}<SwipeableRow
                 description={entry.description} disabled={conflictIds.has(entry.id)} open={swipedEntry === entry.id}
                 setOpen={(open) => setSwipedEntry(open ? entry.id : null)} edit={() => setForm(entry)}
@@ -623,30 +1350,65 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
                 }}>
                 <button className="expense-row" disabled={conflictIds.has(entry.id)} onClick={() => setForm(entry)}>
                 {saveFeedback?.entry.id === entry.id && <span key={saveFeedback.entry.updatedAt} className="saved-row-glow" aria-hidden="true" />}
-                <span className="date-block"><small>{new Date(`${entry.date}T12:00:00`).toLocaleDateString(locale, { month: "short" })}</small>{Number(entry.date.slice(8))}</span>
                 <span className={`entry-icon ${payment ? "payment" : ""}`} data-category={category}><ExpenseIcon category={category} /></span>
-                <span className="entry-description"><strong>{entry.description}</strong><small>{entry.kind === "imported" ? t("{category} · imported", { category: t(categoryLabels[category]) }) : t("{name} paid {amount}", { name: payer(p, entry.paidBy!), amount: money(entry.amountCents) })}</small></span>
-                <span className={`entry-balance ${contribution < 0 ? "owed" : contribution > 0 ? "lent" : ""}`}><small>{t(contribution === 0 ? "no balance change" : payment ? "balance change" : contribution > 0 ? "you lent" : "you borrowed")}</small><strong>{money(Math.abs(contribution))}</strong></span>
+                <span className="entry-description"><strong>{entry.description}</strong><small>{day.toLocaleDateString(locale, { day: "numeric", month: "short" })} · {detail}</small></span>
+                <span className={`entry-balance ${contribution < 0 ? "owed" : contribution > 0 ? "lent" : ""}`}>
+                  <span className="sr-only">{t(contribution === 0 ? "no balance change" : payment ? "balance change" : contribution > 0 ? "you lent" : "you borrowed")}{contribution !== 0 && ` ${money(Math.abs(contribution))}`}</span>
+                  <span aria-hidden="true">{contribution === 0 ? "–" : `${contribution > 0 ? "+" : "\u2212"}${amount(Math.abs(contribution))}`}</span>
+                </span>
                 </button>
               </SwipeableRow></div>;
             })}{shown.length > limit && <button className="secondary load-more" onClick={() => setLimit(limit + 100)}>{t("Show more ({count})", { count: number(shown.length - limit) })}</button>}</div>}
         </section>
-      </> : <section className="settings-page"><header className="page-heading"><h1>{t("Settings")}</h1></header>
-        <section className="settings-card"><h2><Languages size={20} />{t("Language")}</h2>
-          <label>{t("App language")}<select aria-label={t("App language")} value={language} onChange={(event) => void updatePreferences({ language: event.target.value === "en" ? "en" : "de" }).catch((e: Error) => setError(e.message))}>
-            <option value="de" lang="de">Deutsch</option><option value="en" lang="en">English</option>
-          </select></label>
+      </> : <section className="settings-page"><header className="page-heading"><div><h1>{t("Settings")}</h1><p>{p.nameA} & {p.nameB}</p></div></header>
+        <section className="settings-card"><h2 className="section-label">{t("Language")}</h2>
+          <label className="settings-row"><span className="settings-tile" aria-hidden="true"><Languages size={19} /></span><span className="entry-description"><strong>{t("App language")}</strong></span>
+            <Select label={t("App language")} value={language} onChange={(value) => void updatePreferences({ language: value }).catch((e: Error) => setError(e.message))}
+              options={[{ value: "de", label: "Deutsch", lang: "de" }, { value: "en", label: "English", lang: "en" }]} /></label>
         </section>
-        <section className="settings-card"><h2><Cloud size={20} />{t("Synchronization")}</h2><p className="muted" role="status">{message(syncStatus)}</p>
-          {identity ? <><p>{t("Signed in as {name}.", { name: person(p, identity.member) })}</p><div className="button-row"><button className="secondary" disabled={syncBusy} onClick={() => void sync()}><RefreshCw size={16} />{t("Sync now")}</button><button className="text-button" onClick={() => void signOut()}>{t("Sign out")}</button></div><p className="muted">{t("Signing out does not erase this device's offline history. Use a trusted device.")}</p></> :
-            <form onSubmit={(event) => void signIn(event)}><label>{t("Member token")}<input type="password" autoComplete="off" autoCapitalize="off" spellCheck={false} required maxLength={43} value={memberToken} onChange={(event) => setMemberToken(event.target.value)} /></label><button className="primary" disabled={signInBusy || !online}>{t(signInBusy ? "Signing in…" : "Sign in")}</button><p className="muted">{t("This device stays signed in until you sign out or the member token is rotated.")}</p></form>}
+        <section className="settings-card"><h2 className="section-label">{t("Household")}</h2>
+          {(["a", "b"] as const).map((member) => {
+            const name = member === "a" ? p.nameA : p.nameB, key = member === "a" ? "nameA" : "nameB";
+            return <div className="settings-row" key={member}><span className={`avatar payer-${member}`} aria-hidden="true">{name.trim().charAt(0).toUpperCase() || "?"}</span>
+              <span className="entry-description settings-name-field"><span className="settings-name-input"><input id={`household-name-${member}`} className="settings-name" defaultValue={name} key={`${member}-${name}`}               maxLength={60} readOnly={!!identity && !providerAccount} aria-describedby={identity ? "household-names-note" : undefined}
+                onBlur={(e) => { const value = e.target.value.trim(); if (value !== name) {
+                                if (providerAccount) void saveHouseholdName(member, value);
+                                else if (!identity && value) void updatePreferences({ [key]: value }).catch((err: Error) => setError(err.message));
+                } }} />
+                              {identity && !providerAccount ? <Lock className="settings-name-lock" size={16} aria-hidden="true" /> : <Pencil className="settings-name-edit" size={16} aria-hidden="true" />}</span>
+                <label htmlFor={`household-name-${member}`}>{t(member === "a" ? "First person" : "Second person")}</label></span></div>;
+          })}
+          {!identity && <label className="settings-row"><span className="settings-tile" aria-hidden="true"><Smartphone size={19} /></span><span className="entry-description"><strong>{t("This device belongs to")}</strong></span>
+            <Select<Member> label={t("This device belongs to")} value={p.member} onChange={(value) => void updatePreferences({ member: value }).catch((err: Error) => setError(err.message))} options={[{ value: "a", label: p.nameA }, { value: "b", label: p.nameB }]} /></label>}
+          <p id="household-names-note" className="settings-note">{t(providerAccount
+            ? "EUR and an equal split are always the default. Signed-in names are shared with your household."
+            : "EUR and an equal split are always the default. Signed-in names come from your household configuration.")}</p>
+          {providerAccount && <div className="button-row">
+            <button className="secondary" disabled={!online || signOutBusy} onClick={() => void runHouseholdAction(
+              "household/remove-member", "Remove the other member", "Remove the other member? They will lose server access, but data already on their devices will remain."
+            )}>{t("Remove the other member")}</button>
+            <button className="secondary" disabled={!online || signOutBusy} onClick={() => void runHouseholdAction(
+              "household/leave", "Leave this household", "Leave this household? Its ledger will remain available to the other member."
+            )}>{t("Leave this household")}</button>
+            <button className="secondary" disabled={!online || signOutBusy} onClick={() => void runHouseholdAction(
+              "household/delete", "Delete this household", "Delete this household? It will be inaccessible and recoverable for 30 days."
+            )}>{t("Delete this household")}</button>
+            <button className="text-button" disabled={!online || signOutBusy} onClick={() => void runHouseholdAction(
+              "account/delete", "Delete your account", "Delete your account? Your sessions will be revoked immediately and deletion will be scheduled."
+            )}>{t("Delete your account")}</button>
+          </div>}
         </section>
-        <section className="settings-card"><h2><Users size={20} />{t("Household")}</h2><label>{t("First person")}<input defaultValue={p.nameA} key={`a-${p.nameA}`} maxLength={60} readOnly={!!identity} onBlur={(e) => { if (e.target.value.trim() && e.target.value.trim() !== p.nameA) void updatePreferences({ nameA: e.target.value.trim() }).catch((err: Error) => setError(err.message)); }} /></label><label>{t("Second person")}<input defaultValue={p.nameB} key={`b-${p.nameB}`} maxLength={60} readOnly={!!identity} onBlur={(e) => { if (e.target.value.trim() && e.target.value.trim() !== p.nameB) void updatePreferences({ nameB: e.target.value.trim() }).catch((err: Error) => setError(err.message)); }} /></label>
-          {!identity && <label>{t("This device belongs to")}<select value={p.member} onChange={(e) => void updatePreferences({ member: e.target.value as Member }).catch((err: Error) => setError(err.message))}><option value="a">{p.nameA}</option><option value="b">{p.nameB}</option></select></label>}
-          <p className="muted">{t("EUR and an equal split are always the default. Signed-in names come from your household configuration.")}</p>
-        </section>
-        <section className="settings-card"><h2><Download size={20} />{t("Backups")}</h2><button className="secondary" onClick={backup}><Download size={17} />{t("Download a backup")}</button><FilePicker label={t("Restore missing entries from a backup")} accept=".json,application/json" choose={(file) => void restore(file)} /><p className="muted">{t("Backups include expenses and manual to-dos. Offline data lives in this browser; sync or back up before clearing site data or changing devices.")}</p></section>
+        <section className="settings-card"><h2 className="section-label">{t("Backups")}</h2>
+          <button className="settings-row" onClick={backup} aria-label={t("Download a backup")} aria-describedby="backup-download-hint"><span className="settings-tile" aria-hidden="true"><Download size={19} /></span>
+            <span className="entry-description"><strong>{t("Download a backup")}</strong><small id="backup-download-hint">{t("Expenses and your own to-dos")}</small></span><ChevronRight className="settings-chevron" size={18} aria-hidden="true" /></button>
+          <label className="settings-row"><span className="settings-tile" aria-hidden="true"><RotateCcw size={19} /></span>
+            <span className="entry-description"><strong>{t("Restore from backup")}</strong><small>{t("Only missing entries are added")}</small></span><ChevronRight className="settings-chevron" size={18} aria-hidden="true" />
+            <input type="file" className="sr-only" aria-label={t("Restore missing entries from a backup")} accept=".json,application/json" onChange={(event) => {
+              const file = event.target.files?.[0]; event.target.value = ""; void restore(file);
+            }} /></label>
+          <p className="settings-note">{t("Backups include expenses and manual to-dos. Offline data lives in this browser; sync or back up before clearing site data or changing devices.")}</p></section>
       </section>}
+      <LegalLinks />
     </main>
     {(tab === "expenses" || tab === "todos") && <div className="expense-action">
       <button className="add-button" aria-label={t(tab === "todos" ? "Add to-do" : "Add expense")}
@@ -670,5 +1432,15 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
       saved();
     }} />}
     {importing && <ImportForm preferences={p} close={() => setImporting(false)} saved={saved} />}
+    {installGuideOpen && <Sheet title={t("Install Splitty")} close={() => setInstallGuideOpen(false)}>
+      <div className="install-guide">
+        <p>{t("Add Splitty to your Home Screen for quick access and offline use.")}</p>
+        <ol>
+          <li>{t("Tap the Share button in your browser.")}</li>
+          <li>{t("Choose Add to Home Screen.")}</li>
+          <li>{t("Tap Add to confirm.")}</li>
+        </ol>
+      </div>
+    </Sheet>}
   </div>;
 }

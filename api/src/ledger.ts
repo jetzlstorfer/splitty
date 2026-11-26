@@ -10,9 +10,68 @@ const fingerprint = <T extends VersionedRecord>(mutation: Mutation<T>) => {
   return createHash("sha256").update(JSON.stringify({ expectedRevision: mutation.expectedRevision, entry })).digest("hex");
 };
 
+interface HouseholdUsage {
+  day: string;
+  dailyChanges: number;
+  activeExpenses: number;
+  activeTodos: number;
+}
+
+const dailyChangeLimit = 5_000;
+const dailyChangeLimitMessage = "Household daily change limit reached. Try again after the limit resets.";
+const usageDay = (now: number) => new Date(now).toISOString().slice(0, 10);
+const retryAfterUtcMidnight = (now: number) =>
+  Math.max(1, Math.ceil((Date.parse(`${usageDay(now)}T23:59:59.999Z`) + 1 - now) / 1000));
+
 export function createLedger<T extends VersionedRecord>(validate: (value: unknown) => T, prefix = "") {
   const changeKey = (sequence: number) => `${prefix}c-${String(sequence).padStart(16, "0")}`;
   const sequenceKey = `${prefix}sequence`;
+  const countField = prefix ? "activeTodos" : "activeExpenses";
+  const activeLimit = prefix ? 2_000 : 20_000;
+  const activeLimitMessage = prefix
+    ? "Household to-do limit reached. Delete a to-do before adding another."
+    : "Household expense limit reached. Delete an expense before adding another.";
+
+  async function householdUsage(table: TableClient, household: string, now: number) {
+    let usage = await optionalEntity<HouseholdUsage>(table, household, "usage");
+    if (usage) return usage;
+
+    let activeExpenses = 0, activeTodos = 0;
+    for (const [rowPrefix, upperPrefix, validateRecord] of [
+      ["e-", "f-", validateEntry],
+      ["todo-e-", "todo-f-", validateTodo]
+    ] as const) {
+      for await (const entity of table.listEntities<StoredJson>({
+        queryOptions: { filter: odata`PartitionKey eq ${household} and RowKey ge ${rowPrefix} and RowKey lt ${upperPrefix}` }
+      })) {
+        if (!validateRecord(JSON.parse(entity.json)).deleted) {
+          if (rowPrefix === "e-") activeExpenses++;
+          else activeTodos++;
+        }
+      }
+    }
+    try {
+      await table.createEntity({
+        partitionKey: household,
+        rowKey: "usage",
+        day: usageDay(now),
+        dailyChanges: 0,
+        activeExpenses,
+        activeTodos
+      });
+    } catch (error) {
+      if (statusCode(error) !== 409) throw error;
+    }
+    usage = await optionalEntity<HouseholdUsage>(table, household, "usage");
+    if (!usage) throw new Error("Household usage metadata could not be initialized.");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(usage.day)
+      || !Number.isSafeInteger(usage.dailyChanges) || usage.dailyChanges < 0
+      || !Number.isSafeInteger(usage.activeExpenses) || usage.activeExpenses < 0
+      || !Number.isSafeInteger(usage.activeTodos) || usage.activeTodos < 0) {
+      throw new Error("Household usage metadata is invalid.");
+    }
+    return usage;
+  }
 
   async function current(table: TableClient, household: string, id: string): Promise<T | null> {
     const entity = await optionalEntity<StoredJson>(table, household, `${prefix}e-${id}`);
@@ -45,6 +104,19 @@ export function createLedger<T extends VersionedRecord>(validate: (value: unknow
         }
         return { id: mutation.id, status: "conflict", entry: previous };
       }
+      const now = Date.now();
+      const usage = await householdUsage(table, household, now);
+      const day = usageDay(now);
+      const dailyChanges = usage.day === day ? usage.dailyChanges : 0;
+      if (dailyChanges >= dailyChangeLimit) {
+        throw new HttpError(429, dailyChangeLimitMessage, retryAfterUtcMidnight(now));
+      }
+      const wasActive = !!previous && !previous.deleted;
+      const willBeActive = !mutation.entry.deleted;
+      const activeCount = usage[countField] + Number(willBeActive) - Number(wasActive);
+      if (willBeActive && !wasActive && activeCount > activeLimit) {
+        throw new HttpError(429, activeLimitMessage, 60 * 60);
+      }
       const sequence = meta.sequence + 1;
       if (!Number.isSafeInteger(sequence)) throw new Error("Ledger sequence limit reached.");
       const entry = { ...mutation.entry, revision: mutation.expectedRevision + 1, updatedAt: new Date().toISOString() };
@@ -56,7 +128,15 @@ export function createLedger<T extends VersionedRecord>(validate: (value: unknow
             ? ["upsert", jsonEntity(household, `${prefix}e-${entry.id}`, entry), "Replace"]
             : ["create", jsonEntity(household, `${prefix}e-${entry.id}`, entry)],
           ["create", jsonEntity(household, changeKey(sequence), entry)],
-          ["create", { partitionKey: household, rowKey: `${prefix}o-${mutation.id}`, fingerprint: requestFingerprint, entryId: entry.id }]
+          ["create", { partitionKey: household, rowKey: `${prefix}o-${mutation.id}`, fingerprint: requestFingerprint, entryId: entry.id }],
+          ["update", {
+            partitionKey: household,
+            rowKey: "usage",
+            day,
+            dailyChanges: dailyChanges + 1,
+            activeExpenses: countField === "activeExpenses" ? activeCount : usage.activeExpenses,
+            activeTodos: countField === "activeTodos" ? activeCount : usage.activeTodos
+          }, "Replace", { etag: usage.etag }]
         ]);
         return { id: mutation.id, status: "ok", entry };
       } catch (error) {

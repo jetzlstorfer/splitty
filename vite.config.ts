@@ -33,6 +33,14 @@ export default defineConfig({
     VitePWA({
       registerType: "prompt",
       includeAssets: ["icon.svg"],
+      integration: {
+        beforeBuildServiceWorker(options) {
+          // The plugin adds the web manifest after Workbox's manifest transforms.
+          options.workbox.additionalManifestEntries = options.workbox.additionalManifestEntries?.filter(
+            (entry) => (typeof entry === "string" ? entry : entry.url) !== options.manifestFilename
+          );
+        }
+      },
       manifest: {
         name: "Splitty - Gemeinsame Ausgaben",
         short_name: "Splitty",
@@ -41,8 +49,8 @@ export default defineConfig({
         display: "standalone",
         start_url: "/",
         scope: "/",
-        theme_color: "#ffffff",
-        background_color: "#ffffff",
+        theme_color: "#1c2524",
+        background_color: "#1c2524",
         icons: [
           { src: "/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
           { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
@@ -50,7 +58,6 @@ export default defineConfig({
         ]
       },
       workbox: {
-        clientsClaim: true,
         globPatterns: ["**/*.{js,css,html,svg,png,woff2}"],
         globIgnores: ["**/receipt-ocr-*/**"],
         navigateFallbackDenylist: [/^\/api(?:\/|$)/, /^\/receipt-ocr-/],

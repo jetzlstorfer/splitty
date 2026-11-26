@@ -1,10 +1,11 @@
 import {
-  ArrowDownLeft, Bus, Car, Coffee, Dumbbell, Fuel, Gift, GraduationCap, HeartPulse, House,
+  ArrowDownLeft, Bus, Car, Coffee, Fuel, Gift, GraduationCap, HeartPulse, House,
   PawPrint, Pill, Plane, Receipt, Scissors, ShieldCheck, ShoppingBag, ShoppingBasket,
   Sparkles, SquareParking, Ticket, Utensils, Wifi, Zap, type LucideIcon
 } from "lucide-react";
 import { categoryLabels, type Category } from "./categories";
 import { useLocale } from "./i18n";
+import { SoccerBall } from "./SoccerBall";
 
 const icons: Record<Category, LucideIcon> = {
   general: Receipt, groceries: ShoppingBasket, fuel: Fuel, cleaning: Sparkles,
@@ -12,7 +13,7 @@ const icons: Record<Category, LucideIcon> = {
   transport: Bus, parking: SquareParking, car: Car, home: House, utilities: Zap,
   internet: Wifi, shopping: ShoppingBag, health: HeartPulse, pets: PawPrint,
   entertainment: Ticket, travel: Plane, gifts: Gift, insurance: ShieldCheck,
-  education: GraduationCap, sports: Dumbbell, payment: ArrowDownLeft
+  education: GraduationCap, sports: SoccerBall, payment: ArrowDownLeft
 };
 
 export default function ExpenseIcon({ category, size = 20 }: { category: Category; size?: number }) {

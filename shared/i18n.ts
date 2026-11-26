@@ -213,6 +213,7 @@ export const german = {
   "Signed in with Microsoft": "Mit Microsoft angemeldet",
   "Signed in with a member token": "Mit einem Mitglieds-Token angemeldet",
   "Sign-in provider unavailable": "Anmeldeanbieter nicht verfügbar",
+  "Entra did not identify a single sign-in method for this session.": "Entra hat für diese Sitzung keine eindeutige Anmeldemethode angegeben.",
   "Sign in again to refresh your provider and profile details. Some providers do not share all details.": "Melde dich erneut an, um deinen Anmeldeanbieter und deine Profildaten zu aktualisieren. Manche Anbieter teilen nicht alle Angaben.",
   "Language": "Sprache",
   "App language": "App-Sprache",

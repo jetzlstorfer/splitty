@@ -63,8 +63,10 @@ function AccountDetails({ identity }: { identity: Identity | null }) {
         {identity?.email && <small>{identity.email}</small>}
       </span>
     </div>
-    {identity && !legacy && (!provider || provider === "unknown") &&
+    {identity && !legacy && !provider &&
       <p className="settings-note">{t("Sign in again to refresh your provider and profile details. Some providers do not share all details.")}</p>}
+    {provider === "unknown" &&
+      <p className="settings-note">{t("Entra did not identify a single sign-in method for this session.")}</p>}
   </section>;
 }
 

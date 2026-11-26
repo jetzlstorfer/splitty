@@ -9,6 +9,7 @@ import { consumeInvitation, inspectInvitation, type InvitationTarget } from "./i
 import { claimLegacyMemberSlot, legacyMemberForToken, verifyLegacyClaim } from "./legacyMigration";
 import { consumeRateLimit } from "./rateLimit";
 import { optionalEntity, statusCode } from "./storage";
+import { lookupDirectoryProvider, tokenProvider } from "./signInProvider";
 
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 const randomValue = () => randomBytes(32).toString("base64url");
@@ -17,6 +18,7 @@ const bootstrapPartition = "device-bootstrap";
 const householdPartition = (householdId: string) => `h-${householdId}`;
 const userPartition = "users";
 const scopes = ["openid", "profile", "email"];
+const providerClaimRequest = JSON.stringify({ id_token: { idp: { essential: false } } });
 const transactionCookie = (config: Config) => config.local ? "splitty-entra-state" : "__Host-splitty-entra-state";
 
 interface LoginTransaction {
@@ -91,6 +93,7 @@ export async function beginEntraSignIn(
   });
   const url = await authorizationClient.getAuthCodeUrl({
     scopes,
+    claims: providerClaimRequest,
     redirectUri,
     responseMode: "query",
     state,
@@ -129,14 +132,7 @@ export function identityClaims(value: unknown): AccountProfile & { issuer: strin
   }
   const displayName = typeof claims.name === "string" ? claims.name.trim().slice(0, 80) || undefined : undefined;
   const name = displayName ?? email.slice(0, email.indexOf("@") > 0 ? email.indexOf("@") : 80);
-  const idp = typeof claims.idp === "string" ? claims.idp.toLowerCase().replace(/\/$/, "") : "";
-  let signInProvider: AccountProfile["signInProvider"] = "unknown";
-  if (["google.com", "accounts.google.com", "https://accounts.google.com"].includes(idp)) signInProvider = "google";
-  else if (idp === "live.com" || /^https:\/\/(?:login\.microsoftonline\.com|sts\.windows\.net)\/[^/]+(?:\/v2\.0)?$/.test(idp)) {
-    signInProvider = "microsoft";
-  } else if (idp === "email" || (idp && idp === issuer.toLowerCase().replace(/\/$/, "")
-    && /^https:\/\/[^/]+\.ciamlogin\.com\//.test(idp))) signInProvider = "email";
-  return { issuer, subject, name, email, displayName, signInProvider, pictureUrl: profilePictureUrl(claims.picture) };
+  return { issuer, subject, name, email, displayName, signInProvider: tokenProvider(claims, issuer), pictureUrl: profilePictureUrl(claims.picture) };
 }
 
 async function ensureUser(
@@ -304,7 +300,7 @@ async function fillEmptyMemberName(table: TableClient, context: AuthContext, nam
 
 export async function completeEntraSignIn(
   request: Request, config: Config, table: TableClient,
-  authorizationClient?: Pick<ConfidentialClientApplication, "acquireTokenByCode">
+  authorizationClient?: Pick<ConfidentialClientApplication, "acquireTokenByCode" | "acquireTokenSilent">
 ): Promise<Response> {
   const url = new URL(request.url);
   const state = url.searchParams.get("state");
@@ -320,9 +316,11 @@ export async function completeEntraSignIn(
   }
   await table.deleteEntity(transactionPartition, `t-${digest(state)}`);
 
-  const result = await (authorizationClient ?? client(config)).acquireTokenByCode({
+  const msal = authorizationClient ?? client(config);
+  const result = await msal.acquireTokenByCode({
     code,
     scopes,
+    claims: providerClaimRequest,
     redirectUri: `${config.origin}/api/auth/callback`,
     state: transaction.state,
     nonce: transaction.nonce,
@@ -342,7 +340,8 @@ export async function completeEntraSignIn(
   const context = await ensureUser(table, config, claims, invitation, transaction.legacyMember);
   const { cookie, deviceKey } = await createUserSession(config, table, {
     ...context,
-    signInProvider: claims.signInProvider,
+    signInProvider: claims.signInProvider === "unknown" && result.account
+      ? await lookupDirectoryProvider(msal, result.account) : claims.signInProvider,
     displayName: claims.displayName,
     email: claims.email,
     pictureUrl: claims.pictureUrl

@@ -255,3 +255,10 @@ nor the monthly schedule. GitHub Actions version updates have their own monthly 
 Keep frontend and API TypeScript versions aligned. TypeScript upgrades must satisfy
 the `typescript-eslint` peer dependency range; retain TypeScript 5.7 until a
 compatible compiler upgrade is validated rather than bypassing peer checks.
+
+Two npm overrides cover development tools whose dependency ranges exclude security
+fixes: Workbox uses `glob` 14 to pick up patched `minimatch` 11 without breaking
+precache generation ([advisory](https://github.com/advisories/GHSA-g3hv-75wg-m249)),
+and Azurite's Azure Monitor dependency uses HTTP instrumentation 0.222 instead of 0.221
+([advisory](https://github.com/advisories/GHSA-3v2p-hm54-8qcq)). Remove each
+override when its consumers resolve patched versions without it.

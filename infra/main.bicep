@@ -53,8 +53,116 @@ param entraClientId string = ''
 @description('Entra External ID application client secret.')
 param entraClientSecret string = ''
 
+@description('Create Log Analytics and Application Insights for the API and the scheduled jobs. Enable before opening public sign-up.')
+param enableMonitoring bool = false
+
+@description('Redact credentials, tokens, e-mail addresses and query strings from telemetry before it is stored. Only used with enableMonitoring.')
+param scrubTelemetry bool = true
+
+@minValue(30)
+@maxValue(730)
+param logRetentionDays int = 30
+
+@description('Daily Log Analytics ingestion cap in GB. Ingestion, including alert data, stops for the rest of the day once reached.')
+param logDailyQuotaGb string = '0.2'
+
+@description('Deploy the timer-triggered Functions app that backs up data and purges expired records, with its storage. Enable before opening public sign-up.')
+param enableScheduledJobs bool = false
+
+@minValue(1)
+@description('Days a backup cannot be modified or deleted; backups are removed one day later.')
+param backupRetentionDays int = 30
+
+param backupContainerName string = 'splitty-backups'
+
+@description('Recipients for alerts and budget notifications. Alerts and the budget are only created when this is not empty.')
+param alertEmails array = []
+
+@minValue(0)
+@description('Monthly budget for the resource group in the billing currency. 0 disables the budget; it also needs alertEmails.')
+param monthlyBudget int = 0
+
+@description('First day of the month the budget starts. Pin it when redeploying later than the month it was created.')
+param budgetStartDate string = utcNow('yyyy-MM-01')
+
 var useStorageRbac = storageAuthMode == 'rbac'
 var storageTableDataContributorRoleId = '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3'
+var uniqueSuffix = uniqueString(resourceGroup().id)
+var hasAlertRecipients = !empty(alertEmails)
+var jobsAppName = '${appName}-jobs-${take(uniqueSuffix, 5)}'
+
+module monitoring 'modules/monitoring.bicep' = if (enableMonitoring) {
+  name: 'monitoring'
+  params: {
+    location: location
+    workspaceName: '${appName}-logs'
+    appInsightsName: '${appName}-insights'
+    scrubRuleName: '${appName}-telemetry-scrub'
+    retentionInDays: logRetentionDays
+    dailyQuotaGb: logDailyQuotaGb
+    scrubTelemetry: scrubTelemetry
+  }
+}
+
+module backupStorage 'modules/backupStorage.bicep' = if (enableScheduledJobs) {
+  name: 'backup-storage'
+  params: {
+    location: location
+    name: '${take(storageName, 15)}bk${take(uniqueSuffix, 7)}'
+    containerName: backupContainerName
+    retentionDays: backupRetentionDays
+  }
+}
+
+module scheduledJobs 'modules/scheduledJobs.bicep' = if (enableScheduledJobs) {
+  name: 'scheduled-jobs'
+  params: {
+    location: location
+    functionAppName: jobsAppName
+    planName: '${appName}-jobs-plan'
+    hostStorageName: '${take(storageName, 15)}jh${take(uniqueSuffix, 7)}'
+    dataStorageName: storage.name
+    backupStorageName: backupStorage.?outputs.name ?? ''
+    backupContainerName: backupContainerName
+    appInsightsConnectionString: monitoring.?outputs.connectionString ?? ''
+  }
+}
+
+module alerts 'modules/alerts.bicep' = if (enableMonitoring && hasAlertRecipients) {
+  name: 'alerts'
+  params: {
+    location: location
+    workspaceId: monitoring.?outputs.workspaceId ?? ''
+    jobsAppName: enableScheduledJobs ? jobsAppName : ''
+    emails: alertEmails
+  }
+}
+
+resource budget 'Microsoft.Consumption/budgets@2023-05-01' = if (monthlyBudget > 0 && hasAlertRecipients) {
+  name: '${appName}-monthly'
+  properties: {
+    category: 'Cost'
+    amount: monthlyBudget
+    timeGrain: 'Monthly'
+    timePeriod: { startDate: '${budgetStartDate}T00:00:00Z' }
+    notifications: {
+      actual80: {
+        enabled: true
+        operator: 'GreaterThan'
+        threshold: 80
+        thresholdType: 'Actual'
+        contactEmails: alertEmails
+      }
+      forecast100: {
+        enabled: true
+        operator: 'GreaterThan'
+        threshold: 100
+        thresholdType: 'Forecasted'
+        contactEmails: alertEmails
+      }
+    }
+  }
+}
 
 resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: storageName
@@ -115,6 +223,8 @@ resource settings 'Microsoft.Web/staticSites/config@2023-12-01' = {
       ENTRA_AUTHORITY: entraAuthority
       ENTRA_CLIENT_ID: entraClientId
       ENTRA_CLIENT_SECRET: entraClientSecret
+    } : {}, enableMonitoring ? {
+      APPLICATIONINSIGHTS_CONNECTION_STRING: monitoring.?outputs.connectionString ?? ''
     } : {})
 }
 
@@ -123,3 +233,7 @@ output storageTableDataContributorAssignmentId string = useStorageRbac ? storage
 output appUrl string = 'https://${site.properties.defaultHostname}'
 output staticSiteName string = site.name
 output storageAccountName string = storage.name
+output scheduledJobsAppName string = enableScheduledJobs ? jobsAppName : ''
+output backupStorageAccountName string = backupStorage.?outputs.name ?? ''
+output applicationInsightsName string = monitoring.?outputs.appInsightsName ?? ''
+output logAnalyticsWorkspaceName string = monitoring.?outputs.workspaceName ?? ''

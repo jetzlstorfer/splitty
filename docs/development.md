@@ -7,8 +7,10 @@ Use Node.js 22.13+ (22 LTS) or 24+ and npm. From the repository root:
 ```powershell
 npm ci
 npm ci --prefix api
+npm ci --prefix jobs
 ```
 
+The `jobs` install is needed for the scheduled jobs' build and tests, not for running the app.
 The lockfiles pin package versions and integrity hashes but omit registry tarball URLs, so npm uses the registry configured for the environment. If the approved Microsoft proxy is required, use `npm run setup:approved`; this selects `https://packagefeedproxy.microsoft.io/npm/` for that command without changing saved npm settings or lockfiles. `npm run setup:dependencies` uses the current npm registry.
 
 ## Local app and sync
@@ -56,13 +58,14 @@ npm test
 npm run check:e2e
 npm run build
 npm run build:api
+npm run build:jobs
 ```
 
-The API integration suite uses the local emulator:
+The API and scheduled-jobs integration suites use the local emulator:
 
 ```powershell
 $env:RUN_AZURE_TESTS = "1"
-npm test -- tests\api.integration.test.ts
+npm test -- tests\api.integration.test.ts jobs\src\jobs.integration.test.ts
 ```
 
 The browser suite uses the production build. Build first, then run:

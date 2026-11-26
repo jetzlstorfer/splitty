@@ -117,6 +117,7 @@ for (const language of ["de", "en"] as const) for (const theme of ["light", "dar
     await expect(popover.getByLabel(language === "de" ? "Mitglieds-Token" : "Member token", { exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(popover).not.toBeVisible();
+    await expect(syncIndicator(page)).toHaveAttribute("aria-expanded", "false");
     await openSync(page);
     for (const viewport of viewports.slice(0, 2)) {
       await page.setViewportSize(viewport);

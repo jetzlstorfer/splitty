@@ -35,7 +35,7 @@ export default defineConfig(
     rules: { "react-hooks/exhaustive-deps": "error" }
   },
   {
-    files: ["*.{js,ts}", "api/**/*.ts", "tests/**/*.ts", "**/*.test.ts"],
+    files: ["*.{js,ts}", "api/**/*.ts", "jobs/**/*.ts", "tests/**/*.ts", "**/*.test.ts"],
     languageOptions: { globals: globals.node }
   }
 );

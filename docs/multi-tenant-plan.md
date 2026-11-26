@@ -10,8 +10,10 @@ deletion requests, locally generated invitation QR codes, and adaptive polling.
 Legacy member-token sign-in remains available. Existing-household token claims
 now bind a provider identity to the existing household partition, and the
 device adopts its legacy cache and pending changes without deleting the source
-database. Production migration still requires staging rehearsal,
-scheduled backup/permanent-deletion jobs, rate-limit counter retention, Entra
+database. The scheduled backup, permanent-deletion and cleanup jobs, monitoring,
+alerts and budget now exist as opt-in code and infrastructure (see
+[operations](operations.md)) but are not yet deployed or verified. Production
+migration still requires staging rehearsal, a restore tool and rehearsal, Entra
 identity deletion, and operational/legal readiness. Household record/daily
 quotas, invitation and household-creation limits, per-session request limits,
 and sign-in IP limits are enforced in the API. Real Entra callback validation
@@ -129,7 +131,9 @@ pilot.
 ## Current architecture
 
 - [`infra/main.bicep`](../infra/main.bicep) provisions Static Web Apps Free and
-  Standard LRS Table Storage, with West Europe as the default location. The
+  Standard LRS Table Storage, with West Europe as the default location, and
+  optionally monitoring, the scheduled jobs app with backup storage, alerts and
+  a budget ([operations](operations.md#infrastructure)). The
   frontend uses a same-origin managed Functions API.
 - [`api/src/config.ts`](../api/src/config.ts) selects one `HOUSEHOLD_ID` and two
   deployment-wide member tokens and names.
@@ -262,8 +266,9 @@ backup.
    reorders, switching during in-flight sync, saves during a pass, multiple
    tabs, session recovery, revocation, and offline account switching.
 4. The code now includes provider-aware sign-in, invitations, adaptive sync
-   cadence, and household lifecycle operations. Still add scoped backup and
-   restore plus the scheduled backup and deletion jobs. Validate two-device
+   cadence, and household lifecycle operations. The scheduled backup and
+   deletion jobs now exist as code ([operations](operations.md)); still add
+   scoped restore and deploy and verify the jobs. Validate two-device
    convergence and existing accounting behavior.
 5. Pilot in a separate staging deployment with synthetic households. Rehearse
    the existing-household claim using a disposable household and

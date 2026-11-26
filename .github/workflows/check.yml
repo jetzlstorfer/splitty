@@ -30,12 +30,14 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             api/package-lock.json
+            jobs/package-lock.json
       - run: npm ci
       - run: npm ci --prefix api
+      - run: npm ci --prefix jobs
       - run: npm run lint
       - run: npm test
       - run: npm run check:e2e
-      - run: npm run build && npm run build:api
+      - run: npm run build && npm run build:api && npm run build:jobs
       - name: Start isolated table emulator
         run: |
           mkdir -p "$RUNNER_TEMP/splitty-azurite"
@@ -45,7 +47,7 @@ jobs:
             sleep 1
           done
           exit 1
-      - run: npm test -- tests/api.integration.test.ts
+      - run: npm test -- tests/api.integration.test.ts jobs/src/jobs.integration.test.ts
         env:
           RUN_AZURE_TESTS: "1"
       - run: npx playwright install --with-deps chromium webkit

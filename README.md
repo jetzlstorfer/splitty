@@ -66,7 +66,7 @@ To enable this lookup in an external tenant, open the **Splitty web app registra
 
 For conflict handling, data retention, and the full sync lifecycle, see [synchronization and deployment](docs/synchronization-and-deployment.md).
 
-For the shared multi-household design and Azure cost outlook, see the [multi-tenant plan](docs/multi-tenant-plan.md). The code includes Entra-based accounts, existing-household claims, local-history adoption, household-scoped sessions and storage, invitations, lifecycle controls, and quota/rate enforcement; public sign-up is not production-ready until migration is rehearsed and scheduled backup/deletion, provider validation, and operational/legal review are complete.
+For the shared multi-household design and Azure cost outlook, see the [multi-tenant plan](docs/multi-tenant-plan.md). The code includes Entra-based accounts, existing-household claims, local-history adoption, household-scoped sessions and storage, invitations, lifecycle controls, and quota/rate enforcement. The scheduled backup, deletion and cleanup jobs, monitoring, alerts and budget exist as opt-in code and infrastructure described in [operations](docs/operations.md) but have not been deployed or rehearsed; public sign-up is not production-ready until migration is rehearsed, those operations are deployed and verified, and provider validation and operational/legal review are complete.
 
 ## Public legal pages
 
@@ -130,10 +130,11 @@ Use Node.js 22.13+ or 24+ and npm:
 ```powershell
 npm ci
 npm ci --prefix api
+npm ci --prefix jobs
 npm run dev
 ```
 
-Open <http://127.0.0.1:5173>. The frontend works on its own; without a backend, entries stay in that browser. If your environment requires the approved Microsoft npm proxy, use `npm run setup:approved` instead of the two install commands.
+Open <http://127.0.0.1:5173>. The frontend works on its own; without a backend, entries stay in that browser. The `jobs` install is only needed to build or test the scheduled jobs. If your environment requires the approved Microsoft npm proxy, use `npm run setup:approved` instead of the install commands.
 
 For local sign-in and sync, copy `api\local.settings.example.json` to `api\local.settings.json`, replace both member-token placeholders with independent random values, and run these in separate terminals:
 
@@ -164,6 +165,10 @@ The Azure resources are described in [`infra/main.bicep`](infra/main.bicep); dep
 2. Deploy the Bicep template only when creating new Azure resources. For an existing production deployment, do not redeploy this template or replace its storage account as part of the application cutover.
 3. Configure the Static Web App deployment secret `AZURE_STATIC_WEB_APPS_API_TOKEN` in the GitHub `production` environment.
 4. Push or merge to `main` to run [Deploy to Azure](.github/workflows/deploy.yml), then sign in on each device.
+
+Backups, scheduled deletion, monitoring, alerts and the budget are opt-in Bicep parameters and a separate
+[Deploy scheduled jobs](.github/workflows/deploy-jobs.yml) workflow; see [operations](docs/operations.md) for the parameters, the
+manual enabling steps and what has not been verified. Enable them before opening public sign-up.
 
 ### Existing household production cutover
 
@@ -216,6 +221,7 @@ npm test
 npm run check:e2e
 npm run build
 npm run build:api
+npm run build:jobs
 ```
 
 The API integration and browser tests use synthetic households. After building, run the browser suite with:
@@ -250,10 +256,10 @@ For the local API, emulator, and registry setup, see [development](docs/developm
 ## Dependency updates
 
 [Dependabot](.github/dependabot.yml) groups monthly npm version updates for the
-frontend and API. Routine releases must be at least seven days old at the scheduled
+frontend, API and scheduled jobs. Routine releases must be at least seven days old at the scheduled
 check. npm security updates use a separate group and wait for neither the cooldown
 nor the monthly schedule. GitHub Actions version updates have their own monthly group.
 
-Keep frontend and API TypeScript versions aligned. TypeScript upgrades must satisfy
+Keep frontend, API and jobs TypeScript versions aligned. TypeScript upgrades must satisfy
 the `typescript-eslint` peer dependency range; retain TypeScript 5.7 until a
 compatible compiler upgrade is validated rather than bypassing peer checks.

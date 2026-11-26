@@ -1,6 +1,7 @@
 import type { TableClient } from "@azure/data-tables";
 import { isInsuranceTodoSetting, validateChange, validateEntry, type MutationResult, type VersionedRecord } from "../../shared/model";
 import { validateTodo } from "../../shared/todo";
+import { scrubLog } from "../../shared/logScrub";
 import { authenticate, isSessionKey, logout, resumeSession, sessionCookie, signInWithToken } from "./auth";
 import { getConfig, HttpError } from "./config";
 import { beginEntraSignIn, completeEntraSignIn, getAccountDetails, getHouseholdNames, redeemDeviceKey } from "./entra";
@@ -31,7 +32,9 @@ async function body(request: Request): Promise<Record<string, unknown>> {
   return data as Record<string, unknown>;
 }
 
-export async function handler(request: Request, logError: (message: string) => void = console.error): Promise<Response> {
+export async function handler(
+  request: Request, logError: (message: string) => void = (message) => console.error(scrubLog(message))
+): Promise<Response> {
   try {
     const config = getConfig();
     const url = new URL(request.url), path = url.pathname.replace(/^\/api\/?/, "").replace(/\/$/, "");

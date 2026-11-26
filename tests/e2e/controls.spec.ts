@@ -6,8 +6,8 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/**", (route) => route.fulfill({ status: 401, json: { error: "Sign in to sync" } }));
 });
 
-async function english(page: Page, theme = "light") {
-  await page.goto(`/?scoutTheme=${theme}`);
+async function english(page: Page) {
+  await page.goto("/?scoutTheme=light");
   await page.getByRole("navigation").getByRole("button", { name: "Einstellungen", exact: true }).click();
   await chooseOption(page, page.getByLabel("App-Sprache", { exact: true }), "English");
 }
@@ -29,6 +29,13 @@ async function fits(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   for (const dialog of await page.locator("dialog[open]").all()) {
     expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  }
+}
+
+async function inEachTheme(page: Page, check: (theme: string, background: string) => Promise<void>) {
+  for (const [theme, background] of [["light", "rgb(255, 255, 255)"], ["dark", "rgb(28, 37, 36)"]] as const) {
+    await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
+    await check(theme, background);
   }
 }
 
@@ -100,17 +107,18 @@ test.describe("touch controls", () => {
     });
   }
 
-  for (const theme of ["light", "dark"]) for (const width of [320, 393, 1280]) {
-    test(`${theme} app controls at ${width}px never open native pickers or confirmations`, async ({ page }, info) => {
+  for (const width of [320, 393, 1280]) {
+    test(`app controls at ${width}px never open native pickers or confirmations in light and dark mode`, async ({ page }, info) => {
       await page.setViewportSize({ width, height: 900 });
       await page.emulateMedia({ reducedMotion: "reduce" });
       const nativeDialogs: string[] = [];
       page.on("dialog", async (dialog) => { nativeDialogs.push(dialog.type()); await dialog.dismiss(); });
-      await english(page, theme);
-      const background = theme === "light" ? "rgb(255, 255, 255)" : "rgb(28, 37, 36)";
+      await english(page);
       await page.getByLabel("This device belongs to").tap();
-      await expect(page.locator(".control-dialog")).toHaveCSS("background-color", background);
-      await fits(page);
+      await inEachTheme(page, async (_, background) => {
+        await expect(page.locator(".control-dialog")).toHaveCSS("background-color", background);
+        await fits(page);
+      });
       await page.getByRole("option").nth(1).tap();
       await expect(page.getByLabel("This device belongs to")).toHaveText("Your spouse");
 
@@ -127,12 +135,14 @@ test.describe("touch controls", () => {
       await second.tap();
       await expect(second).toBeChecked();
       await expect(page.locator(".control-dialog")).toHaveCount(0);
-      const left = await payers.locator("label").nth(0).boundingBox();
-      const right = await payers.locator("label").nth(1).boundingBox();
-      expect(left!.y).toBe(right!.y);
-      expect(left!.width).toBeCloseTo(right!.width, 0);
-      expect(right!.x).toBeGreaterThanOrEqual(left!.x + left!.width);
-      expect(left!.height).toBeGreaterThanOrEqual(48);
+      await inEachTheme(page, async () => {
+        const left = await payers.locator("label").nth(0).boundingBox();
+        const right = await payers.locator("label").nth(1).boundingBox();
+        expect(left!.y).toBe(right!.y);
+        expect(left!.width).toBeCloseTo(right!.width, 0);
+        expect(right!.x).toBeGreaterThanOrEqual(left!.x + left!.width);
+        expect(left!.height).toBeGreaterThanOrEqual(48);
+      });
       await second.focus();
       await page.keyboard.press("ArrowLeft");
       await expect(first).toBeFocused();
@@ -140,26 +150,30 @@ test.describe("touch controls", () => {
       await page.keyboard.press("ArrowRight");
       await expect(second).toBeFocused();
       await expect(second).toBeChecked();
-      await fits(page);
-      await page.screenshot({ path: info.outputPath(`expense-${theme}-${width}.png`) });
+      await inEachTheme(page, async (theme) => {
+        await fits(page);
+        await page.screenshot({ path: info.outputPath(`expense-${theme}-${width}.png`) });
+      });
       await form.getByLabel("Date", { exact: true }).fill("2026-03-31");
       await form.getByRole("button", { name: "Choose date", exact: true }).tap();
       const calendar = page.getByRole("dialog", { name: "Choose date", exact: true });
-      await expect(calendar).toHaveCSS("background-color", background);
       await expect(calendar.getByRole("gridcell", { name: "Tuesday 31 March 2026" })).toHaveAttribute("aria-selected", "true");
       await calendar.getByRole("button", { name: "Next month", exact: true }).tap();
       await expect(calendar.getByRole("heading", { name: "April 2026" })).toBeVisible();
-      await fits(page);
-      await page.screenshot({ path: info.outputPath(`calendar-${theme}-${width}.png`) });
+      await inEachTheme(page, async (theme, background) => {
+        await expect(calendar).toHaveCSS("background-color", background);
+        await fits(page);
+        await page.screenshot({ path: info.outputPath(`calendar-${theme}-${width}.png`) });
+      });
       await calendar.getByRole("gridcell", { name: "Thursday 30 April 2026" }).tap();
       await expect(form.getByLabel("Date", { exact: true })).toHaveValue("2026-04-30");
       await form.getByLabel("Category", { exact: true }).tap();
       await expect(page.getByRole("option", { name: "Automatic", exact: true })).toHaveAttribute("aria-selected", "true");
-      await fits(page);
+      await inEachTheme(page, () => fits(page));
       await page.getByRole("option", { name: "Groceries", exact: true }).tap();
       await expect(form.getByLabel("Category", { exact: true })).toHaveText("Groceries");
       await form.getByRole("button", { name: /Split equally/ }).tap();
-      await expect(form.getByRole("radio", { name: "Equally · 50/50" })).toHaveCSS("appearance", "none");
+      await inEachTheme(page, () => expect(form.getByRole("radio", { name: "Equally · 50/50" })).toHaveCSS("appearance", "none"));
       await form.getByRole("radio", { name: "I owe the full amount" }).check();
       await form.getByRole("button", { name: "Save", exact: true }).tap();
       await expect(form).not.toBeVisible();
@@ -172,8 +186,10 @@ test.describe("touch controls", () => {
       const confirmation = page.locator(".control-dialog");
       await expect(confirmation).toContainText("Delete this entry for both of you?");
       await expect(confirmation.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
-      await expect(confirmation).toHaveCSS("background-color", background);
-      await fits(page);
+      await inEachTheme(page, async (_, background) => {
+        await expect(confirmation).toHaveCSS("background-color", background);
+        await fits(page);
+      });
       await confirmAction(page, "Cancel");
       await expect(edit.getByRole("button", { name: "Delete entry", exact: true })).toBeFocused();
       await edit.getByRole("button", { name: "Close", exact: true }).tap();
@@ -184,13 +200,13 @@ test.describe("touch controls", () => {
       await page.getByLabel("Title", { exact: true }).fill("Themed task");
       await page.getByRole("button", { name: "Save", exact: true }).tap();
       const checkbox = page.getByRole("checkbox", { name: "Themed task", exact: true });
-      await expect(checkbox).toHaveCSS("appearance", "none");
+      await inEachTheme(page, () => expect(checkbox).toHaveCSS("appearance", "none"));
       await checkbox.tap();
       await expect(checkbox).toBeChecked();
       await checkbox.focus();
       await page.keyboard.press("Space");
       await expect(checkbox).not.toBeChecked();
-      await fits(page);
+      await inEachTheme(page, () => fits(page));
       await expect(page.locator('select, input[type="date"]')).toHaveCount(0);
       expect(nativeDialogs).toEqual([]);
     });
@@ -271,28 +287,40 @@ test.describe("touch controls", () => {
     await expect(second).toHaveValue("Jamie");
   });
 
-  for (const provider of ["email", "google", "microsoft"] as const) {
-    test(`account settings show ${provider} and the available profile in both languages and themes`, async ({ page }, info) => {
-      const email = `${"alex".repeat(35)}@example.invalid`;
-      await page.route("**/api/me", (route) => route.fulfill({ json: {
-        userId: "user-profile", householdId: "household-profile", member: "a", nameA: "Alex", nameB: "Sam",
-        signInProvider: provider, displayName: "Alex Profile", email,
-        pictureUrl: "https://profiles.example.invalid/avatar.png"
-      } }));
-      await mockHouseholdSync(page);
-      await page.route("https://profiles.example.invalid/avatar.png", (route) => route.fulfill({
-        contentType: "image/png",
-        body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a6XcAAAAASUVORK5CYII=", "base64")
-      }));
-      await page.goto("/");
-      await page.getByRole("navigation").getByRole("button", { name: "Einstellungen", exact: true }).tap();
-      const german = page.getByRole("region", { name: "Konto", exact: true });
-      const label = provider === "email" ? "E-Mail" : provider === "google" ? "Google" : "Microsoft";
-      await expect(german).toContainText(`Mit ${label} angemeldet`);
+  test("account settings show each sign-in provider and the available profile in both languages and themes", async ({ page }, info) => {
+    const providers = ["email", "google", "microsoft"] as const;
+    const label = { email: "E-Mail", google: "Google", microsoft: "Microsoft" } as const;
+    const email = `${"alex".repeat(35)}@example.invalid`;
+    let provider: (typeof providers)[number] = providers[0];
+    await page.route("**/api/me", (route) => route.fulfill({ json: {
+      userId: "user-profile", householdId: "household-profile", member: "a", nameA: "Alex", nameB: "Sam",
+      signInProvider: provider, displayName: "Alex Profile", email,
+      pictureUrl: "https://profiles.example.invalid/avatar.png"
+    } }));
+    await mockHouseholdSync(page);
+    await page.route("https://profiles.example.invalid/avatar.png", (route) => route.fulfill({
+      contentType: "image/png",
+      body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a6XcAAAAASUVORK5CYII=", "base64")
+    }));
+    // Window focus refreshes the identity in place; a reload would be service-worker controlled,
+    // which bypasses WebKit route mocks.
+    const signInWith = async (next: typeof provider) => {
+      provider = next;
+      await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    };
+    await page.goto("/");
+    await page.getByRole("navigation").getByRole("button", { name: "Einstellungen", exact: true }).tap();
+    const german = page.getByRole("region", { name: "Konto", exact: true });
+    for (const next of providers) {
+      await signInWith(next);
+      await expect(german).toContainText(`Mit ${label[next]} angemeldet`);
       await expect(german.getByText("Alex Profile", { exact: true })).toBeVisible();
-      await chooseOption(page, page.getByLabel("App-Sprache", { exact: true }), "English");
-      const account = page.getByRole("region", { name: "Account", exact: true });
-      await expect(account).toContainText(`Signed in with ${provider === "email" ? "email" : label}`);
+    }
+    await chooseOption(page, page.getByLabel("App-Sprache", { exact: true }), "English");
+    const account = page.getByRole("region", { name: "Account", exact: true });
+    for (const next of providers) {
+      await signInWith(next);
+      await expect(account).toContainText(`Signed in with ${next === "email" ? "email" : label[next]}`);
       await expect(account.getByText(email, { exact: true })).toBeVisible();
       await expect(account.locator("img")).toHaveAttribute("referrerpolicy", "no-referrer");
       await expect.poll(() => account.locator("img").evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1);
@@ -304,9 +332,9 @@ test.describe("touch controls", () => {
           await expect(account.getByText(email, { exact: true })).toBeVisible();
         }
       }
-      if (provider === "google") await page.screenshot({ path: info.outputPath("account-settings.png"), fullPage: true });
-    });
-  }
+      if (next === "google") await page.screenshot({ path: info.outputPath("account-settings.png"), fullPage: true });
+    }
+  });
 
   test("account settings handle older sessions and unavailable profile photos", async ({ page }) => {
     const identity = {

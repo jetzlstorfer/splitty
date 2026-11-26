@@ -55,28 +55,31 @@ test.describe("public legal pages", () => {
 });
 
 for (const language of ["de", "en"] as const) {
-  for (const width of [320, 393, 1280]) {
-    for (const theme of ["light", "dark"] as const) {
-      test(`empty expenses onboarding in ${language}, ${theme}, ${width}px`, async ({ page }, info) => {
-        await page.setViewportSize({ width, height: 851 });
-        await page.emulateMedia({ colorScheme: theme });
-        if (language === "en") await useEnglish(page);
-        else await page.goto("/");
-        const text = copy[language];
-        await expect(page.locator(".household-members")).toHaveText(text.members);
-        const welcome = page.locator(".expense-welcome");
-        await expect(welcome.getByRole("heading", { name: text.heading, exact: true })).toBeVisible();
-        await expect(welcome.getByText(text.intro, { exact: true })).toBeVisible();
-        await expect(welcome.getByText(text.hint, { exact: true })).toBeVisible();
-        await expect(page.getByRole("button", { name: text.add, exact: true })).toBeVisible();
-        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-        const bounds = await welcome.boundingBox();
-        const action = await page.locator(".expense-action").boundingBox();
-        expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(action!.y);
-        await page.screenshot({ path: info.outputPath(`onboarding-${language}-${theme}-${width}.png`), fullPage: true });
-      });
+  test(`empty expenses onboarding in ${language} fits 320, 393 and 1280px in light and dark mode`, async ({ page }, info) => {
+    if (language === "en") await useEnglish(page);
+    else await page.goto("/");
+    const text = copy[language];
+    const welcome = page.locator(".expense-welcome");
+    for (const width of [320, 393, 1280]) {
+      await page.setViewportSize({ width, height: 851 });
+      for (const theme of ["light", "dark"] as const) {
+        await test.step(`${width}px ${theme}`, async () => {
+          await page.emulateMedia({ colorScheme: theme });
+          await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+          await expect(page.locator(".household-members")).toHaveText(text.members);
+          await expect(welcome.getByRole("heading", { name: text.heading, exact: true })).toBeVisible();
+          await expect(welcome.getByText(text.intro, { exact: true })).toBeVisible();
+          await expect(welcome.getByText(text.hint, { exact: true })).toBeVisible();
+          await expect(page.getByRole("button", { name: text.add, exact: true })).toBeVisible();
+          expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+          const bounds = await welcome.boundingBox();
+          const action = await page.locator(".expense-action").boundingBox();
+          expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(action!.y);
+          await page.screenshot({ path: info.outputPath(`onboarding-${language}-${theme}-${width}.png`), fullPage: true });
+        });
+      }
     }
-  }
+  });
 
   test(`first expense replaces onboarding and uses neutral spouse labels in ${language}`, async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 740 });

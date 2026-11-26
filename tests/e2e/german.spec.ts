@@ -1,5 +1,7 @@
-import { expect, test, type Page } from "./fixtures";
+import { expect, test, type Locator, type Page } from "./fixtures";
 import { chooseOption } from "./controls";
+
+const sport = (scope: Page | Locator) => scope.getByRole("img", { name: "Sport", exact: true });
 
 async function addGerman(page: Page, description: string, amount = "12,34") {
   await page.locator(".add-button").click();
@@ -60,27 +62,42 @@ test("German is the default and category icons update while typing, saving and e
   await page.screenshot({ path: info.outputPath("german-expense-icons.png") });
 });
 
-test("Sport is selectable, persists and appears in German and English search and statistics", async ({ page }) => {
+test("Sport shows a soccer ball, is selectable, persists and appears in search, statistics and the English list", async ({ page }, info) => {
   await page.goto("/");
   const dialog = await addGerman(page, "Hallenbad");
-  await expect(dialog.getByRole("img", { name: "Sport", exact: true })).toBeVisible();
+  await expect(sport(dialog)).toBeVisible();
+  await expect(sport(dialog).locator("svg")).toHaveClass(/lucide-soccer-ball/);
   await chooseOption(page, dialog.getByLabel("Kategorie", { exact: true }), "Sport");
   await dialog.getByLabel("Beschreibung", { exact: true }).fill("Vereinsbeitrag");
   await saveGerman(page);
   await page.reload();
-  await expect(page.locator(".expense-row").getByRole("img", { name: "Sport", exact: true })).toBeVisible();
+  const row = page.locator(".expense-row").filter({ hasText: "Vereinsbeitrag" });
+  await expect(sport(page.locator(".expense-row"))).toBeVisible();
+  await expect(sport(row).locator("svg")).toHaveClass(/lucide-soccer-ball/);
   await page.getByText("Vereinsbeitrag", { exact: true }).click();
   await expect(page.getByLabel("Kategorie", { exact: true })).toHaveText("Sport");
   await page.getByRole("button", { name: "Schließen", exact: true }).click();
   await page.getByRole("button", { name: "Suche", exact: true }).click();
   await page.getByLabel("Ausgaben suchen", { exact: true }).fill("Sport");
   await expect(page.getByText("Vereinsbeitrag", { exact: true })).toBeVisible();
+  await expect(sport(row).locator("svg")).toHaveClass(/lucide-soccer-ball/);
   await page.getByRole("button", { name: "Statistik", exact: true }).click();
   await expect(page.locator(".statistics-categories li").filter({ hasText: "Sport" })).toBeVisible();
+  await expect(sport(page.locator(".statistics-category-icon")).locator("svg")).toHaveClass(/lucide-soccer-ball/);
   await page.getByRole("button", { name: "Einstellungen", exact: true }).click();
   await chooseOption(page, page.getByLabel("App-Sprache", { exact: true }), "English");
   await page.getByRole("button", { name: "Expenses", exact: true }).click();
-  await expect(page.locator(".expense-row").getByRole("img", { name: "Sport", exact: true })).toBeVisible();
+  await expect(sport(page.locator(".expense-row"))).toBeVisible();
+  await page.screenshot({ path: info.outputPath("sports-soccer-ball.png") });
+  await row.screenshot({ path: info.outputPath("sports-soccer-ball-detail.png") });
+  for (const width of [320, 393, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const theme of ["light", "dark"]) {
+      await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
+      await expect(sport(row).locator("svg")).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    }
+  }
 });
 
 test("language persists offline and does not change expenses or manual categories", async ({ page, context }, info) => {

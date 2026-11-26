@@ -72,32 +72,42 @@ test("insurance reminders are interleaved by date and keep their slot when manua
   await expect(open.getByRole("listitem").nth(2)).toContainText("Neuere Aufgabe");
 });
 
-test("doctor and pharmacy expenses create insurance to-dos that can be checked off", async ({ page }) => {
+test("doctor, specialist and pharmacy expenses create insurance to-dos that can be checked off", async ({ page }) => {
   await page.goto("/");
   const nav = page.getByRole("navigation", { name: "Hauptnavigation" });
   await expect(nav.getByRole("button")).toHaveText([/Ausgaben/, /To-dos/, /Suche/, /Statistik/, /Einstellungen/]);
   await add(page, "Apotheke");
   await add(page, "Arzt Dr. Huber");
+  await add(page, "Zahnärztin");
   await add(page, "Billa");
 
   await nav.getByRole("button", { name: "To-dos" }).click();
-  await expect(page.locator(".todos-page .page-heading p")).toHaveText("2 offen");
+  await expect(page.locator(".todos-page .page-heading p")).toHaveText("3 offen");
   const open = page.getByRole("region", { name: "Offene To-dos" });
   await expect(open.getByRole("heading")).toHaveCount(0);
   await expect(open.locator(".section-label")).toHaveCount(0);
-  await expect(open.getByRole("listitem")).toHaveCount(2);
+  await expect(open.getByRole("listitem")).toHaveCount(3);
   await expect(open.getByRole("listitem").first()).toContainText("Bei Versicherung einreichen");
   await expect(open).toContainText("Apotheke");
   await expect(open).toContainText("Arzt Dr. Huber");
+  await expect(open.getByRole("listitem").filter({ hasText: "Zahnärztin" })).toContainText("Bei Versicherung einreichen");
   await expect(page.getByText("Billa")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "To-do-Aktionen: Zahnärztin", exact: true }).click();
+  await page.getByRole("button", { name: "Ausgabe öffnen: Zahnärztin", exact: true }).click();
+  const specialist = page.getByRole("dialog", { name: "Eintrag bearbeiten" });
+  await expect(specialist.getByLabel("Kategorie", { exact: true })).toHaveText("Automatisch");
+  await expect(specialist.getByRole("status")).toContainText("Gesundheit");
+  await specialist.getByRole("button", { name: "Speichern", exact: true }).click();
+  await expect(specialist).not.toBeVisible();
 
   await open.getByRole("listitem").filter({ hasText: "Apotheke" }).getByRole("checkbox").click();
   const done = page.getByRole("region", { name: "Erledigt" });
   await expect(done.getByRole("heading", { level: 2 })).toHaveText("Erledigt");
-  await expect(page.locator(".todos-page .page-heading p")).toHaveText("1 offen");
+  await expect(page.locator(".todos-page .page-heading p")).toHaveText("2 offen");
   await expect(done.getByRole("checkbox")).toBeChecked();
   await expect(done).toContainText("Apotheke");
-  await expect(open.getByRole("listitem")).toHaveCount(1);
+  await expect(open.getByRole("listitem")).toHaveCount(2);
 
   await page.reload();
   await nav.getByRole("button", { name: "To-dos" }).click();
@@ -211,7 +221,8 @@ test.describe("touch insurance setting", () => {
   });
 });
 
-test("manual and insurance to-dos celebrate in the open list before moving to done", async ({ page }) => {
+test("manual and insurance to-dos celebrate in the open list before moving to done unless motion is reduced", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.clock.install();
   await page.goto("/");
   const nav = page.getByRole("navigation", { name: "Hauptnavigation" });
@@ -231,6 +242,7 @@ test("manual and insurance to-dos celebrate in the open list before moving to do
     await expect(row).toBeVisible();
     await expect(row.getByRole("checkbox")).toBeChecked();
     await expect(row.locator(".todo-confetti")).toBeVisible();
+    await expect(row.locator(".todo-confetti i").first()).toHaveCSS("animation-name", "todo-confetti-burst");
     await expect(row.locator(".todo-confetti i").first()).toHaveCSS("animation-duration", "1.05s");
     await expect.poll(() => row.evaluate((element) => Array.from(element.parentElement!.children).indexOf(element))).toBe(originalPosition);
     await expect(done.getByRole("listitem").filter({ hasText: title })).toHaveCount(0);
@@ -248,6 +260,13 @@ test("manual and insurance to-dos celebrate in the open list before moving to do
   await addOn(page, "Arzt Dr. Meier", "2026-09-01");
   await nav.getByRole("button", { name: "To-dos" }).click();
   await completeWithAnimation("Arzt Dr. Huber");
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await addTodo(page, "Quiet completion");
+  await open.getByRole("listitem").filter({ hasText: "Quiet completion" }).getByRole("checkbox").click();
+  const quiet = done.getByRole("listitem").filter({ hasText: "Quiet completion" });
+  await expect(quiet.getByRole("checkbox")).toBeChecked();
+  await expect(quiet.locator(".todo-confetti")).toHaveCount(0);
 });
 
 for (const kind of ["manual", "insurance"] as const) {
@@ -278,26 +297,6 @@ for (const kind of ["manual", "insurance"] as const) {
     await expect(page.getByRole("checkbox")).not.toBeChecked();
   });
 }
-
-test("doctor specialties map to Gesundheit and create insurance to-dos", async ({ page }) => {
-  await page.goto("/");
-  for (const description of ["Augenarzt", "Zahnarzt", "Zahnärztin"]) {
-    await add(page, description);
-  }
-  const nav = page.getByRole("navigation", { name: "Hauptnavigation" });
-  await nav.getByRole("button", { name: "To-dos" }).click();
-  const open = page.getByRole("region", { name: "Offene To-dos" });
-  await expect(open.getByRole("listitem")).toHaveCount(3);
-  for (const description of ["Augenarzt", "Zahnarzt", "Zahnärztin"]) {
-    await expect(open.getByRole("listitem").filter({ hasText: description }).first()).toContainText("Bei Versicherung einreichen");
-    await page.getByRole("button", { name: `To-do-Aktionen: ${description}`, exact: true }).click();
-    await page.getByRole("button", { name: `Ausgabe öffnen: ${description}`, exact: true }).click();
-    const dialog = page.getByRole("dialog", { name: "Eintrag bearbeiten" });
-    await expect(dialog.getByLabel("Kategorie", { exact: true })).toHaveText("Automatisch");
-    await expect(dialog.getByRole("status")).toContainText("Gesundheit");
-    await dialog.getByRole("button", { name: "Speichern", exact: true }).click();
-  }
-});
 
 test("the same member's devices sync completions saved during a slow sync and reopened to-dos", async ({ browser }) => {
   const mobileContext = await browser.newContext({ viewport: { width: 393, height: 851 }, serviceWorkers: "block" });

@@ -237,8 +237,10 @@ servers, settings, credentials, or data are reused. Chromium runs the main suite
 WebKit runs focused mobile/PWA and themed-control tests. See [development](docs/development.md#checks)
 for focused commands and coverage ownership.
 
-The suite uses two workers and stops after the first failure. Use
-`npm run test:e2e -- --max-failures=0` to collect all failures.
+Local runs use three workers and parallelize tests within each file; CI keeps
+two workers and runs each file sequentially. The suite stops after the first
+failure by default. Use `npm run test:e2e -- --max-failures=0` to collect all
+failures, or `--workers=1` on a memory-constrained machine.
 
 For just the themed-control regressions in Safari's engine, run
 `npm run test:e2e -- --project=webkit controls.spec.ts`. These cover mobile touch and

@@ -88,11 +88,12 @@ Persistent Chromium profiles use short, task-owned OS temporary directories:
 deep paths under test results can make CacheStorage fail on Windows. Close the
 context before removing its profile.
 
-Browser tests run with two workers, keeping tests within each file sequential.
-Workers have separate process environments, emulators, and previews. The runner
-stops scheduling tests after the first failure; another in-flight test may be
+Local browser tests run with three workers and can parallelize tests within each
+file. CI keeps two workers and runs tests within each file sequentially. Workers
+have separate process environments, emulators, and previews. The runner stops
+scheduling tests after the first failure; another in-flight test may be
 interrupted. Disable fail-fast for a full diagnostic report or select one worker
-when investigating timing issues:
+when investigating timing issues or running on a memory-constrained machine:
 
 ```powershell
 npm run test:e2e -- --max-failures=0

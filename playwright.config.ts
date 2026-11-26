@@ -1,9 +1,11 @@
 import { defineConfig } from "@playwright/test";
 
+const isCI = Boolean(process.env.CI);
+
 export default defineConfig({
   testDir: "./tests/e2e",
-  fullyParallel: false,
-  workers: 2,
+  fullyParallel: !isCI,
+  workers: isCI ? 2 : 3,
   maxFailures: 1,
   timeout: 60_000,
   reporter: "list",

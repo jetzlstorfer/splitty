@@ -1,7 +1,13 @@
-import { expect, test, type Locator } from "./fixtures";
+import { expect, test, type Locator, type Page } from "./fixtures";
 import { openSync, signIn, syncIndicator, upToDate, useEnglish } from "./helpers";
 
 test.use({ isMobile: true, hasTouch: true, deviceScaleFactor: 3 });
+
+const themes = ["light", "dark"] as const;
+
+async function useTheme(page: Page, theme: (typeof themes)[number]) {
+  await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
+}
 
 const viewports = [
   { width: 402, height: 874 },
@@ -57,13 +63,12 @@ async function expectActionFits(button: Locator) {
   }
 }
 
-for (const language of ["de", "en"] as const) for (const theme of ["light", "dark"] as const) {
-  test(`${language} sync and account actions fit mobile viewports in ${theme} mode`, async ({ page }, info) => {
+for (const language of ["de", "en"] as const) {
+  test(`${language} sync and account actions fit mobile viewports in light and dark mode`, async ({ page }, info) => {
     if (language === "en") await useEnglish(page);
     else await page.goto("/");
     await signIn(page);
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
     const popover = page.locator(".sync-popover");
     const sync = popover.getByRole("button", { name: language === "de" ? "Jetzt synchronisieren" : "Sync now", exact: true });
     const signOut = page.getByRole("button", { name: language === "de" ? "Abmelden" : "Sign out", exact: true });
@@ -73,20 +78,23 @@ for (const language of ["de", "en"] as const) for (const theme of ["light", "dar
     await expect(popover.getByRole("button", { name: language === "de" ? "Abmelden" : "Sign out", exact: true })).toHaveCount(0);
 
     for (const viewport of viewports) {
-      await test.step(`${viewport.width}x${viewport.height}`, async () => {
-        await page.setViewportSize(viewport);
-        await popover.evaluate((element) => { element.scrollTop = 0; });
-        if (viewport.width === 402 || viewport.width === 320) {
-          await page.screenshot({ path: info.outputPath(`sync-${language}-${theme}-${viewport.width}.png`) });
-        }
-        await expectActionFits(sync);
-        const bounds = (await popover.boundingBox())!;
-        expect(bounds.x).toBeGreaterThanOrEqual(12);
-        expect(bounds.x + bounds.width).toBeLessThanOrEqual(viewport.width - 12);
-        expect(bounds.y + bounds.height).toBeLessThanOrEqual(viewport.height);
-        expect(await popover.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
-        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      });
+      await page.setViewportSize(viewport);
+      for (const theme of themes) {
+        await test.step(`${viewport.width}x${viewport.height} ${theme}`, async () => {
+          await useTheme(page, theme);
+          await popover.evaluate((element) => { element.scrollTop = 0; });
+          if (viewport.width === 402 || viewport.width === 320) {
+            await page.screenshot({ path: info.outputPath(`sync-${language}-${theme}-${viewport.width}.png`) });
+          }
+          await expectActionFits(sync);
+          const bounds = (await popover.boundingBox())!;
+          expect(bounds.x).toBeGreaterThanOrEqual(12);
+          expect(bounds.x + bounds.width).toBeLessThanOrEqual(viewport.width - 12);
+          expect(bounds.y + bounds.height).toBeLessThanOrEqual(viewport.height);
+          expect(await popover.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+          expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        });
+      }
     }
     await close.tap();
     await expect(popover).not.toBeVisible();
@@ -102,7 +110,10 @@ for (const language of ["de", "en"] as const) for (const theme of ["light", "dar
     await expect(signOut).toBeVisible();
     for (const viewport of viewports.slice(0, 2)) {
       await page.setViewportSize(viewport);
-      await expectActionFits(signOut);
+      for (const theme of themes) {
+        await useTheme(page, theme);
+        await expectActionFits(signOut);
+      }
     }
     await signOut.tap();
     await openSync(page);
@@ -114,14 +125,18 @@ for (const language of ["de", "en"] as const) for (const theme of ["light", "dar
     await expect(popover).not.toBeVisible();
     await accountSignIn.tap();
     await expect(popover).toBeVisible();
-    await expect(popover.getByLabel(language === "de" ? "Mitglieds-Token" : "Member token", { exact: true })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: language === "de" ? "Synchronisierung" : "Synchronization", exact: true })
+      .getByLabel(language === "de" ? "Mitglieds-Token" : "Member token", { exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(popover).not.toBeVisible();
     await expect(syncIndicator(page)).toHaveAttribute("aria-expanded", "false");
     await openSync(page);
     for (const viewport of viewports.slice(0, 2)) {
       await page.setViewportSize(viewport);
-      await expectActionFits(sync);
+      for (const theme of themes) {
+        await useTheme(page, theme);
+        await expectActionFits(sync);
+      }
     }
     await page.keyboard.press("Escape");
     await expect(popover).not.toBeVisible();

@@ -164,6 +164,10 @@ Keep coverage at the narrowest useful layer:
   transactional queues; a completed click alone does not mean a save persisted.
 - [Isolation tests](../tests/e2e/isolation.spec.ts) deliberately repeat the same
   descriptions in sequential tests, proving that backend state cannot leak.
+- [Receipt tests](../tests/e2e/receipts.spec.ts) run the real local OCR engine on
+  generated images. Receipt parsing rules belong in unit tests; browsers cover
+  explicit review/save, blocked saving while scanning, currency safeguards,
+  cancellation, and scanning after an offline reload.
 
 PR checks and manual deployments run lint, unit tests, E2E type-checking, frontend
 and API builds, emulator-backed API tests, and both browser projects. Automatic

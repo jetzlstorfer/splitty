@@ -20,6 +20,7 @@ The screenshots below show the expenses and to-do screens with synthetic sample 
 - Install the PWA from the app on supported Android browsers; on iPhone, use **Install** for the browser's Add to Home Screen steps. The button disappears after installation. The app works offline; queued changes sync when a device reconnects.
 - Import German or English Splitwise CSV exports and check the final balance before confirming.
 - Categorize expenses automatically, switch between German and English, and download or restore backups.
+- Optionally scan German/English receipts on-device, review suggestions, and download the scanner for offline use.
 
 By default, new health and pharmacy receipts create insurance reminders. Either member can turn **Settings → To-dos → Automatic insurance to-dos** off for the household. This applies to newly entered receipts and CSV imports, not to existing reminders or their completion status. Turning it back on does not create reminders for skipped receipts. An offline device uses its last known setting until it syncs. Manual to-dos remain separate from the ledger and never affect balances.
 Like expense rows, to-do rows open their details when selected. Use the checkbox at the left to complete or reopen a to-do; insurance reminders open the associated expense.
@@ -70,6 +71,55 @@ For the shared multi-household design and Azure cost outlook, see the [multi-ten
 `/privacy` and `/terms` are public, sign-in-free pages linked from the app. Direct visits do not open the ledger or call the API. German is the default; use `?lang=en` or the language links for English. App links preserve the selected language. The existing SPA fallback serves direct visits to either URL.
 
 These pages do not enable account sign-in or public registration.
+
+## Local receipt scanning
+
+In a **new expense**, choose **Beleg scannen (optional) / Scan receipt (optional)**,
+then **Scanner herunterladen / Download scanner**. The optional download is about
+16 MB, hosted with Splitty rather than a third-party OCR service. It includes the
+Tesseract.js WebAssembly runtime and German/English language data. Manual entry
+does not download these assets and does not depend on the scanner.
+
+Take a photo with the Android camera picker or choose a JPEG, PNG, or WebP image
+under 20 MB. Use a sharp, upright photo cropped around the receipt. Processing
+runs locally in a cancellable worker; keep the app open while scanning. Large
+photos are resized before recognition. Speed and accuracy depend on the phone,
+receipt layout, print quality, and lighting; this is best-effort autofill, not
+reliable financial document understanding.
+
+Review the suggested merchant, date, total, currency, and any warnings. **Use
+suggestions** copies identified fields into the editable expense form; fields
+without a suggestion keep their existing value. Payer and split are unchanged.
+Review/correct the form and explicitly **Save** it. Scanning, retrying, cancelling,
+closing the form, or applying suggestions never creates an expense on its own.
+Low-confidence text and ambiguous totals/dates are left for manual entry.
+Recognized text is available for inspection while the form is open.
+
+The ledger remains EUR-only. A detected foreign or mixed currency never fills
+the amount; enter a converted EUR amount manually. If no currency is recognized,
+confirm that the receipt is in EUR before applying its total. No exchange rates
+or automatic currency conversion are provided.
+
+After the scanner download, scanning works offline once the app's service worker
+controls the page, which happens from the next app load after installation, and
+continues to work after an offline reload. The OCR assets use a separate cache
+and are excluded from the normal app-shell download. Clearing or evicting browser
+storage requires another download. Offline behavior requires a production build;
+the Vite development server is for online development. If downloading or scanning
+fails, an error is shown and manual entry remains available.
+
+Splitty never uploads or persists receipt photos or OCR text, and provides no
+receipt-image sharing or retrieval endpoint. The camera/gallery may retain its
+own original photo outside Splitty. Only the confirmed expense fields enter the
+existing household sync and backups. There is no cloud OCR fallback, OCR API key,
+per-scan OCR charge, or added receipt storage; normal static hosting/download
+costs still apply. Use a trusted device with a screen lock, as with the ledger.
+
+The build serves the pinned OCR packages under `receipt-ocr-v1`, including their
+runtime license notices. When updating the runtime or language packages, bump
+the asset/cache version in `src\receiptAssets.ts`, the service-worker route in
+`vite.config.ts`, and the fallback exclusion in `public\staticwebapp.config.json`
+together so cached assets cannot mix incompatible versions.
 
 ## Run locally
 
@@ -188,6 +238,10 @@ keyboard behavior in both themes; WebKit emulation does not replace testing on a
 physical iPhone.
 
 See [browser validation](.github/skills/browser-validation/SKILL.md) and [offline-sync validation](.github/skills/offline-sync-validation/SKILL.md) for focused test setup. See [Copilot instructions](.github/copilot-instructions.md) for repository conventions.
+
+Receipt browser checks use generated, non-personal receipt images and the real
+local OCR engine. They cover editable suggestions, currency safeguards, retries,
+cancellation, download failures, and scanning again after an offline reload.
 
 For the local API, emulator, and registry setup, see [development](docs/development.md).
 

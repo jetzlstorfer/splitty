@@ -17,7 +17,8 @@ const sections: Record<LegalDocument, Section[]> = {
       heading: "Data and use",
       paragraphs: [
         "Splitty is a free, non-commercial project. It uses household names, expense details, amounts, shares, settlements and to-dos to provide a shared ledger. Synced household data is stored in a Microsoft Azure cloud region within the EU and shared with authorized household members.",
-        "When enabled, sign-in is handled by Microsoft Entra using email, Google or Microsoft accounts. Splitty receives an account identifier and profile details such as your name and email, not your password. See the providers' privacy notices below."
+        "When enabled, sign-in is handled by Microsoft Entra using email, Google or Microsoft accounts. Splitty receives an account identifier and profile details such as your name and email, not your password. See the providers' privacy notices below.",
+        "Optional receipt scanning reads photos on your device. Splitty does not upload or store receipt photos or recognized text; only expense details you save are synced."
       ]
     },
     {

@@ -22,12 +22,15 @@
     "lint:fix": "npm run lint -- --fix"
   },
   "dependencies": {
+    "@tesseract.js-data/deu": "1.0.0",
+    "@tesseract.js-data/eng": "1.0.0",
     "dexie": "^4.4.7",
     "lucide-react": "^1.61.0",
     "papaparse": "^5.5.3",
     "qrcode.react": "^4.2.0",
     "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "react-dom": "^19.3.1",
+    "tesseract.js": "7.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

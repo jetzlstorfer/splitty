@@ -60,7 +60,7 @@ export default function LegalPage({ page }: { page: LegalDocument }) {
   return <div className="app-shell legal-page">
     <title>{`${t(titles[page])} | Splitty`}</title>
     <header className="topbar">
-      <a className="wordmark" href="/" aria-label={t("Splitty home")}><img className="brand-mark" src="/icon.svg" width="32" height="32" alt="" />Splitty</a>
+      <a className="wordmark" href="/" aria-label={t("Splitty home")}><img className="brand-mark" src="/icon.svg" width="36" height="36" alt="" />Splitty</a>
       <div className="legal-language" role="group" aria-label={t("Language")}>
         <a href={`/${page}?lang=de`} lang="de" hrefLang="de" aria-current={language === "de" ? "true" : undefined}>Deutsch</a>
         <a href={`/${page}?lang=en`} lang="en" hrefLang="en" aria-current={language === "en" ? "true" : undefined}>English</a>

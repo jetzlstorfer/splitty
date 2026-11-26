@@ -97,13 +97,13 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
       for (const theme of ["light", "dark"]) {
         await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
         await expect(icon).toHaveCSS("animation-name", motion ? "sync-heartbeat" : "none");
-        await expect(icon).toHaveCSS("width", "32px");
-        await expect(icon).toHaveCSS("height", "32px");
+        await expect(icon).toHaveCSS("width", "36px");
+        await expect(icon).toHaveCSS("height", "36px");
         if (motion) {
           await expect(icon).toHaveCSS("animation-duration", "1.8s");
           await expect(icon).toHaveCSS("animation-iteration-count", "infinite");
           await expect.poll(() => icon.evaluate((element) =>
-            new DOMMatrixReadOnly(getComputedStyle(element).transform).a), { intervals: [50] }).toBeGreaterThan(1.03);
+            new DOMMatrixReadOnly(getComputedStyle(element).transform).a), { intervals: [50] }).toBeGreaterThan(1.1);
         } else {
           await expect(icon).toHaveCSS("transform", "none");
           await expect(icon).not.toHaveCSS("box-shadow", "none");

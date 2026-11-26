@@ -94,7 +94,7 @@ p { line-height: 1.55; }
 .app-shell { max-width: 760px; margin: auto; min-height: 100dvh; background: var(--cp-surface); }
 .topbar { position: sticky; top: 0; z-index: 5; padding: max(env(safe-area-inset-top), 4px) 16px 4px; display: flex; justify-content: space-between; align-items: center; min-height: 56px; background: var(--cp-surface); border-bottom: 1px solid transparent; }
 .wordmark { color: var(--cp-text); text-decoration: none; display: flex; align-items: center; font-size: 22px; font-weight: 650; letter-spacing: -.6px; }
-.brand-mark { width: 32px; height: 32px; margin-right: 10px; border-radius: 8px; }
+.brand-mark { margin-right: 10px; border-radius: 9px; }
 .topbar-actions { display: flex; align-items: center; gap: 4px; }
 .install-button { min-height: 44px; padding: 8px 12px; font-size: 13px; }
 @media (max-width: 360px) { .install-button-label { display: none; } }
@@ -535,7 +535,7 @@ html[data-input-mode="pointer"] input.settings-name:read-only:focus-visible { ou
   }
   @keyframes sync-heartbeat {
     0%, 45%, 100% { transform: scale(1); box-shadow: 0 0 0 0 var(--cp-highlight); }
-    15%, 30% { transform: scale(1.07); box-shadow: 0 0 0 5px var(--cp-highlight); }
+    15%, 30% { transform: scale(1.12); box-shadow: 0 0 0 5px var(--cp-highlight); }
     23% { transform: scale(1.02); box-shadow: 0 0 0 2px var(--cp-highlight); }
   }
   @keyframes saved-row-in {

@@ -1,5 +1,5 @@
 import { activateAccountDatabase, applyStorePage, applyStoreResults, db, expenseStore, todoStore, getDeviceKey, getPreferences, importLegacyDatabase, isActiveDatabase, setDeviceKey, SplittyDatabase, type SyncStore } from "./db";
-import type { Member, MutationResult, SyncPage, VersionedRecord } from "../shared/model";
+import { isInsuranceTodoSetting, type Member, type MutationResult, type SyncPage, type VersionedRecord } from "../shared/model";
 
 export interface Identity {
   member: Member;
@@ -125,6 +125,24 @@ async function synchronizeStore<T extends VersionedRecord>(
   return pull(path, store, context);
 }
 
+async function syncInsuranceTodoSetting(database: SplittyDatabase, context: SyncContext): Promise<void> {
+  const preferences = await getPreferences(database);
+  const pending = preferences.pendingInsuranceTodoSetting;
+  const remote = await api<unknown>("household/insurance-todos", pending
+    ? { enabled: pending.enabled, revision: preferences.insuranceTodoSetting?.revision ?? 0 } : undefined, context);
+  if (!isInsuranceTodoSetting(remote)) throw new Error("Invalid insurance to-do setting.");
+  if (!isActiveDatabase(database)) return;
+  const conflict = await database.transaction("rw", database.preferences, async () => {
+    const latest = await getPreferences(database);
+    if (remote.revision >= (latest.insuranceTodoSetting?.revision ?? 0)) latest.insuranceTodoSetting = remote;
+    const acknowledged = pending && latest.pendingInsuranceTodoSetting?.id === pending.id;
+    if (acknowledged) delete latest.pendingInsuranceTodoSetting;
+    await database.preferences.put(latest);
+    return acknowledged && pending.enabled !== latest.insuranceTodoSetting?.enabled;
+  });
+  if (conflict) throw new Error("Another device changed the insurance to-do setting. Review it in Settings.");
+}
+
 export function synchronize(database = db, context?: SyncContext): Promise<void> {
   if (syncing?.database === database) return syncing.promise;
   const previous = syncing?.promise;
@@ -133,7 +151,9 @@ export function synchronize(database = db, context?: SyncContext): Promise<void>
     if (!await synchronizeStore("sync", expenseStore(database), 20, context)
       || !isActiveDatabase(database)) return;
     // Leave room for JSON escaping of long descriptions within the API's body limit.
-    await synchronizeStore("todo-sync", todoStore(database), 5, context);
+    if (await synchronizeStore("todo-sync", todoStore(database), 5, context) && context && isActiveDatabase(database)) {
+      await syncInsuranceTodoSetting(database, context);
+    }
   })();
   const task = { database, promise: current };
   syncing = task;

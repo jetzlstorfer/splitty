@@ -126,6 +126,7 @@ test.describe("shared browser storage", () => {
     const heldFirstTabPull = new Promise<void>((resolve) => { releaseFirstTabPull = resolve; });
     const firstTabPullStarted = new Promise<void>((resolve) => { notifyFirstTabPull = resolve; });
     const installApi = async (target: Page, countIdentityRequests = false) => {
+      await target.route("**/api/household/insurance-todos", (route) => route.fulfill({ json: { enabled: true, revision: 0 } }));
       await target.route("**/api/auth/config", (route) =>
         route.fulfill({ json: { entraEnabled: false, legacyEnabled: false } }));
       await target.route("**/api/me", (route) => {
@@ -206,6 +207,7 @@ test.describe("shared browser storage", () => {
       } })
       : route.fulfill({ status: 401, json: { error: "Sign in to sync this device." } }));
     await page.route("**/api/household/invitations", (route) => route.fulfill({ json: { invitations: [] } }));
+    await page.route("**/api/household/insurance-todos", (route) => route.fulfill({ json: { enabled: true, revision: 0 } }));
     await page.route(/\/api\/auth\/logout(?:\?.*)?$/, (route) => {
       logoutRequests++;
       signedIn = false;

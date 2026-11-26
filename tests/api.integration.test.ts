@@ -97,6 +97,18 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     const callback = await call("auth/callback?state=not-the-cookie&code=unused", undefined, "wrong-state");
     expect(callback.status).toBe(400);
   });
+  it("shares the insurance reminder setting only within the authenticated household and rejects stale changes", async () => {
+    const path = "household/insurance-todos", a = await login("a"), b = await login("b");
+    const change = { enabled: false, revision: 0 };
+    expect((await call(path, change)).status).toBe(401);
+    expect((await call(path, change, a, origin, { userId: "other", householdId: "other" })).status).toBe(409);
+    expect((await call(path, { ...change, enabled: "false" }, a)).status).toBe(400);
+    expect(await (await call(path, undefined, b)).json()).toEqual({ enabled: true, revision: 0 });
+    expect(await (await call(path, change, a)).json()).toEqual({ enabled: false, revision: 1 });
+    expect(await (await call(path, undefined, b)).json()).toEqual({ enabled: false, revision: 1 });
+    expect(await (await call(path, { enabled: true, revision: 1 }, b)).json()).toEqual({ enabled: true, revision: 2 });
+    expect(await (await call(path, change, a)).json()).toEqual({ enabled: true, revision: 2 });
+  });
   it("binds a first Entra sign-in to the existing household without storing its member token", async () => {
     const token = "A".repeat(43);
     const { auth } = await tables(getConfig());
@@ -532,7 +544,7 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     process.env.HOUSEHOLD_ID = `test-${crypto.randomUUID()}`;
     partitions.push(process.env.HOUSEHOLD_ID);
     const a = await login("a"), b = await login("b");
-    const mutation = { id: "new-entry", expectedRevision: 0, entry: example() };
+    const mutation = { id: "new-entry", expectedRevision: 0, entry: example({ skipInsuranceTodo: true }) };
     const written = await call("sync", { mutations: [mutation] }, a);
     expect(written.status).toBe(200);
     expect((await written.json() as MutationResult[])[0].status).toBe("ok");
@@ -543,7 +555,7 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     const edit = { id: "edit-entry", expectedRevision: 1, entry: example({ revision: 2, description: "Updated on B" }) };
     expect((await call("sync", { mutations: [edit] }, b)).status).toBe(200);
     const replay = await call("sync", { mutations: [mutation] }, a);
-    expect((await replay.json() as MutationResult[])[0]).toMatchObject({ status: "ok", entry: { revision: 2, description: "Updated on B" } });
+    expect((await replay.json() as MutationResult[])[0]).toMatchObject({ status: "ok", entry: { revision: 2, description: "Updated on B", skipInsuranceTodo: true } });
     const stale = { id: "stale-edit", expectedRevision: 1, entry: example({ revision: 2, description: "Stale A edit" }) };
     const conflict = await call("sync", { mutations: [stale] }, a);
     expect((await conflict.json() as MutationResult[])[0]).toMatchObject({ status: "conflict", entry: { revision: 2 } });

@@ -239,6 +239,8 @@ test.describe("touch controls", () => {
     let renamed: unknown;
     await page.route("**/api/me", (route) =>
       route.fulfill({ json: { userId: "user-names", householdId: "household-names", member: "a", ...names } }));
+    await page.route("**/api/household/insurance-todos", (route) =>
+      route.fulfill({ json: { enabled: true, revision: 0 } }));
     await page.route(/\/api\/(?:todo-)?sync\?/, (route) =>
       route.fulfill({ json: { entries: [], cursor: 0, more: false } }));
     await page.route("**/api/household/member-name", async (route) => {

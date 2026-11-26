@@ -43,6 +43,15 @@ describe("sign-in profile claims", () => {
     expect(directoryProvider(null)).toBe("unknown");
   });
 
+  it("recognizes External ID's stored formats for Microsoft-account federation and email passcodes", () => {
+    const upn = { signInType: "userPrincipalName", issuer: "example.onmicrosoft.com" };
+    const tenant = "<00000000-0000-4000-8000-000000000000>";
+    expect(directoryProvider([{ signInType: "federated", issuer: `https://login.live.com${tenant}` }, upn])).toBe("microsoft");
+    expect(directoryProvider([{ signInType: "federated", issuer: "mail" }, upn])).toBe("email");
+    expect(directoryProvider([{ signInType: "federated", issuer: `https://login.live.com.example.invalid${tenant}` }, upn]))
+      .toBe("unknown");
+  });
+
   it("keeps supplied profile details separate from the household name fallback", () => {
     expect(identityClaims({
       ...claims, name: "  Alex Sample  ", picture: "https://profiles.example.invalid/alex.png"

@@ -4,7 +4,8 @@ import type { AccountProfile } from "../../shared/profile";
 type Provider = NonNullable<AccountProfile["signInProvider"]>;
 
 function providerId(value: unknown, issuer?: string): Provider {
-  const id = typeof value === "string" ? value.trim().toLowerCase().replace(/\/$/, "") : "";
+  // External ID stores custom OIDC identities as "<issuer URI><external tenant ID>".
+  const id = typeof value === "string" ? value.trim().toLowerCase().replace(/<[^<>]*>$/, "").replace(/\/$/, "") : "";
   if (["google", "google.com", "accounts.google.com", "https://accounts.google.com"].includes(id)) return "google";
   if (["microsoftaccount", "live.com", "login.live.com", "externalazuread"].includes(id)
     || /^https:\/\/(?:login\.live\.com|login\.microsoftonline\.com|sts\.windows\.net)(?:\/|$)/.test(id)) return "microsoft";

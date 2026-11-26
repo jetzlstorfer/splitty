@@ -43,8 +43,25 @@ jobs:
       - run: npm test -- tests/api.integration.test.ts
         env:
           RUN_AZURE_TESTS: "1"
-      - run: npx playwright install --with-deps chromium webkit
+      - name: Resolve Playwright version
+        id: playwright
         if: ${{ github.event_name == 'pull_request' || inputs.run-e2e }}
+        run: echo "version=$(node -p "require('./package-lock.json').packages['node_modules/playwright-core'].version")" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        if: ${{ github.event_name == 'pull_request' || inputs.run-e2e }}
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-chromium-webkit
+      - name: Install Playwright browsers
+        if: ${{ (github.event_name == 'pull_request' || inputs.run-e2e) && steps.playwright-cache.outputs.cache-hit != 'true' }}
+        timeout-minutes: 10
+        run: npx playwright install --with-deps chromium webkit
+      - name: Install Playwright system dependencies
+        if: ${{ (github.event_name == 'pull_request' || inputs.run-e2e) && steps.playwright-cache.outputs.cache-hit == 'true' }}
+        timeout-minutes: 10
+        run: npx playwright install-deps chromium webkit
       - run: npm run test:e2e
         if: ${{ github.event_name == 'pull_request' || inputs.run-e2e }}
       - name: Upload checked builds

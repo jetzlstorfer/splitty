@@ -1433,8 +1433,8 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
         <section className="settings-card"><h2 className="section-label">{t("To-dos")}</h2>
           <label className="settings-row insurance-setting"><span className="settings-tile" aria-hidden="true"><ClipboardCheck size={19} /></span>
             <span className="entry-description"><strong>{t("Automatic insurance to-dos")}</strong></span>
-            <input type="checkbox" checked={automaticInsuranceTodos(p)} aria-describedby="insurance-todo-note"
-              onChange={(event) => void queueInsuranceTodoSetting(event.target.checked).then(saved).catch((e: Error) => setError(e.message))} /></label>
+            <span className="todo-check"><input type="checkbox" checked={automaticInsuranceTodos(p)} aria-describedby="insurance-todo-note"
+              onChange={(event) => void queueInsuranceTodoSetting(event.target.checked).then(saved).catch((e: Error) => setError(e.message))} /></span></label>
           <p id="insurance-todo-note" className="settings-note">{t("Create a to-do for each new doctor or pharmacy receipt. This setting is shared with your household. Existing receipts and to-dos stay as they are.")}</p>
         </section>
         <section className="settings-card"><h2 className="section-label">{t("Backups")}</h2>

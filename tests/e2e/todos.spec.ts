@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./fixtures";
+import { expect, test, type Locator, type Page } from "./fixtures";
 import { signIn as signInMember, synchronize, upToDate } from "./helpers";
 import { confirmAction } from "./controls";
 
@@ -170,6 +170,45 @@ test("the household insurance setting skips only new receipts, including offline
       await expect(done.getByRole("checkbox", { name: /Arzt vorher/ })).toBeChecked();
     }
   } finally { await second.close(); }
+});
+
+test.describe("touch insurance setting", () => {
+  test.use({ hasTouch: true });
+
+  test("the insurance setting matches to-do checkboxes and suppresses the row tap flash", async ({ page }) => {
+    const nav = page.getByRole("navigation", { name: "Hauptnavigation" });
+    const todo = (title: string) => page.getByRole("listitem").filter({ hasText: title }).getByRole("checkbox");
+    const setting = page.getByRole("checkbox", { name: "Automatische Versicherungs-To-dos" });
+    const row = page.locator("label.insurance-setting");
+    const look = (box: Locator) => box.evaluate((input) => {
+      const style = getComputedStyle(input);
+      return [style.borderRadius, style.width, style.height, style.borderTopWidth, style.borderTopColor, style.backgroundColor].join(" ");
+    });
+    await page.goto("/");
+    await nav.getByRole("button", { name: "To-dos" }).click();
+    await addTodo(page, "Offene Aufgabe");
+    await addTodo(page, "Fertige Aufgabe");
+    await todo("Fertige Aufgabe").click();
+    await expect(page.getByRole("region", { name: "Erledigt" })).toContainText("Fertige Aufgabe");
+    for (const theme of ["light", "dark"]) {
+      await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, theme);
+      await nav.getByRole("button", { name: "To-dos" }).click();
+      const open = await look(todo("Offene Aufgabe"));
+      const done = await look(todo("Fertige Aufgabe"));
+      expect(open).toContain("50% 22px 22px");
+      await nav.getByRole("button", { name: "Einstellungen", exact: true }).click();
+      for (const target of [row, row.locator("strong"), setting]) {
+        await expect(target).toHaveCSS("-webkit-tap-highlight-color", "rgba(0, 0, 0, 0)");
+      }
+      await expect(setting).toBeChecked();
+      await expect.poll(() => look(setting)).toBe(done);
+      await row.locator("strong").tap();
+      await expect(setting).not.toBeChecked();
+      await expect.poll(() => look(setting)).toBe(open);
+      await row.locator("strong").tap();
+      await expect(setting).toBeChecked();
+    }
+  });
 });
 
 test("manual and insurance to-dos celebrate in the open list before moving to done", async ({ page }) => {

@@ -374,7 +374,7 @@ label.settings-row { cursor: pointer; }
 label.settings-row:has(input[type="file"]:focus-visible) { outline: 3px solid var(--cp-accent); outline-offset: 3px; }
 .settings-row .entry-description strong { font-weight: 500; }
 .insurance-setting .entry-description strong { white-space: normal; }
-.insurance-setting input { width: 22px; height: 22px; min-height: 22px; margin: 0; }
+.insurance-setting { -webkit-tap-highlight-color: transparent; }
 .settings-tile, .avatar { display: grid; place-items: center; flex-shrink: 0; width: 40px; height: 40px; }
 .settings-tile { border-radius: 12px; background: var(--cp-surface-soft); color: var(--cp-text-muted); }
 .avatar { border-radius: 50%; background: var(--cp-accent-soft); color: var(--cp-accent-text); font-size: 15px; font-weight: 600; }

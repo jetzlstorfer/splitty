@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable, type Table } from "dexie";
-import { validateEntry, type Entry, type Member, type Mutation, type MutationResult, type SyncPage, type VersionedRecord } from "../shared/model";
+import { defaultInsuranceTodoSetting, validateEntry, type Entry, type InsuranceTodoSetting, type Member, type Mutation, type MutationResult, type SyncPage, type VersionedRecord } from "../shared/model";
 import type { Language } from "../shared/i18n";
 import { validateTodo, type Todo } from "../shared/todo";
 
@@ -11,6 +11,12 @@ export interface Preferences {
   cursor: number;
   todoCursor?: number;
   language?: Language;
+  insuranceTodoSetting?: InsuranceTodoSetting;
+  pendingInsuranceTodoSetting?: { id: string; enabled: boolean };
+}
+
+export function automaticInsuranceTodos(preferences: Preferences): boolean {
+  return preferences.pendingInsuranceTodoSetting?.enabled ?? preferences.insuranceTodoSetting?.enabled ?? defaultInsuranceTodoSetting.enabled;
 }
 
 export interface Conflict<T = Entry> {
@@ -263,6 +269,25 @@ export async function getPreferences(database = db): Promise<Preferences> {
 export async function updatePreferences(changes: Partial<Omit<Preferences, "id" | "cursor" | "todoCursor">>, database = db): Promise<void> {
   await database.transaction("rw", database.preferences, async () => {
     await database.preferences.put({ ...await getPreferences(database), ...changes });
+  });
+}
+
+export async function localQueueState(database = db) {
+  const [expenses, todos, preferences] = await Promise.all([
+    database.outbox.count(), database.todoOutbox.count(), getPreferences(database)
+  ]);
+  return { pending: expenses + todos + Number(!!preferences.pendingInsuranceTodoSetting), preferences };
+}
+
+export function queueInsuranceTodoSetting(enabled: boolean, database = db): Promise<void> {
+  return updatePreferences({ pendingInsuranceTodoSetting: { id: crypto.randomUUID(), enabled } }, database);
+}
+
+/** Apply only to newly entered or imported receipts, never to edits, sync pulls or backup restores. */
+export async function queueNewReceipts(entries: Entry[], database = db): Promise<void> {
+  await database.transaction("rw", [database.preferences, database.entries, database.outbox, database.conflicts], async () => {
+    const enabled = automaticInsuranceTodos(await getPreferences(database));
+    await queueEntries(enabled ? entries : entries.map((entry) => ({ ...entry, skipInsuranceTodo: true })), database);
   });
 }
 

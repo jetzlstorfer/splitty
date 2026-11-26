@@ -9,7 +9,7 @@ import { calculateShareA, expenseBalance, parseMoney, type Entry, type Member, t
 import { translate } from "../shared/i18n";
 import { profilePictureUrl } from "../shared/profile";
 import { MAX_TODO_TITLE, MAX_TODO_DESCRIPTION, type Todo } from "../shared/todo";
-import { activateAnonymousDatabase, clearAccountDatabase, db, queueEntries, queueTodos, resolveConflict, resolveStoreConflict, todoStore, updatePreferences, getPreferences, setDeviceKey, type Conflict, type Preferences } from "./db";
+import { activateAnonymousDatabase, automaticInsuranceTodos, clearAccountDatabase, db, localQueueState, queueEntries, queueInsuranceTodoSetting, queueNewReceipts, queueTodos, resolveConflict, resolveStoreConflict, todoStore, updatePreferences, setDeviceKey, type Conflict, type Preferences } from "./db";
 import { missingBackupRecords, readBackup, restoreBackup } from "./backup";
 import type { ImportPreview } from "./importer";
 import { ApiError, api, identify, signInDevice, signOutDevice, syncPollingInterval, synchronize, type Identity } from "./sync";
@@ -99,11 +99,11 @@ function useLedger(): Snapshot | null {
     const subscribe = () => {
       const database = db;
       subscription = liveQuery(async () => {
-        const [entries, todos, outboxCount, todoOutboxCount, preferences, conflicts, todoConflicts] = await Promise.all([
-          database.entries.toArray(), database.todos.toArray(), database.outbox.count(), database.todoOutbox.count(),
-          getPreferences(database), database.conflicts.toArray(), database.todoConflicts.toArray()
+        const [entries, todos, queue, conflicts, todoConflicts] = await Promise.all([
+          database.entries.toArray(), database.todos.toArray(), localQueueState(database),
+          database.conflicts.toArray(), database.todoConflicts.toArray()
         ]);
-        return { entries, todos, pending: outboxCount + todoOutboxCount, preferences, conflicts, todoConflicts };
+        return { entries, todos, ...queue, conflicts, todoConflicts };
       }).subscribe({
         next: setValue,
         error: (error: unknown) => window.dispatchEvent(new CustomEvent("splitty-error", {
@@ -243,10 +243,12 @@ function ExpenseForm({ entry, settlement, preferences: p, close, saved }: {
             categoryMode: categoryChoice === "auto" ? "auto" : "manual",
             splitType, ...(split === "percent" ? { percentageA: Number(share.replace(",", ".")) } : {})
           } : {}),
-          ...(entry?.insuranceSubmittedAt ? { insuranceSubmittedAt: entry.insuranceSubmittedAt } : {})
+          ...(entry?.insuranceSubmittedAt ? { insuranceSubmittedAt: entry.insuranceSubmittedAt } : {}),
+          ...(entry?.skipInsuranceTodo ? { skipInsuranceTodo: true } : {})
         };
       }
-      await queueEntries([value]);
+      if (!entry && !settlement) await queueNewReceipts([value]);
+      else await queueEntries([value]);
       saved(value); close();
     } catch (e) { setError(e instanceof Error ? e.message : "Could not save this expense."); }
     finally { setBusy(false); }
@@ -343,7 +345,7 @@ function ImportForm({ preferences: p, close, saved }: { preferences: Preferences
     if (!preview || preview.errors.length) return;
     setBusy(true); setError("");
     try {
-      await queueEntries(preview.entries);
+      await queueNewReceipts(preview.entries);
       saved(); close();
     } catch (e) { setError(e instanceof Error ? e.message : "Import failed. No entries were added."); }
     finally { setBusy(false); }
@@ -598,7 +600,7 @@ function TodoList({ todos, conflicts, openCount, blocked, open, toggle, edit, to
         <span className="todo-clear-icon" aria-hidden="true"><Sun size={30} /></span>
         <h2>{t("All caught up!")}</h2>
         <p>{t("Nothing left to chase. Enjoy your day.")}</p>
-        {!todos.length && <p className="todo-clear-hint">{t("Add your own to-dos here. Doctor and pharmacy expenses also appear automatically for insurance submission.")}</p>}
+        {!todos.length && <p className="todo-clear-hint">{t("Add your own to-dos here. You can turn automatic insurance to-dos on or off in Settings.")}</p>}
       </div>}
     </div>
     <p className="sr-only" aria-live="polite">{announcement}</p>
@@ -871,7 +873,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
         lastPollAt.current = Date.now();
         setLastSynced(new Date());
         setSyncStatus(await database.conflicts.count() + await database.todoConflicts.count() ? "Some edits need your attention"
-          : await database.outbox.count() + await database.todoOutbox.count() ? "Saved locally · changes waiting to sync" : "Up to date");
+          : (await localQueueState(database)).pending ? "Saved locally · changes waiting to sync" : "Up to date");
         // Saves during an in-flight pass need another pass, not a dropped request.
       } while (syncRequested.current && navigator.onLine && !removingLocalData.current);
     })().catch(async (e: unknown) => {
@@ -1118,13 +1120,10 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     if (!identity?.userId || identity.userId.startsWith("legacy-") || !database.name.startsWith("splitty-account-")) return;
     setSignOutBusy(true); setSyncActionError("");
     try {
-     const [expenseWrites, todoWrites, conflicts, todoConflicts] = await Promise.all([
-       database.outbox.count(),
-       database.todoOutbox.count(),
-       database.conflicts.count(),
-       database.todoConflicts.count()
+     const [queue, conflicts, todoConflicts] = await Promise.all([
+       localQueueState(database), database.conflicts.count(), database.todoConflicts.count()
      ]);
-     const unsynced = expenseWrites + todoWrites + conflicts + todoConflicts;
+     const unsynced = queue.pending + conflicts + todoConflicts;
      const warning = unsynced
        ? t("This device has {count} unsynced changes or conflicts. Removing local data permanently discards them. Synced household data is not deleted. Continue?", { count: number(unsynced) })
        : t("Remove this account's data from this device? Synced household data is not deleted.");
@@ -1421,6 +1420,13 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
               "account/delete", "Delete your account", "Delete your account? Your sessions will be revoked immediately and deletion will be scheduled."
             )}>{t("Delete your account")}</button>
           </div>}
+        </section>
+        <section className="settings-card"><h2 className="section-label">{t("To-dos")}</h2>
+          <label className="settings-row insurance-setting"><span className="settings-tile" aria-hidden="true"><ClipboardCheck size={19} /></span>
+            <span className="entry-description"><strong>{t("Automatic insurance to-dos")}</strong></span>
+            <input type="checkbox" checked={automaticInsuranceTodos(p)} aria-describedby="insurance-todo-note"
+              onChange={(event) => void queueInsuranceTodoSetting(event.target.checked).then(saved).catch((e: Error) => setError(e.message))} /></label>
+          <p id="insurance-todo-note" className="settings-note">{t("Create a to-do for each new doctor or pharmacy receipt. This setting is shared with your household. Existing receipts and to-dos stay as they are.")}</p>
         </section>
         <section className="settings-card"><h2 className="section-label">{t("Backups")}</h2>
           <button className="settings-row" onClick={backup} aria-label={t("Download a backup")} aria-describedby="backup-download-hint"><span className="settings-tile" aria-hidden="true"><Download size={19} /></span>

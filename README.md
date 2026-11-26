@@ -21,7 +21,7 @@ The screenshots below show the expenses and to-do screens with synthetic sample 
 - Import German or English Splitwise CSV exports and check the final balance before confirming.
 - Categorize expenses automatically, switch between German and English, and download or restore backups.
 
-Insurance reminders are derived from health and pharmacy expenses; manual to-dos remain separate from the ledger and never affect balances.
+By default, new health and pharmacy receipts create insurance reminders. Either member can turn **Settings → To-dos → Automatic insurance to-dos** off for the household. This applies to newly entered receipts and CSV imports, not to existing reminders or their completion status. Turning it back on does not create reminders for skipped receipts. An offline device uses its last known setting until it syncs. Manual to-dos remain separate from the ledger and never affect balances.
 Like expense rows, to-do rows open their details when selected. Use the checkbox at the left to complete or reopen a to-do; insurance reminders open the associated expense.
 Open to-dos and insurance reminders are initially shown newest first, using the creation date for manual to-dos and the expense date for reminders. Drag a manual to-do by its grip handle, or focus the handle and use the arrow keys, to reorder manual to-dos; the order syncs to the whole household. Insurance reminders remain in their date-based slots while manual to-dos move around them.
 

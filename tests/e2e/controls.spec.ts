@@ -12,6 +12,13 @@ async function english(page: Page, theme = "light") {
   await chooseOption(page, page.getByLabel("App-Sprache", { exact: true }), "English");
 }
 
+async function mockHouseholdSync(page: Page) {
+  await page.route("**/api/household/insurance-todos", (route) =>
+    route.fulfill({ json: { enabled: true, revision: 0 } }));
+  await page.route(/\/api\/(?:todo-)?sync\?/, (route) =>
+    route.fulfill({ json: { entries: [], cursor: 0, more: false } }));
+}
+
 async function expense(page: Page) {
   await page.getByRole("navigation").getByRole("button", { name: "Expenses", exact: true }).click();
   await page.getByRole("button", { name: "Add expense", exact: true }).click();
@@ -241,8 +248,7 @@ test.describe("touch controls", () => {
     let renamed: unknown;
     await page.route("**/api/me", (route) =>
       route.fulfill({ json: { userId: "user-names", householdId: "household-names", member: "a", ...names } }));
-    await page.route(/\/api\/(?:todo-)?sync\?/, (route) =>
-      route.fulfill({ json: { entries: [], cursor: 0, more: false } }));
+    await mockHouseholdSync(page);
     await page.route("**/api/household/member-name", async (route) => {
       renamed = route.request().postDataJSON();
       names.nameB = (renamed as { name: string }).name;
@@ -273,8 +279,7 @@ test.describe("touch controls", () => {
         signInProvider: provider, displayName: "Alex Profile", email,
         pictureUrl: "https://profiles.example.invalid/avatar.png"
       } }));
-      await page.route(/\/api\/(?:todo-)?sync\?/, (route) =>
-        route.fulfill({ json: { entries: [], cursor: 0, more: false } }));
+      await mockHouseholdSync(page);
       await page.route("https://profiles.example.invalid/avatar.png", (route) => route.fulfill({
         contentType: "image/png",
         body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a6XcAAAAASUVORK5CYII=", "base64")
@@ -309,8 +314,7 @@ test.describe("touch controls", () => {
       displayName: "Alex Profile", pictureUrl: "https://profiles.example.invalid/missing.png"
     };
     await page.route("**/api/me", (route) => route.fulfill({ json: identity }));
-    await page.route(/\/api\/(?:todo-)?sync\?/, (route) =>
-      route.fulfill({ json: { entries: [], cursor: 0, more: false } }));
+    await mockHouseholdSync(page);
     await page.route("https://profiles.example.invalid/missing.png", (route) => route.fulfill({ status: 404, body: "" }));
     await english(page);
     const account = page.getByRole("region", { name: "Account", exact: true });
@@ -325,8 +329,7 @@ test.describe("touch controls", () => {
       userId: "user-profile", householdId: "household-profile", member: "a", nameA: "Alex", nameB: "Sam",
       signInProvider: "email"
     } }));
-    await page.route(/\/api\/(?:todo-)?sync\?/, (route) =>
-      route.fulfill({ json: { entries: [], cursor: 0, more: false } }));
+    await mockHouseholdSync(page);
     await english(page);
     const account = page.getByRole("region", { name: "Account", exact: true });
     await expect(account).toContainText("Signed in with email");

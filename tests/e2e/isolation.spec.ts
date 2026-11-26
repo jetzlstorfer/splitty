@@ -1,6 +1,9 @@
 import { expect, test } from "./fixtures";
 import { signIn, upToDate, useEnglish } from "./helpers";
 
+// Both runs must share one worker's storage, so keep them in order when fullyParallel is on.
+test.describe.configure({ mode: "default" });
+
 for (const run of [1, 2]) {
   test(`backend isolation starts empty even when another test uses the same descriptions (${run})`, async ({ page }) => {
     await useEnglish(page);

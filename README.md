@@ -60,7 +60,9 @@ flowchart LR
 
 Local-only use needs no account or Azure resources. Shared sync requires a backend. Browser storage can be cleared or evicted, so download a backup before replacing a device or clearing site data. This app is not end-to-end encrypted.
 
-Settings shows your sign-in method (email, Google, Microsoft, or member token), plus the name, email address, and HTTPS profile picture supplied at sign-in. Photos are optional and fall back to an initial or account icon. Existing sessions may need a fresh sign-in to populate these details. Provider detection uses Entra's ID-token `idp` claim; if it is absent or unrecognized, Settings reports that the provider is unavailable rather than inferring it from your email address. Names and pictures are shown only when Entra passes them through. No additional Graph permissions are requested.
+Settings shows your sign-in method and the name, email address, and photo supplied at sign-in. When Entra doesn't identify the provider in the ID token, Splitty checks the signed-in user's [sign-in identities](https://learn.microsoft.com/en-us/graph/api/resources/objectidentity) once at login. It uses a provider only if the account identities indicate one unambiguous method. It never guesses from the email address. With linked accounts, the method can remain unavailable if Entra omits it for that session.
+
+To enable this fallback in an external tenant, open the **Splitty web app registration → API permissions**, add Microsoft Graph **delegated** `User.Read` and grant admin consent for the tenant. No application or directory-wide permission is needed. Splitty reads only `/me?$select=identities` and does not store the Graph token or identity list. Missing consent or an unavailable Graph endpoint does not prevent sign-in. A fresh sign-in is needed after enabling the permission or upgrading an older session.
 
 For conflict handling, data retention, and the full sync lifecycle, see [synchronization and deployment](docs/synchronization-and-deployment.md).
 

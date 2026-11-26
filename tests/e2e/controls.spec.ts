@@ -335,6 +335,18 @@ test.describe("touch controls", () => {
     await expect(account).toContainText("Signed in with email");
     await expect(account.locator(".avatar svg")).toBeVisible();
   });
+
+  test("account settings do not ask for another login after an inconclusive fresh sign-in", async ({ page }) => {
+    await page.route("**/api/me", (route) => route.fulfill({ json: {
+      userId: "user-profile", householdId: "household-profile", member: "a", nameA: "Alex", nameB: "Sam",
+      signInProvider: "unknown"
+    } }));
+    await mockHouseholdSync(page);
+    await english(page);
+    const account = page.getByRole("region", { name: "Account", exact: true });
+    await expect(account).toContainText("Entra did not identify a single sign-in method for this session.");
+    await expect(account).not.toContainText("Sign in again");
+  });
 });
 
 for (const language of ["en", "de"] as const) {

@@ -2,12 +2,11 @@ import { createHash, randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { handler } from "../api/src/handler";
 import { getConfig } from "../api/src/config";
-import { tables } from "../api/src/storage";
+import { statusCode, tables } from "../api/src/storage";
 import { createMembership, createUserSession, revokeMembership } from "../api/src/auth";
 import { applyMutation, readChanges, todoLedger } from "../api/src/ledger";
 import { consumeInvitation, inspectInvitation } from "../api/src/invitations";
 import { beginEntraSignIn, completeEntraSignIn } from "../api/src/entra";
-import { claimLegacyMemberSlot } from "../api/src/legacyMigration";
 import { consumeRateLimit } from "../api/src/rateLimit";
 import { example, exampleTodo } from "./fixtures";
 import type { MutationResult, SyncPage } from "../shared/model";
@@ -21,15 +20,28 @@ const logger = vi.fn();
 
 async function call(
   path: string, data?: unknown, cookie?: string, requestOrigin = origin,
-  requestContext?: { userId: string; householdId: string }
+  requestContext?: { userId: string; householdId: string } | null
 ) {
+  let context = requestContext;
+  if (cookie && context === undefined) {
+    const raw = cookie.slice(cookie.indexOf("=") + 1);
+    try {
+      const { auth } = await tables(getConfig());
+      const session = await auth.getEntity<{ userId: string; householdId: string }>(
+        "sessions", `s-${createHash("sha256").update(raw).digest("hex")}`
+      );
+      context = { userId: session.userId, householdId: session.householdId };
+    } catch (error) {
+      if (statusCode(error) !== 404) throw error;
+    }
+  }
   return handler(new Request(`${origin}/api/${path}`, {
     method: data === undefined ? "GET" : "POST",
     headers: {
       ...(cookie ? { cookie } : {}),
-      ...(requestContext ? {
-        "X-Splitty-User": requestContext.userId,
-        "X-Splitty-Household": requestContext.householdId
+      ...(context ? {
+        "X-Splitty-User": context.userId,
+        "X-Splitty-Household": context.householdId
       } : {}),
       ...(data === undefined ? {} : { "Content-Type": "application/json", Origin: requestOrigin })
     },
@@ -38,8 +50,7 @@ async function call(
 }
 
 async function login(member: "a" | "b"): Promise<string> {
-  const token = member === "a" ? "A".repeat(43) : "B".repeat(43);
-  const signedIn = await call("auth/token", { token });
+  const signedIn = await call("auth/local", { member });
   expect(signedIn.status).toBe(200);
   return signedIn.headers.get("set-cookie")!.split(";")[0];
 }
@@ -49,12 +60,11 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     household = `test-${crypto.randomUUID()}`;
     partitions.push(household);
     Object.assign(process.env, {
-      APP_ORIGIN: origin, HOUSEHOLD_ID: household,
+      APP_ORIGIN: origin, LOCAL_HOUSEHOLD_ID: household,
       TABLE_STORAGE_CONNECTION_STRING: process.env.TABLE_STORAGE_CONNECTION_STRING ?? "UseDevelopmentStorage=true",
       TABLE_STORAGE_ACCOUNT_NAME: "", TABLE_STORAGE_TENANT_ID: "",
       TABLE_STORAGE_CLIENT_ID: "", TABLE_STORAGE_CLIENT_SECRET: "",
-      MEMBER_A_TOKEN: "A".repeat(43), MEMBER_B_TOKEN: "B".repeat(43),
-      MEMBER_A_NAME: "Alex", MEMBER_B_NAME: "Sam", LOCAL_DEVELOPMENT: "true",
+      LOCAL_MEMBER_A_NAME: "Alex", LOCAL_MEMBER_B_NAME: "Sam", LOCAL_DEVELOPMENT: "true",
       ALLOW_NEW_HOUSEHOLDS: "true",
       ENTRA_AUTHORITY: "https://splittytest.ciamlogin.com/00000000-0000-4000-8000-000000000003",
       ENTRA_CLIENT_ID: "00000000-0000-4000-8000-000000000001",
@@ -65,7 +75,7 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     const clients = await tables(getConfig());
     for (const pk of partitions) {
       for (const table of [clients.ledger, clients.auth]) {
-        for (const partitionKey of [pk, `auth-${pk}`, `h-${pk}`]) {
+        for (const partitionKey of [pk, `h-${pk}`]) {
           for await (const entity of table.listEntities({ queryOptions: { filter: `PartitionKey eq '${partitionKey}'` } })) {
             await table.deleteEntity(partitionKey, entity.rowKey!);
           }
@@ -86,13 +96,31 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     expect((await call("sync")).status).toBe(401);
     expect((await call("todo-sync")).status).toBe(401);
     expect((await call("todo-sync", { mutations: [] }, undefined, "https://evil.example")).status).toBe(403);
-    expect((await call("auth/token", { token: "A".repeat(43) }, undefined, "https://evil.example")).status).toBe(403);
-    expect((await call("auth/token", { token: "X".repeat(43) })).status).toBe(401);
+    expect((await call("auth/local", { member: "a" }, undefined, "https://evil.example")).status).toBe(403);
+    expect((await call("auth/local", { member: "invalid" })).status).toBe(400);
+  });
+  it("rejects local sign-in outside development before initializing storage", async () => {
+    const previous = {
+      local: process.env.LOCAL_DEVELOPMENT,
+      origin: process.env.APP_ORIGIN,
+      household: process.env.LOCAL_HOUSEHOLD_ID
+    };
+    process.env.LOCAL_DEVELOPMENT = "false";
+    process.env.APP_ORIGIN = "https://splitty.example";
+    delete process.env.LOCAL_HOUSEHOLD_ID;
+    try {
+      expect((await call("auth/local", { member: "a" }, undefined, "https://splitty.example")).status).toBe(404);
+    } finally {
+      process.env.LOCAL_DEVELOPMENT = previous.local!;
+      process.env.APP_ORIGIN = previous.origin!;
+      if (previous.household === undefined) delete process.env.LOCAL_HOUSEHOLD_ID;
+      else process.env.LOCAL_HOUSEHOLD_ID = previous.household;
+    }
   });
   it("advertises configured provider sign-in and rejects an unverified callback", async () => {
     const options = await call("auth/config");
     expect(await options.json()).toEqual({
-      entraEnabled: true, legacyEnabled: true, newHouseholdsEnabled: true
+      entraEnabled: true, localSignInEnabled: true, newHouseholdsEnabled: true
     });
     const callback = await call("auth/callback?state=not-the-cookie&code=unused", undefined, "wrong-state");
     expect(callback.status).toBe(400);
@@ -166,9 +194,10 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
       expect(graph).toHaveBeenCalledTimes(2);
     } finally { graph.mockRestore(); }
     expect(await (await call("me", undefined, firstCookie)).json()).toEqual(profile);
-    const legacy = await (await call("me", undefined, await login("a"))).json();
-    expect(legacy).not.toHaveProperty("email");
-    expect(legacy).not.toHaveProperty("pictureUrl");
+    const local = await (await call("me", undefined, await login("a"))).json();
+    expect(local).toMatchObject({ signInProvider: "local", displayName: "Alex" });
+    expect(local).not.toHaveProperty("email");
+    expect(local).not.toHaveProperty("pictureUrl");
   });
   it("shares the insurance reminder setting only within the authenticated household and rejects stale changes", async () => {
     const path = "household/insurance-todos", a = await login("a"), b = await login("b");
@@ -182,47 +211,24 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     expect(await (await call(path, { enabled: true, revision: 1 }, b)).json()).toEqual({ enabled: true, revision: 2 });
     expect(await (await call(path, change, a)).json()).toEqual({ enabled: true, revision: 2 });
   });
-  it("binds a first Entra sign-in to the existing household without storing its member token", async () => {
-    const token = "A".repeat(43);
-    const { auth } = await tables(getConfig());
-    const response = await beginEntraSignIn(getConfig(), auth, {
-      getAuthCodeUrl: async () => "https://splittytest.ciamlogin.com/authorize"
-    }, undefined, true, token);
-    const cookie = response.headers.get("set-cookie")!;
-    const state = cookie.match(/splitty-entra-state=([^;]+)/)?.[1];
-    expect(state).toBeTruthy();
-    const saved = await auth.getEntity<Record<string, unknown>>(
-      "entra-transactions",
-      `t-${createHash("sha256").update(state!).digest("hex")}`
-    );
-    expect(response.status).toBe(200);
-    expect(saved).toMatchObject({ legacyMember: "a", legacyTokenDigest: createHash("sha256").update(token).digest("hex") });
-    expect(JSON.stringify(saved)).not.toContain(token);
-    expect(JSON.stringify(saved)).not.toContain("memberAToken");
-  });
-  it("reuses member tokens, identifies the member, and revokes sessions", async () => {
-    const token = "A".repeat(43);
-    const consumed = await call("auth/token", { token });
+  it("supports local-development sign-in and revokes sessions", async () => {
+    const consumed = await call("auth/local", { member: "a" });
     expect(consumed.status).toBe(200);
     const cookie = consumed.headers.get("set-cookie")!;
     expect(cookie).toContain("HttpOnly");
     expect(cookie).toContain("SameSite=Lax");
     expect(cookie).toContain("Max-Age=34560000");
-    const secondSession = await call("auth/token", { token });
+    const secondSession = await call("auth/local", { member: "a" });
     expect(secondSession.status).toBe(200);
     const me = await call("me", undefined, cookie);
     expect(await me.json()).toMatchObject({ member: "a" });
-    process.env.MEMBER_A_TOKEN = "C".repeat(43);
-    expect((await call("me", undefined, cookie)).status).toBe(401);
-    process.env.MEMBER_A_TOKEN = token;
     const signedOut = await call("auth/logout", {}, cookie);
     expect(signedOut.status).toBe(200);
     expect(signedOut.headers.get("set-cookie")).toContain("Max-Age=0");
     expect((await call("me", undefined, cookie)).status).toBe(401);
   });
   it("restores a lost cookie from the device key until the session is revoked", async () => {
-    const token = "B".repeat(43);
-    const signedIn = await call("auth/token", { token });
+    const signedIn = await call("auth/local", { member: "b" });
     const { deviceKey } = await signedIn.json() as { deviceKey: string };
     const cookie = signedIn.headers.get("set-cookie")!.split(";")[0];
     expect(cookie).toBe(`splitty-local=${deviceKey}`);
@@ -235,13 +241,6 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     expect((await call("auth/resume", { deviceKey }, undefined, "https://evil.example")).status).toBe(403);
     expect((await call("auth/resume", { deviceKey: "short" })).status).toBe(400);
     expect((await call("auth/resume", { deviceKey: "X".repeat(43) })).status).toBe(401);
-
-    process.env.MEMBER_B_TOKEN = "D".repeat(43);
-    try {
-      const rotated = await call("auth/resume", { deviceKey });
-      expect(rotated.status).toBe(401);
-      expect(rotated.headers.has("set-cookie")).toBe(false);
-    } finally { process.env.MEMBER_B_TOKEN = token; }
 
     // A device that already lost its cookie can still revoke its session.
     expect((await call("auth/logout", { deviceKey })).status).toBe(200);
@@ -265,6 +264,9 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
       mutations: [{ id: "tenant-write", expectedRevision: 0, entry: example() }]
     }, cookie, origin, context);
     expect(write.status).toBe(200);
+    expect((await call("sync", {
+      mutations: [{ id: "missing-context-write", expectedRevision: 0, entry: example() }]
+    }, cookie, origin, null)).status).toBe(409);
     expect((await readChanges(ledger, householdId, 0)).entries).toHaveLength(1);
     expect(await readChanges(ledger, "attacker-household", 0)).toMatchObject({ entries: [], cursor: 0 });
     const staleContext = await call("sync", {
@@ -279,81 +281,6 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     expect((await call("sync", { mutations: [{ id: "after-revocation", expectedRevision: 1, entry: example({ revision: 2 }) }] }, cookie, origin, context)).status).toBe(401);
     await createMembership(auth, householdId, userId, context.member);
     expect((await call("auth/resume", { deviceKey })).status).toBe(401);
-  });
-  it("claims a legacy household slot without moving or changing its ledger", async () => {
-    const config = { ...getConfig(), household: `legacy-${crypto.randomUUID()}` };
-    const userId = `user-${crypto.randomUUID()}`;
-    partitions.push(config.household);
-    const { auth, ledger } = await tables(config);
-    const original = example({
-      id: `legacy-${crypto.randomUUID()}`, description: "Original legacy ledger"
-    });
-    await applyMutation(ledger, config.household, {
-      id: crypto.randomUUID(), entry: original, expectedRevision: 0
-    });
-    const beforeClaim = await readChanges(ledger, config.household, 0);
-
-    await claimLegacyMemberSlot(auth, config, userId, "a");
-    await claimLegacyMemberSlot(auth, config, userId, "a");
-
-    expect(await auth.getEntity(`h-${config.household}`, `m-${userId}`)).toMatchObject({
-      userId, member: "a", active: true
-    });
-    expect(await auth.getEntity(`h-${config.household}`, "invite-slot-a")).toMatchObject({
-      id: `legacy-claim-${userId}`, userId
-    });
-    expect(await readChanges(ledger, config.household, 0)).toEqual(beforeClaim);
-    await expect(claimLegacyMemberSlot(auth, config, `user-${crypto.randomUUID()}`, "a"))
-      .rejects.toThrow("That household member slot is already reserved.");
-  });
-  it("allows a former household member to claim a legacy slot, but rejects an active member", async () => {
-    const config = { ...getConfig(), allowNewHouseholds: false };
-    const oldHousehold = `former-${crypto.randomUUID()}`;
-    const issuer = "https://issuer.example";
-    const subject = crypto.randomUUID();
-    const userId = `user-${createHash("sha256").update(`${issuer}\0${subject}`).digest("hex").slice(0, 40)}`;
-    partitions.push(oldHousehold);
-    const { auth, ledger } = await tables(config);
-    await auth.createEntity({ partitionKey: `h-${oldHousehold}`, rowKey: "household", nameA: "Alex", nameB: "" });
-    await auth.createEntity({
-      partitionKey: "users", rowKey: `u-${userId}`, userId, issuer, subject,
-      email: "test@example.invalid", name: "Alex", householdId: oldHousehold,
-      member: "a", membershipInitialized: true
-    });
-    await createMembership(auth, oldHousehold, userId, "a");
-    const oldSession = await createUserSession(config, auth, { userId, householdId: oldHousehold, member: "a" });
-    const original = example({ id: crypto.randomUUID(), description: "Existing legacy ledger" });
-    await applyMutation(ledger, household, { id: crypto.randomUUID(), entry: original, expectedRevision: 0 });
-    const before = await readChanges(ledger, household, 0);
-
-    const authorizationClient: NonNullable<Parameters<typeof completeEntraSignIn>[3]> = {
-      acquireTokenSilent: async () => { throw new Error("Unexpected Graph token request"); },
-      acquireTokenByCode: async () => ({
-        authority: issuer, uniqueId: subject, tenantId: "test", scopes: [], account: null,
-        idToken: "", idTokenClaims: { iss: issuer, sub: subject, email: "test@example.invalid" },
-        accessToken: "", fromCache: false, expiresOn: null, tokenType: "Bearer", correlationId: ""
-      })
-    };
-    async function claim() {
-      const start = await beginEntraSignIn(config, auth, {
-        getAuthCodeUrl: async () => "https://splittytest.ciamlogin.com/authorize"
-      }, undefined, true, "A".repeat(43));
-      expect(start.status).toBe(200);
-      const cookie = start.headers.get("set-cookie")!.split(";")[0];
-      const state = cookie.slice(cookie.indexOf("=") + 1);
-      return completeEntraSignIn(new Request(`${origin}/api/auth/callback?state=${state}&code=synthetic-code`, {
-        headers: { cookie }
-      }), config, auth, authorizationClient);
-    }
-    await expect(claim()).rejects.toMatchObject({ status: 409 });
-    expect((await call("household/leave", {}, oldSession.cookie.split(";")[0])).status).toBe(200);
-    expect((await call("me", undefined, oldSession.cookie.split(";")[0])).status).toBe(401);
-    expect((await claim()).status).toBe(302);
-    expect(await auth.getEntity<Record<string, unknown>>("users", `u-${userId}`))
-      .toMatchObject({ householdId: household, member: "a", legacyClaimed: true });
-    expect(await auth.getEntity<Record<string, unknown>>(`h-${household}`, `m-${userId}`))
-      .toMatchObject({ userId, member: "a", active: true });
-    expect(await readChanges(ledger, household, 0)).toEqual(before);
   });
   it("redeems device bootstrap codes once and only for the signed-in user", async () => {
     const householdId = `bootstrap-${crypto.randomUUID()}`;
@@ -559,7 +486,7 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
   });
   it("enforces active-record and daily household quotas with retry guidance", async () => {
     const expenseHousehold = `quota-expenses-${crypto.randomUUID()}`;
-    process.env.HOUSEHOLD_ID = expenseHousehold;
+    process.env.LOCAL_HOUSEHOLD_ID = expenseHousehold;
     partitions.push(expenseHousehold);
     const { ledger } = await tables(getConfig());
     await ledger.createEntity({
@@ -573,7 +500,7 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     expect(expenseResponse.headers.get("retry-after")).toBe("3600");
 
     const todoHousehold = `quota-todos-${crypto.randomUUID()}`;
-    process.env.HOUSEHOLD_ID = todoHousehold;
+    process.env.LOCAL_HOUSEHOLD_ID = todoHousehold;
     partitions.push(todoHousehold);
     await ledger.createEntity({
       partitionKey: todoHousehold, rowKey: "usage", day: new Date().toISOString().slice(0, 10),
@@ -586,7 +513,7 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     expect(todoResponse.headers.get("retry-after")).toBe("3600");
 
     const dailyHousehold = `quota-daily-${crypto.randomUUID()}`;
-    process.env.HOUSEHOLD_ID = dailyHousehold;
+    process.env.LOCAL_HOUSEHOLD_ID = dailyHousehold;
     partitions.push(dailyHousehold);
     await ledger.createEntity({
       partitionKey: dailyHousehold, rowKey: "usage", day: new Date().toISOString().slice(0, 10),
@@ -616,8 +543,8 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
   });
   it("syncs two devices, retries safely, and returns explicit conflicts", async () => {
     // Use a fresh household so rate limits and earlier sessions do not affect this test.
-    process.env.HOUSEHOLD_ID = `test-${crypto.randomUUID()}`;
-    partitions.push(process.env.HOUSEHOLD_ID);
+    process.env.LOCAL_HOUSEHOLD_ID = `test-${crypto.randomUUID()}`;
+    partitions.push(process.env.LOCAL_HOUSEHOLD_ID);
     const a = await login("a"), b = await login("b");
     const mutation = { id: "new-entry", expectedRevision: 0, entry: example({ skipInsuranceTodo: true }) };
     const written = await call("sync", { mutations: [mutation] }, a);
@@ -640,8 +567,8 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     expect((await final.json() as SyncPage).entries.map((entry) => entry.deleted)).toEqual([false, true]);
   });
   it("shares manual todos between both members while keeping expense history compatible", async () => {
-    process.env.HOUSEHOLD_ID = `test-${crypto.randomUUID()}`;
-    partitions.push(process.env.HOUSEHOLD_ID);
+    process.env.LOCAL_HOUSEHOLD_ID = `test-${crypto.randomUUID()}`;
+    partitions.push(process.env.LOCAL_HOUSEHOLD_ID);
     const a = await login("a"), b = await login("b");
     const todo = exampleTodo({ id: "same-id", description: "Call after lunch" });
     const mutation = { id: "same-operation", entry: todo, expectedRevision: 0 };
@@ -680,7 +607,7 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     expect((await call("todo-sync?since=-1", undefined, cookie)).status).toBe(400);
     expect((await call("todo-sync", { mutations: [{ ...change, entry: { ...todo, description: "a".repeat(2001) } }] }, cookie)).status).toBe(400);
     const { ledger } = await tables(getConfig());
-    const history = await todoLedger.readChanges(ledger, process.env.HOUSEHOLD_ID!, 0);
+    const history = await todoLedger.readChanges(ledger, process.env.LOCAL_HOUSEHOLD_ID!, 0);
     expect(history.entries.some((entry) => entry.id === todo.id)).toBe(false);
   });
   it("isolates todo history by household and serializes concurrent writers", async () => {

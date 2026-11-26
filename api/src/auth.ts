@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { TableClient } from "@azure/data-tables";
 import type { Member } from "../../shared/model";
 import type { AccountProfile } from "../../shared/profile";
@@ -7,7 +7,6 @@ import { optionalEntity, statusCode } from "./storage";
 
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 const randomToken = () => randomBytes(32).toString("base64url");
-const legacyPartition = (householdId: string) => `auth-${householdId}`;
 const sessionPartition = "sessions";
 const householdPartition = (householdId: string) => `h-${householdId}`;
 const sessionName = (config: Config) => config.local ? "splitty-local" : "__Host-splitty";
@@ -20,7 +19,6 @@ export interface AuthContext extends AccountProfile {
   sessionId?: string;
 }
 
-interface LegacySessionEntity { member: Member; credentialDigest: string }
 type SessionEntity = AuthContext & { membershipId: string };
 interface MembershipEntity { userId: string; member: Member; active: boolean; membershipId: string }
 interface UserAuthorizationEntity { userId: string; householdId: string; member: Member; deletionRequestedAt?: number }
@@ -28,13 +26,6 @@ interface HouseholdAuthorizationEntity { deletedAt?: number }
 
 const isStableId = (value: unknown): value is string =>
   typeof value === "string" && /^[a-zA-Z0-9_-]{1,100}$/.test(value);
-
-function legacyConfig(config: Config): { household: string; memberAToken: string; memberBToken: string } {
-  if (!config.household || !config.memberAToken || !config.memberBToken) {
-    throw new HttpError(503, "Legacy member-token sign-in is not configured.");
-  }
-  return { household: config.household, memberAToken: config.memberAToken, memberBToken: config.memberBToken };
-}
 
 export function sessionCookie(config: Config, value: string, maxAge?: number): string {
   return `${sessionName(config)}=${value}; Path=/; HttpOnly; SameSite=Lax${maxAge === undefined ? "" : `; Max-Age=${maxAge}`}${config.local ? "" : "; Secure"}`;
@@ -149,50 +140,14 @@ async function verifySession(value: string | null, config: Config, table: TableC
     }
     return context;
   }
-
-  if (!config.household || !config.memberAToken || !config.memberBToken) {
-    throw new HttpError(401, "Sign in to sync this device.");
-  }
-  const legacy = await optionalEntity<LegacySessionEntity>(table, legacyPartition(config.household), key);
-  if (!legacy || (legacy.member !== "a" && legacy.member !== "b")
-    || !/^[a-f0-9]{64}$/.test(legacy.credentialDigest)) {
-    throw new HttpError(401, "Sign in to sync this device.");
-  }
-  const expectedDigest = digest(legacy.member === "a" ? config.memberAToken : config.memberBToken);
-  if (!timingSafeEqual(Buffer.from(legacy.credentialDigest, "hex"), Buffer.from(expectedDigest, "hex"))) {
-    throw new HttpError(401, "Your member token was rotated. Sign in again.");
-  }
-  return {
-    userId: `legacy-${digest(`${config.household}:${legacy.member}`).slice(0, 32)}`,
-    householdId: config.household,
-    member: legacy.member,
-    sessionId: key
-  };
-}
-
-export async function signInWithToken(value: string, config: Config, table: TableClient): Promise<{ cookie: string; deviceKey: string }> {
-  const legacy = legacyConfig(config);
-  const provided = Buffer.from(digest(value));
-  const tokenA = timingSafeEqual(provided, Buffer.from(digest(legacy.memberAToken)));
-  const tokenB = timingSafeEqual(provided, Buffer.from(digest(legacy.memberBToken)));
-  if (!tokenA && !tokenB) throw new HttpError(401, "Invalid member token.");
-  const member: Member = tokenA ? "a" : "b";
-  const pk = legacyPartition(legacy.household), raw = randomToken();
-  await table.createEntity({
-    partitionKey: pk, rowKey: `s-${digest(raw)}`, member, credentialDigest: digest(value)
-  });
-  return { cookie: sessionCookie(config, raw, sessionMaxAge), deviceKey: raw };
+  throw new HttpError(401, "Sign in to sync this device.");
 }
 
 export async function logout(request: Request, config: Config, table: TableClient, deviceKey?: string): Promise<void> {
   const cookie = readCookie(request, config);
   const sessions = new Set([cookie, deviceKey].filter(isSessionKey));
   for (const raw of sessions) {
-    const partitions = [sessionPartition];
-    if (config.household) partitions.push(legacyPartition(config.household));
-    for (const partition of partitions) {
-      try { await table.deleteEntity(partition, `s-${digest(raw)}`); }
-      catch (error) { if (statusCode(error) !== 404) throw error; }
-    }
+    try { await table.deleteEntity(sessionPartition, `s-${digest(raw)}`); }
+    catch (error) { if (statusCode(error) !== 404) throw error; }
   }
 }

@@ -49,11 +49,16 @@ export async function closeSync(page: Page) {
 export const upToDate = (page: Page) =>
   expect(page.locator(".sync-status")).toHaveText(/^(Up to date|Auf dem neuesten Stand)$/);
 
-export async function signIn(page: Page, member: "A" | "B" = "A") {
+export async function signIn(page: Page, member: "A" | "B" = "A", language: "en" | "de" = "en") {
   await openSync(page);
-  await page.getByLabel(/^(Member token|Mitglieds-Token)$/).fill(member.repeat(43));
-  await page.getByRole("button", { name: /^(Sign in|Anmelden)$/ }).click();
+  await page.getByRole("button", {
+    name: member === "A" ? /^(Development sign-in as first member|Als erstes Mitglied zur Entwicklung anmelden)$/
+      : /^(Development sign-in as second member|Als zweites Mitglied zur Entwicklung anmelden)$/
+  }).click();
   await upToDate(page);
+  if (language === "en") await useEnglish(page);
+  else await page.goto("/");
+  await openSync(page);
   await expect(page.getByText(new RegExp(`^(Signed in as|Angemeldet als) ${member === "A" ? "Alex" : "Sam"}\\.$`))).toBeVisible();
   await closeSync(page);
 }
@@ -78,10 +83,11 @@ export async function failNextConflictResolution(page: Page, store: "conflicts" 
   }, store);
 }
 
-export async function storedRecords(page: Page) {
-  return page.evaluate(async () => {
+export async function storedRecords(page: Page, databaseName?: string) {
+  return page.evaluate(async (storedDatabaseName) => {
+    const name = storedDatabaseName ?? localStorage.getItem("splitty-active-database") ?? "splitty";
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("splitty");
+      const request = indexedDB.open(name);
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
@@ -95,5 +101,5 @@ export async function storedRecords(page: Page) {
       })));
       return { entries: records[0], todos: records[1], outbox: records[2], todoOutbox: records[3] };
     } finally { database.close(); }
-  });
+  }, databaseName);
 }

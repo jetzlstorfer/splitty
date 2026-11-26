@@ -15,7 +15,7 @@ The lockfiles pin package versions and integrity hashes but omit registry tarbal
 
 ## Local app and sync
 
-Run `npm run dev` and open <http://127.0.0.1:5173> for local-only use. To test sign-in and sync, copy `api\local.settings.example.json` to `api\local.settings.json`, configure two independent member tokens and names, then start these processes in separate terminals:
+Run `npm run dev` and open <http://127.0.0.1:5173> for local-only use. To test sign-in and sync, copy `api\local.settings.example.json` to `api\local.settings.json`, set a synthetic `LOCAL_HOUSEHOLD_ID` and optional local member names, then start these processes in separate terminals:
 
 ```powershell
 # Local Azure Table Storage emulator; keep its data in the ignored .azure folder.
@@ -26,7 +26,7 @@ npm --prefix api run dev
 npm run dev
 ```
 
-Generate a token with `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"` and repeat it for the second member. These are credentials: keep them private and share each only with its member. Local development mode is restricted to loopback addresses. Never commit `local.settings.json`, CSV exports, or backups.
+The cloud popover displays synthetic member sign-in buttons only when `LOCAL_DEVELOPMENT=true`, the app origin is loopback, and a local household ID is configured. Local development mode is restricted to loopback addresses. Never commit `local.settings.json`, CSV exports, or backups.
 
 To check the installable production app shell locally:
 
@@ -46,7 +46,7 @@ npm run dev:seeded
 npm run dev:seeded -- --reset --port 5180
 ```
 
-This starts a private Table emulator, the real API handler, and the Vite development server at <http://127.0.0.1:5174> by default. The first run seeds Alex and Sam with expenses with equal, exact, percentage, and single-person splits, a settlement, open and completed insurance reminders, and open and completed manual to-dos. Dates are relative to the seeding day. Sign in from the cloud icon with the synthetic token `AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA` (Alex) or `BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB` (Sam); these only work on this loopback-only stack.
+This starts a private Table emulator, the real API handler, and the Vite development server at <http://127.0.0.1:5174> by default. The first run seeds Alex and Sam with expenses with equal, exact, percentage, and single-person splits, a settlement, open and completed insurance reminders, and open and completed manual to-dos. Dates are relative to the seeding day. Sign in from the cloud icon using the first- or second-member development sign-in button; synthetic sign-in is enabled only on this loopback-only stack.
 
 Data persists in the ignored `.azure\seeded` folder, so restarts keep your changes. `--reset` deletes it and seeds again; afterwards clear the browser's site data for that origin (or use a fresh profile), because a device cursor newer than the reset server is rejected. The default port keeps this data separate from `npm run dev` at port 5173. Use `--port` to run several sessions side by side. The emulator can take a minute or two to start on Windows. No `local.settings.json` is needed.
 

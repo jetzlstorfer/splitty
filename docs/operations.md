@@ -120,7 +120,8 @@ These templates compile with `az bicep build` but were never deployed. Check the
 
 ## Deferred
 
-- Retiring the legacy member-token path, once the migration is finished.
+- Remove the obsolete member-token Static Web App settings and delete the 11
+  legacy `auth-<household-id>` session rows after deploying the retirement.
 - Session expiry and the matching cleanup.
 - A `Content-Security-Policy` header in `public/staticwebapp.config.json`.
 - A restore tool and a restore rehearsal.

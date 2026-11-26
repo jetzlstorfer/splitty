@@ -4,7 +4,7 @@ import { confirmAction } from "./controls";
 
 async function signIn(page: Page, member: "A" | "B" = "A") {
   await page.goto("/");
-  await signInMember(page, member);
+  await signInMember(page, member, "de");
   await page.getByRole("button", { name: "Ausgaben", exact: true }).click();
 }
 

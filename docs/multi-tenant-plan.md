@@ -1,20 +1,20 @@
 # Multi-tenant plan and Azure cost outlook
 
-Status: implementation in progress. Originally prepared: 2026-10-25; key
+Status: production migration complete; retirement cleanup remains. Originally prepared: 2026-10-25; key
 decisions recorded: 2026-11-17. The code now includes server-derived
 user/household sessions and revocation checks, an Entra authorization-code
 flow with persisted PKCE/state and one-time device-key bootstrap, hashed
 seven-day invitations with transactional redemption, per-user/household local
 database isolation, household member renaming/removal/leaving/deletion, account
 deletion requests, locally generated invitation QR codes, and adaptive polling.
-Legacy member-token sign-in remains available. Existing-household token claims
-now bind a provider identity to the existing household partition, and the
-device adopts its legacy cache and pending changes without deleting the source
-database. The scheduled backup, permanent-deletion and cleanup jobs, monitoring,
-alerts and budget now exist as opt-in code and infrastructure (see
-[operations](operations.md)) but are not yet deployed or verified. Production
-migration still requires staging rehearsal, a restore tool and rehearsal, Entra
-identity deletion, and operational/legal readiness. Household record/daily
+The production household migration is complete: both members claimed provider
+accounts, and the audit found no household dependent on member-token sign-in.
+Retirement removes the obsolete token session and claim code while retaining
+`legacyClaimed` for importing existing local IndexedDB history. The scheduled
+backup, permanent-deletion and cleanup jobs, monitoring, alerts and budget now
+exist as opt-in code and infrastructure (see [operations](operations.md)) but
+are not yet deployed or verified. Keep public household registration closed
+until those services and the legal pages are ready. Household record/daily
 quotas, invitation and household-creation limits, per-session request limits,
 and sign-in IP limits are enforced in the API. Real Entra callback validation
 requires tenant and application credentials. Cost figures have not been
@@ -81,10 +81,10 @@ pilot.
 - **Scope:** v1 remains EUR-only with German and English. Other currencies,
   languages, households of three or more, Sign in with Apple, and email or push
   notifications are out of scope.
-- **Migration:** pilot in a separate staging deployment with synthetic
-  households, then migrate the existing household in place. Each member signs
-  in with a new account and claims slot `a` or `b` once using their existing
-  member token; the deployment-wide tokens are then retired.
+- **Migration:** the existing production household has been migrated in place.
+  The remaining retirement step removes obsolete Static Web App member-token
+  settings and 11 legacy session rows after the code deployment; devices that
+  have not moved to Entra must sign in again.
 
 ### Operations
 
@@ -135,18 +135,15 @@ pilot.
   optionally monitoring, the scheduled jobs app with backup storage, alerts and
   a budget ([operations](operations.md#infrastructure)). The
   frontend uses a same-origin managed Functions API.
-- [`api/src/config.ts`](../api/src/config.ts) selects one `HOUSEHOLD_ID` and two
-  deployment-wide member tokens and names.
-- [`api/src/auth.ts`](../api/src/auth.ts) retains the legacy member-token
-  session path during migration and now supports server-side sessions carrying a
+- [`api/src/config.ts`](../api/src/config.ts) selects Entra sign-in for hosted
+  deployments and a synthetic household only for loopback development.
+- [`api/src/auth.ts`](../api/src/auth.ts) supports server-side sessions carrying a
   user ID, household ID, and accounting slot. New-format sessions check the
   active membership and its generation on each request, so revoking and
   re-creating a membership does not revive an old device key. Provider sign-in
-  creates initial memberships or redeems invitations for new accounts. A member
-  may submit the existing deployment token before sign-in; the short-lived
-  transaction stores only its digest and claimed slot, and a transactional
-  reservation prevents two identities from claiming one slot. Non-local
-  deployments reject new household creation unless `ALLOW_NEW_HOUSEHOLDS=true`.
+  creates initial memberships or redeems invitations for new accounts. The
+  retired member-token claim flow is no longer available. Non-local deployments
+  reject new household creation unless `ALLOW_NEW_HOUSEHOLDS=true`.
   Joining an invitation with an account already assigned to another household is
   rejected until leave/transfer is implemented.
 - [`api/src/invitations.ts`](../api/src/invitations.ts) implements the
@@ -198,9 +195,9 @@ Splitty's control.
 
 Household creation, invitations, joining, leaving, member removal, renaming,
 account deletion requests, and household deletion are implemented in the API
-and client. Existing-household claims are implemented; validate the migration
-on staging and rehearse it against the current production household before
-removing legacy tokens.
+and client. Existing-household claims are implemented, and the member-token
+session path is retired. After deploying, complete the manual settings and
+stale-session cleanup described in the [README](../README.md#existing-household-sign-in-retirement).
 
 Every expense, to-do, sync, export, and administrative request must verify the
 authenticated user's current membership and permissions. Never treat a
@@ -259,9 +256,9 @@ backup.
    configure the Entra External ID integration and confirm its Azure
    requirements.
 2. Implement household-scoped server authorization, limits, and the in-place
-   migration of the existing household. The code now claims the existing
-   partition with one-time member tokens and preserves local queues; verify
-   the flow with both members in staging before production cutover.
+   migration of the existing household. Both existing members now have provider
+   accounts; the retirement deploy preserves their account-scoped local queues
+   and removes the remaining token-based session path.
 3. Isolate local storage and sync context; cover pending edits and multi-record
    reorders, switching during in-flight sync, saves during a pass, multiple
    tabs, session recovery, revocation, and offline account switching.

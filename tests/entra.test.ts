@@ -92,12 +92,7 @@ describe("Entra authorization request", () => {
   it("persists one-time state and PKCE material before redirecting", async () => {
     const config: Config = {
       origin: "http://127.0.0.1:5173",
-      household: "existing-household",
       storage: { kind: "connectionString", connection: "unused" },
-      memberAToken: "A".repeat(43),
-      memberBToken: "B".repeat(43),
-      nameA: "Alex",
-      nameB: "Sam",
       local: true,
       allowNewHouseholds: true,
       entra: {
@@ -166,42 +161,4 @@ describe("Entra authorization request", () => {
     );
   });
 
-  it("stores only the claimed member and a digest of the legacy token", async () => {
-    const config: Config = {
-      origin: "http://127.0.0.1:5173",
-      household: "existing-household",
-      storage: { kind: "connectionString", connection: "unused" },
-      memberAToken: "A".repeat(43),
-      memberBToken: "B".repeat(43),
-      nameA: "Alex",
-      nameB: "Sam",
-      local: true,
-      allowNewHouseholds: false,
-      entra: {
-        authority: "https://splittytest.ciamlogin.com",
-        clientId: "00000000-0000-4000-8000-000000000001",
-        clientSecret: "test-secret"
-      }
-    };
-    const entities: Record<string, unknown>[] = [];
-    const table: Parameters<typeof beginEntraSignIn>[1] = {
-      getEntity: async () => { throw new Error("No invitation was expected."); },
-      createEntity: async (entity) => {
-        entities.push(entity);
-        return { etag: "", lastModified: new Date() };
-      }
-    };
-    const authorizationClient: NonNullable<Parameters<typeof beginEntraSignIn>[2]> = {
-      getAuthCodeUrl: async () => "https://splittytest.ciamlogin.com/authorize"
-    };
-    const token = "A".repeat(43);
-    await beginEntraSignIn(config, table, authorizationClient, undefined, true, token);
-    expect(entities[0]).toMatchObject({
-      legacyMember: "a",
-      legacyTokenDigest: createHash("sha256").update(token).digest("hex")
-    });
-    expect(JSON.stringify(entities[0])).not.toContain(token);
-    await expect(beginEntraSignIn(config, table, authorizationClient, undefined, true, "X".repeat(43)))
-      .rejects.toThrow("Invalid member token.");
-  });
 });

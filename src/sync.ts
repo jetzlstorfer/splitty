@@ -74,8 +74,8 @@ export async function identify(): Promise<Identity> {
   return identity;
 }
 
-export async function signInDevice(token: string): Promise<void> {
-  const { deviceKey } = await api<{ deviceKey?: unknown }>("auth/token", { token });
+export async function signInLocally(member: Member): Promise<void> {
+  const { deviceKey } = await api<{ deviceKey?: unknown }>("auth/local", { member });
   await setDeviceKey(typeof deviceKey === "string" ? deviceKey : null);
 }
 

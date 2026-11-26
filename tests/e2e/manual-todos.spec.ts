@@ -8,7 +8,7 @@ const todos = (page: Page) => page.getByRole("navigation").getByRole("button", {
 
 async function signIn(page: Page, member: "A" | "B") {
   await page.goto("/");
-  await signInMember(page, member);
+  await signInMember(page, member, "de");
   await todos(page);
 }
 

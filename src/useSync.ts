@@ -23,9 +23,11 @@ export function useSync(pending: number | undefined) {
   const lastActivityAt = useRef(0);
   const lastPollAt = useRef(0);
   const removingLocalData = useRef(false);
+  const signedOutByUser = useRef(false);
 
   /** Forgets the signed-in identity, e.g. after a rejected session, sign-out, or account removal. */
   const endSession = useCallback((next: SyncStatus, clearLastSynced = true) => {
+    signedOutByUser.current = next.kind === "signed-out";
     identityRef.current = null;
     lastIdentityCheck.current = 0;
     setIdentity(null);
@@ -33,8 +35,10 @@ export function useSync(pending: number | undefined) {
     setStatus(next);
   }, []);
 
+  const startSession = useCallback(() => { signedOutByUser.current = false; }, []);
+
   const performSync = useCallback((refreshIdentity = false) => {
-    if (!navigator.onLine || removingLocalData.current) return Promise.resolve();
+    if (!navigator.onLine || removingLocalData.current || signedOutByUser.current) return Promise.resolve();
     syncRequested.current = true;
     identityRefreshRequested.current ||= refreshIdentity;
     if (syncLock.current) return syncLock.current;
@@ -68,7 +72,7 @@ export function useSync(pending: number | undefined) {
         setStatus(await database.conflicts.count() + await database.todoConflicts.count() ? SYNC_STATUS.needsAttention
           : (await localQueueState(database)).pending ? SYNC_STATUS.savedLocally : SYNC_STATUS.upToDate);
         // Saves during an in-flight pass need another pass, not a dropped request.
-      } while (syncRequested.current && navigator.onLine && !removingLocalData.current);
+      } while (syncRequested.current && navigator.onLine && !removingLocalData.current && !signedOutByUser.current);
     })().catch(async (e: unknown) => {
       if (e instanceof ApiError && e.status === 401) {
         await activateAnonymousDatabase();
@@ -80,7 +84,7 @@ export function useSync(pending: number | undefined) {
   }, [endSession]);
 
   const sync = useCallback(async (refreshIdentity = false) => {
-    if (!navigator.onLine || removingLocalData.current) return;
+    if (!navigator.onLine || removingLocalData.current || signedOutByUser.current) return;
     setBusy(true);
     await performSync(refreshIdentity);
   }, [performSync]);
@@ -143,7 +147,7 @@ export function useSync(pending: number | undefined) {
 
   return {
     online, identity, setIdentity, status, busy, lastSynced, actionError, setActionError,
-    sync, markSaved, endSession, suspendSync, resumeSync
+    sync, markSaved, endSession, startSession, suspendSync, resumeSync
   };
 }
 

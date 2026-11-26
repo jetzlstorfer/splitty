@@ -1,45 +1,43 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState } from "react";
 import type { Member } from "../shared/model";
 import type { MessageKey } from "../shared/i18n";
 import { activateAnonymousDatabase, clearAccountDatabase, db, localQueueState, setDeviceKey, updatePreferences } from "./db";
-import { api, signInDevice, signOutDevice } from "./sync";
+import { api, signInLocally, signOutDevice } from "./sync";
 import { SYNC_STATUS } from "./syncStatus";
 import type { SyncController } from "./useSync";
 import { useLocale } from "./i18n";
 import { useConfirm } from "./Controls";
 
-export interface AuthOptions { entraEnabled: boolean; legacyEnabled: boolean; newHouseholdsEnabled?: boolean }
+export interface AuthOptions { entraEnabled: boolean; localSignInEnabled: boolean; newHouseholdsEnabled?: boolean }
 export interface Invitation { id: string; slot: Member; expiresAt: number }
 const authOptionsKey = "splitty-auth-options";
 
 function savedAuthOptions(): AuthOptions {
   try {
     const value: unknown = JSON.parse(localStorage.getItem(authOptionsKey) ?? "null");
-    if (value && typeof value === "object" && "entraEnabled" in value && "legacyEnabled" in value
-      && typeof value.entraEnabled === "boolean" && typeof value.legacyEnabled === "boolean") {
+    if (value && typeof value === "object" && "entraEnabled" in value
+      && typeof value.entraEnabled === "boolean") {
       return {
         entraEnabled: value.entraEnabled,
-        legacyEnabled: value.legacyEnabled,
+        localSignInEnabled: "localSignInEnabled" in value && value.localSignInEnabled === true,
         newHouseholdsEnabled: "newHouseholdsEnabled" in value && value.newHouseholdsEnabled === true
       };
     }
   } catch { /* The API refresh below remains authoritative. */ }
-  return { entraEnabled: false, legacyEnabled: false };
+  return { entraEnabled: false, localSignInEnabled: false };
 }
 
 /** The part of the sync controller that account flows read or drive. */
 export type AccountSync = Pick<SyncController,
-  "online" | "identity" | "setIdentity" | "setActionError" | "sync" | "endSession" | "suspendSync" | "resumeSync">;
+  "online" | "identity" | "setIdentity" | "setActionError" | "sync" | "endSession" | "startSession" | "suspendSync" | "resumeSync">;
 
 /**
  * Sign-in, household and invitation flows. Failures are reported through the sync controller's
  * `actionError`, and an ended session is cleared through its `endSession`.
  */
-export function useAccount({ online, identity, setIdentity, setActionError, sync, endSession, suspendSync, resumeSync }: AccountSync) {
+export function useAccount({ online, identity, setIdentity, setActionError, sync, endSession, startSession, suspendSync, resumeSync }: AccountSync) {
   const { t, number } = useLocale();
   const confirm = useConfirm();
-  const [memberToken, setMemberToken] = useState("");
-  const [legacyClaimToken, setLegacyClaimToken] = useState("");
   const [signInBusy, setSignInBusy] = useState(false);
   const [signOutBusy, setSignOutBusy] = useState(false);
   const [authOptions, setAuthOptions] = useState<AuthOptions>(savedAuthOptions);
@@ -85,21 +83,22 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
     return () => { active = false; };
   }, [authOptions.entraEnabled, identity?.householdId, online, setActionError]);
 
-  const providerAccount = !!identity?.userId && !identity.userId.startsWith("legacy-");
+  const providerAccount = !!identity?.userId;
   const canRemoveLocalData = providerAccount && db.name.startsWith("splitty-account-");
 
-  async function signIn(event: FormEvent) {
-    event.preventDefault(); setSignInBusy(true); setActionError("");
+  async function signIn(member: Member) {
+    setSignInBusy(true); setActionError("");
+    startSession();
     try {
-      await signInDevice(memberToken);
-      setMemberToken(""); await sync();
-    } catch (e) { setActionError(e instanceof Error ? e.message : "Could not sign in with this token."); }
+      await signInLocally(member);
+      await sync();
+    } catch (e) { setActionError(e instanceof Error ? e.message : "Could not sign in for local development."); }
     finally { setSignInBusy(false); }
   }
 
-  async function startProviderSignIn(legacyToken?: string) {
+  async function startProviderSignIn() {
     const inviteCode = new URLSearchParams(location.hash.slice(1)).get("invite");
-    if (!inviteCode && !legacyToken) {
+    if (!inviteCode) {
       window.location.assign("/api/auth/start");
       return;
     }
@@ -107,8 +106,7 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
     setActionError("");
     try {
       const result = await api<{ authorizationUrl?: unknown }>("auth/start", {
-        ...(inviteCode ? { inviteCode } : {}),
-        ...(legacyToken ? { legacyToken } : {})
+        inviteCode
       });
       if (typeof result.authorizationUrl !== "string") throw new Error("Invalid sign-in response.");
       window.location.assign(result.authorizationUrl);
@@ -203,16 +201,17 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
   async function signOut() {
     setSignOutBusy(true); setActionError("");
     try {
+      await suspendSync();
       await signOutDevice();
       await activateAnonymousDatabase();
       endSession(SYNC_STATUS.signedOut);
     } catch (e) { setActionError(e instanceof Error ? e.message : "Could not sign out."); }
-    finally { setSignOutBusy(false); }
+    finally { resumeSync(); setSignOutBusy(false); }
   }
 
   async function removeLocalAccountData() {
     const database = db;
-    if (!identity?.userId || identity.userId.startsWith("legacy-") || !database.name.startsWith("splitty-account-")) return;
+    if (!identity?.userId || !database.name.startsWith("splitty-account-")) return;
     setSignOutBusy(true); setActionError("");
     try {
       const [queue, conflicts, todoConflicts] = await Promise.all([
@@ -241,7 +240,7 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
   }
 
   return {
-    authOptions, memberToken, setMemberToken, legacyClaimToken, setLegacyClaimToken, signInBusy, signOutBusy,
+    authOptions, signInBusy, signOutBusy,
     invitations, invitationLink, invitationBusy, invitationCopied, providerAccount, canRemoveLocalData,
     signIn, startProviderSignIn, createHouseholdInvitation, copyInvitationLink, revokeHouseholdInvitation,
     saveHouseholdName, runHouseholdAction, signOut, removeLocalAccountData

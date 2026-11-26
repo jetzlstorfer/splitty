@@ -24,16 +24,15 @@ test("WebKit supports native sync popovers, touch dismissal, keyboard focus and 
   const trigger = page.getByRole("button", { name: "Sync status", exact: true });
   await trigger.focus();
   await page.keyboard.press("Space");
-  await page.getByRole("dialog", { name: "Synchronization", exact: true }).getByLabel("Member token").focus();
+  await page.getByRole("dialog", { name: "Synchronization", exact: true })
+    .getByRole("button", { name: "Development sign-in as first member", exact: true }).focus();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog", { name: "Synchronization", exact: true })).not.toBeVisible();
   await expect(trigger).toBeFocused();
   await openSync(page);
   const popover = page.getByRole("dialog", { name: "Synchronization", exact: true });
-  await expect(popover.locator("form")).toHaveAttribute("novalidate", "");
-  await popover.getByRole("button", { name: "Sign in", exact: true }).tap();
-  await expect(popover.getByRole("alert")).toHaveText("Please fill out this field.");
-  await expect(popover.getByLabel("Member token", { exact: true })).toBeFocused();
+  await expect(popover.locator("form")).toHaveCount(0);
+  await expect(popover.getByLabel("Member token", { exact: true })).toHaveCount(0);
   await closeSync(page);
   await page.getByRole("button", { name: "Add expense", exact: true }).tap();
   const sheet = page.getByRole("dialog", { name: "Add an expense", exact: true });
@@ -97,7 +96,12 @@ test("WebKit reloads the production PWA offline and delivers its queued write af
   await closeSync(page);
   await context.setOffline(false);
   await synchronize(page);
-  const response = await page.request.get("/api/sync?since=0");
+  const me = await page.request.get("/api/me");
+  expect(me.ok()).toBe(true);
+  const identity = await me.json() as { userId: string; householdId: string };
+  const response = await page.request.get("/api/sync?since=0", {
+    headers: { "X-Splitty-User": identity.userId, "X-Splitty-Household": identity.householdId }
+  });
   expect(response.ok()).toBe(true);
   expect(await response.json()).toMatchObject({ entries: [{ description: "WebKit offline expense", amountCents: 1000 }], more: false });
   await page.reload();

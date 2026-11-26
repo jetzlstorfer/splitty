@@ -74,7 +74,7 @@ test.describe("shared browser storage", () => {
       await expect.poll(async () => {
         const records = await storedRecords(page);
         return [records.outbox.length, records.todoOutbox.length];
-      }).toEqual([0, 0]);
+      }, { timeout: 15_000 }).toEqual([0, 0]);
       await upToDate(page);
       await upToDate(other);
       await expect(other.locator(".sync-check")).toHaveCount(1);
@@ -128,7 +128,7 @@ test.describe("shared browser storage", () => {
     const installApi = async (target: Page, countIdentityRequests = false) => {
       await target.route("**/api/household/insurance-todos", (route) => route.fulfill({ json: { enabled: true, revision: 0 } }));
       await target.route("**/api/auth/config", (route) =>
-        route.fulfill({ json: { entraEnabled: false, legacyEnabled: false } }));
+        route.fulfill({ json: { entraEnabled: false, localSignInEnabled: false } }));
       await target.route("**/api/me", (route) => {
         if (countIdentityRequests) firstTabIdentityRequests++;
         return route.fulfill({ json: activeIdentity });
@@ -199,7 +199,7 @@ test.describe("shared browser storage", () => {
       if (request.url().includes("/api/auth/logout")) logoutNetworkRequests++;
     });
     await page.route("**/api/auth/config", (route) =>
-      route.fulfill({ json: { entraEnabled: true, legacyEnabled: false } }));
+      route.fulfill({ json: { entraEnabled: true, localSignInEnabled: false } }));
     await page.route("**/api/me", (route) => signedIn
       ? route.fulfill({ json: {
         member: "a", nameA: "Alex", nameB: "Sam",

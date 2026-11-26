@@ -103,12 +103,16 @@ test("recovers when the browser drops the session cookie but keeps offline data"
     await page.getByRole("navigation").getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByRole("region", { name: "Account", exact: true }).getByRole("button", { name: "Sign out", exact: true }).click();
     await syncDetails(page);
-    await expect(page.locator(".sync-popover").getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
+    await expect(page.locator(".sync-popover").getByRole("button", {
+      name: "Development sign-in as first member", exact: true
+    })).toBeVisible();
     await context.addCookies([cookie!]);
     await page.reload();
     await syncDetails(page);
     await expect(page.getByRole("status")).toHaveText("Sign in to sync");
-    await expect(page.locator(".sync-popover").getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
+    await expect(page.locator(".sync-popover").getByRole("button", {
+      name: "Development sign-in as first member", exact: true
+    })).toBeVisible();
     await other.reload();
     await syncDetails(other);
     await expect(other.getByText("Signed in as Alex.", { exact: true })).toBeVisible();

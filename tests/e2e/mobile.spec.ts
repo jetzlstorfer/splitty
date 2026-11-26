@@ -431,7 +431,7 @@ test("mobile expense entry, custom splits, settlements and offline reload", asyn
   await context.setOffline(false);
 });
 
-test("member-token sign-in and two devices converge after an offline change", async ({ page, browser }) => {
+test("local-development sign-in and two devices converge after an offline change", async ({ page, browser }) => {
   const second: BrowserContext = await browser.newContext({ viewport: { width: 393, height: 851 } });
   const partner = await second.newPage();
   try {

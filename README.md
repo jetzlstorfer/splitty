@@ -52,7 +52,7 @@ flowchart LR
     app <-->|"Local reads and saves"| db
   end
 
-  app -->|"HTTPS JSON API<br/>member-token sign-in, then session cookie"| api["Azure Functions API"]
+  app -->|"HTTPS JSON API<br/>Entra sign-in, then session cookie"| api["Azure Functions API"]
   api -->|"Atomic records, revisions,<br/>receipts and ordered changes"| tables[("Azure Table Storage")]
   tables -->|"Paged change streams"| api
   api -->|"Expense and to-do updates"| app
@@ -140,7 +140,7 @@ npm run dev
 
 Open <http://127.0.0.1:5173>. The frontend works on its own; without a backend, entries stay in that browser. The `jobs` install is only needed to build or test the scheduled jobs. If your environment requires the approved Microsoft npm proxy, use `npm run setup:approved` instead of the install commands.
 
-For local sign-in and sync, copy `api\local.settings.example.json` to `api\local.settings.json`, replace both member-token placeholders with independent random values, and run these in separate terminals:
+For local sign-in and sync, copy `api\local.settings.example.json` to `api\local.settings.json`. The cloud popover exposes synthetic first- and second-member sign-in buttons only in loopback development.
 
 ```powershell
 # Local Azure Table Storage emulator
@@ -151,9 +151,9 @@ npm --prefix api run dev
 npm run dev
 ```
 
-Generate a token with `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"`. Keep tokens private and give each member only their own. Never commit `local.settings.json`, exports, or backups.
+Never commit `local.settings.json`, exports, or backups.
 
-To try the app with a synthetic, pre-populated household of expenses and to-dos (no settings needed), run `npm run dev:seeded` and open <http://127.0.0.1:5174>. See [seeded local session](docs/development.md#seeded-local-session) for sign-in tokens and options.
+To try the app with a synthetic, pre-populated household of expenses and to-dos (no settings needed), run `npm run dev:seeded` and open <http://127.0.0.1:5174>. See [seeded local session](docs/development.md#seeded-local-session) for local sign-in options.
 
 ## Import a Splitwise export
 
@@ -174,35 +174,24 @@ Backups, scheduled deletion, monitoring, alerts and the budget are opt-in Bicep 
 [Deploy scheduled jobs](.github/workflows/deploy-jobs.yml) workflow; see [operations](docs/operations.md) for the parameters, the
 manual enabling steps and what has not been verified. Enable them before opening public sign-up.
 
-### Existing household production cutover
+### Existing household sign-in retirement
 
-The cutover uses the current Static Web App, custom domain, Table Storage account,
-and `TABLE_STORAGE_CONNECTION_STRING`; it must not create a replacement ledger.
-Before changing settings, sync both existing devices, resolve conflicts, and
-download a backup from each device. Keep the current `HOUSEHOLD_ID`,
-`MEMBER_A_TOKEN`, and `MEMBER_B_TOKEN` settings during the migration.
+The production cutover used the existing Static Web App, custom domain, and
+Table Storage account. Both household members have now claimed their provider
+accounts and the production audit found no household dependent on member-token
+sign-in. After deploying this retirement, remove these obsolete Static Web App
+settings: `HOUSEHOLD_ID`, `MEMBER_A_TOKEN`, `MEMBER_B_TOKEN`,
+`MEMBER_A_TOKEN_HASH`, `MEMBER_B_TOKEN_HASH`, `MEMBER_A_NAME`, and
+`MEMBER_B_NAME`. Delete the 11 remaining rows in the old
+`auth-<household-id>` partition. Do not delete the household ledger or the
+provider accounts' `legacyClaimed` markers; those markers allow existing
+accounts to import their old local IndexedDB history.
 
-In the existing Static Web App's application settings, keep `APP_ORIGIN` set to
-the current HTTPS custom domain, add the three `ENTRA_*` settings described
-above, and set `ALLOW_NEW_HOUSEHOLDS=false`. Leave all table-storage settings
-unchanged. Register the callback as
-`https://<production-custom-domain>/api/auth/callback`. New users can then
-claim a member slot by entering its existing member token before continuing
-with Entra; the token is validated before redirect and only its digest is held
-for the short-lived sign-in transaction. Household data remains in its
-existing partition, and cached entries, queued writes, conflicts, tombstones,
-and separate sync cursors are adopted into that account's local database
-without deleting the original local database.
-
-Have each existing member use their own token on a trusted device, complete
-provider sign-in with the intended Entra account, and verify the household
-names, balances, expenses, to-dos, and sync status on both devices. Do not
-remove the legacy settings until both memberships are claimed and verified.
-Afterward, remove `HOUSEHOLD_ID`, `MEMBER_A_TOKEN`, and `MEMBER_B_TOKEN`
-together. Keep `ALLOW_NEW_HOUSEHOLDS=false` until backup/deletion operations,
-provider checks, budgets, and reviewed legal pages are ready; only then set it
-to `true` to permit public household creation. Non-local deployments default
-to closed registration if this setting is absent.
+Devices that still have only a legacy member-token session will receive 401
+responses after deployment and must sign in with Entra. Their local data is
+preserved. Keep `ALLOW_NEW_HOUSEHOLDS=false`: public registration should remain
+closed until scheduled jobs, backups, monitoring and alerts are deployed and
+verified, and the legal pages have been reviewed.
 
 For an isolated staging deployment, set `storageAuthMode` to `rbac` and provide
 the workforce-tenant service principal's tenant ID, client ID, secret, and object

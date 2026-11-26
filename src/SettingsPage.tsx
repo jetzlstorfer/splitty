@@ -16,9 +16,8 @@ function AccountDetails({ sync: { identity, online, busy, actionError }, account
   const { t, message } = useLocale();
   const [failedPicture, setFailedPicture] = useState<string>();
   const picture = profilePictureUrl(identity?.pictureUrl);
-  const legacy = identity && (!identity.userId || identity.userId.startsWith("legacy-"));
   const provider = identity?.signInProvider;
-  const signInMethod = !identity ? t("Not signed in") : legacy ? t("Signed in with a member token")
+  const signInMethod = !identity ? t("Not signed in") : provider === "local" ? t("Signed in for local development")
     : provider === "google" ? t("Signed in with Google")
     : provider === "microsoft" ? t("Signed in with Microsoft")
     : provider === "email" ? t("Signed in with email") : t("Sign-in provider unavailable");
@@ -36,7 +35,7 @@ function AccountDetails({ sync: { identity, online, busy, actionError }, account
         {identity?.email && <small>{identity.email}</small>}
       </span>
     </div>
-    {identity && !legacy && !provider &&
+    {identity && !provider &&
       <p className="settings-note">{t("Sign in again to refresh your provider and profile details. Some providers do not share all details.")}</p>}
     {provider === "unknown" &&
       <p className="settings-note">{t("Entra did not identify a single sign-in method for this session.")}</p>}

@@ -4,7 +4,7 @@ import type { Mutation } from "../shared/model";
 import type { Todo } from "../shared/todo";
 import { example, exampleTodo } from "../tests/fixtures";
 import { activateAnonymousDatabase, automaticInsuranceTodos, db, getDeviceKey, getPreferences, queueInsuranceTodoSetting, queueTodos, setDeviceKey } from "./db";
-import { ApiError, identify, signInDevice, signOutDevice, syncPollingInterval, synchronize } from "./sync";
+import { ApiError, identify, signInLocally, signOutDevice, syncPollingInterval, synchronize } from "./sync";
 
 beforeEach(async () => {
   await activateAnonymousDatabase();
@@ -37,13 +37,13 @@ describe("device session recovery", () => {
     const requests: [string, unknown][] = [];
     vi.stubGlobal("fetch", vi.fn(async (path: string, init: RequestInit) => {
       requests.push([path, JSON.parse(String(init.body))]);
-      return Response.json(path === "/api/auth/token" ? { signedIn: true, deviceKey } : { signedOut: true });
+      return Response.json(path === "/api/auth/local" ? { signedIn: true, deviceKey } : { signedOut: true });
     }));
-    await signInDevice("A".repeat(43));
+    await signInLocally("a");
     expect(await getDeviceKey()).toBe(deviceKey);
     await signOutDevice();
     expect(await getDeviceKey()).toBeNull();
-    expect(requests).toEqual([["/api/auth/token", { token: "A".repeat(43) }], ["/api/auth/logout", { deviceKey }]]);
+    expect(requests).toEqual([["/api/auth/local", { member: "a" }], ["/api/auth/logout", { deviceKey }]]);
   });
 
   it("restores a lost session cookie without asking for the member token", async () => {
@@ -92,7 +92,7 @@ describe("device session recovery", () => {
     await expect(identify()).rejects.toThrow("Failed to fetch");
     expect(await getDeviceKey()).toBe(deviceKey);
 
-    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "Your member token was rotated. Sign in again." }, { status: 401 })));
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "Your household access has been revoked. Sign in again." }, { status: 401 })));
     await expect(identify()).rejects.toBeInstanceOf(ApiError);
     expect(await getDeviceKey()).toBeNull();
   });
@@ -114,7 +114,7 @@ describe("device session recovery", () => {
 
 describe("todo synchronization", () => {
   it("retains a newer insurance setting saved while a previous change is being acknowledged", async () => {
-    const context = { userId: "legacy-member", householdId: "test-household" };
+    const context = { userId: "local-member", householdId: "test-household" };
     const changes: unknown[] = [];
     vi.stubGlobal("fetch", vi.fn(async (path: string, init: RequestInit) => {
       if (path !== "/api/household/insurance-todos") return Response.json({ entries: [], cursor: 0, more: false });

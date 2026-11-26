@@ -29,8 +29,8 @@ export const test = base.extend<{
       NODE_ENV: "test", APP_ORIGIN: "", LOCAL_DEVELOPMENT: "true",
       TABLE_STORAGE_ACCOUNT_NAME: "", TABLE_STORAGE_TENANT_ID: "",
       TABLE_STORAGE_CLIENT_ID: "", TABLE_STORAGE_CLIENT_SECRET: "",
-      MEMBER_A_TOKEN: "A".repeat(43), MEMBER_B_TOKEN: "B".repeat(43),
-      MEMBER_A_NAME: "Alex", MEMBER_B_NAME: "Sam"
+      LOCAL_HOUSEHOLD_ID: "browser-test",
+      LOCAL_MEMBER_A_NAME: "Alex", LOCAL_MEMBER_B_NAME: "Sam"
     };
     const previous = Object.fromEntries(Object.keys(values).map((key) => [key, process.env[key]]));
     Object.assign(process.env, values);
@@ -54,14 +54,14 @@ export const test = base.extend<{
     finally { app.setManifestColor(); }
   },
   household: [async ({ app: _app }, use) => {
-    const previous = process.env.HOUSEHOLD_ID;
+    const previous = process.env.LOCAL_HOUSEHOLD_ID;
     const household = `browser-test-${randomUUID()}`;
-    process.env.HOUSEHOLD_ID = household;
+    process.env.LOCAL_HOUSEHOLD_ID = household;
     try { await use(household); }
     finally {
       await removeHousehold(household);
-      if (previous === undefined) delete process.env.HOUSEHOLD_ID;
-      else process.env.HOUSEHOLD_ID = previous;
+      if (previous === undefined) delete process.env.LOCAL_HOUSEHOLD_ID;
+      else process.env.LOCAL_HOUSEHOLD_ID = previous;
     }
   }, { auto: true }]
 });

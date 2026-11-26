@@ -2,9 +2,10 @@ import type { TableClient } from "@azure/data-tables";
 import { isInsuranceTodoSetting, validateChange, validateEntry, type MutationResult, type VersionedRecord } from "../../shared/model";
 import { validateTodo } from "../../shared/todo";
 import { scrubLog } from "../../shared/logScrub";
-import { authenticate, isSessionKey, logout, resumeSession, sessionCookie, signInWithToken } from "./auth";
+import { authenticate, isSessionKey, logout, resumeSession, sessionCookie } from "./auth";
 import { getConfig, HttpError } from "./config";
 import { beginEntraSignIn, completeEntraSignIn, getAccountDetails, getHouseholdNames, redeemDeviceKey } from "./entra";
+import { signInLocally } from "./localSignIn";
 import { expenseLedger, todoLedger, type createLedger } from "./ledger";
 import { createInvitation, listInvitations, revokeInvitation } from "./invitations";
 import {
@@ -39,15 +40,26 @@ export async function handler(
     const config = getConfig();
     const url = new URL(request.url), path = url.pathname.replace(/^\/api\/?/, "").replace(/\/$/, "");
     if (request.method !== "GET" && request.method !== "POST") throw new HttpError(405, "Method not allowed.");
+    if (path === "auth/local" && request.method === "POST") {
+      if (request.headers.get("origin") !== config.origin) throw new HttpError(403, "Request origin is not allowed.");
+      if (request.headers.get("content-type")?.split(";")[0].trim() !== "application/json") {
+        throw new HttpError(415, "Use application/json.");
+      }
+      const data = await body(request);
+      if (!config.local || !config.localSignIn) throw new HttpError(404, "Endpoint not found.");
+      const { auth } = await tables(config);
+      const { cookie, deviceKey } = await signInLocally(config, auth, data.member);
+      return json({ signedIn: true, deviceKey }, 200, { "Set-Cookie": cookie });
+    }
     const { auth, ledger } = await tables(config);
     if (path === "auth/config" && request.method === "GET") {
       return json({
         entraEnabled: !!config.entra,
-        legacyEnabled: !!(config.household && config.memberAToken && config.memberBToken),
+        localSignInEnabled: !!(config.local && config.localSignIn),
         newHouseholdsEnabled: config.allowNewHouseholds
       });
     }
-    if (["auth/start", "auth/callback", "auth/token", "auth/resume"].includes(path)) {
+    if (["auth/start", "auth/callback", "auth/resume"].includes(path)) {
       if (!config.local) {
         await consumeRateLimit(auth, signInRateLimitKey(request.headers.get("x-forwarded-for")), 20, 60_000);
       }
@@ -60,13 +72,7 @@ export async function handler(
     }
     if (path === "auth/start" && request.method === "POST") {
       const data = await body(request);
-      return await beginEntraSignIn(config, auth, undefined, data.inviteCode, true, data.legacyToken);
-    }
-    if (path === "auth/token" && request.method === "POST") {
-      const data = await body(request);
-      if (typeof data.token !== "string" || !/^[a-zA-Z0-9_-]{43}$/.test(data.token)) throw new HttpError(400, "Enter a valid member token.");
-      const { cookie, deviceKey } = await signInWithToken(data.token, config, auth);
-      return json({ signedIn: true, deviceKey }, 200, { "Set-Cookie": cookie });
+      return await beginEntraSignIn(config, auth, undefined, data.inviteCode, true);
     }
     if (path === "auth/resume" && request.method === "POST") {
       const data = await body(request);
@@ -91,7 +97,7 @@ export async function handler(
         householdId: identity.householdId,
         member: identity.member,
         ...await getAccountDetails(auth, identity),
-        ...(await getHouseholdNames(auth, identity.householdId) ?? { nameA: config.nameA, nameB: config.nameB })
+        ...(await getHouseholdNames(auth, identity.householdId) ?? { nameA: "", nameB: "" })
       });
     }
     if (path === "household/invitations" && request.method === "GET") {
@@ -134,7 +140,7 @@ export async function handler(
       const requestUser = request.headers.get("x-splitty-user");
       const requestHousehold = request.headers.get("x-splitty-household");
       const hasContext = requestUser !== null || requestHousehold !== null;
-      if ((!identity.userId.startsWith("legacy-") && (!requestUser || !requestHousehold))
+      if ((!requestUser || !requestHousehold)
         || (hasContext && (requestUser !== identity.userId || requestHousehold !== identity.householdId))) {
         throw new HttpError(409, "The signed-in household changed. Retry sync on this device.");
       }

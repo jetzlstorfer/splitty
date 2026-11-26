@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "./fixtures";
-import { expectSyncBackdrop, failNextConflictResolution, storedRecords, synchronize as sync, useEnglish as english } from "./helpers";
+import { expectSyncBackdrop, failNextConflictResolution, signIn as signInMember, storedRecords, synchronize as sync, useEnglish as english } from "./helpers";
 
 test.use({ hasTouch: true });
 
@@ -9,11 +9,8 @@ const detail = (page: Page, label: string) => popover(page).locator(".sync-detai
 const upToDate = (page: Page) => expect(page.locator(".sync-status")).toHaveText("Up to date");
 
 async function signIn(page: Page, member: "A" | "B" = "A") {
+  await signInMember(page, member);
   await indicator(page).click();
-  await popover(page).getByLabel("Member token").fill(member.repeat(43));
-  await popover(page).getByRole("button", { name: "Sign in", exact: true }).click();
-  await upToDate(page);
-  await expect(popover(page).getByText(`Signed in as ${member === "A" ? "Alex" : "Sam"}.`, { exact: true })).toBeVisible();
 }
 
 for (const language of ["en", "de"] as const) {
@@ -48,7 +45,7 @@ test("the cloud is the only sync entry point across tabs, widths and themes, wit
     await expect(page.locator("main .sync-status, main .sync-summary")).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Synchronization", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Sync now" })).toHaveCount(0);
-    await expect(page.getByLabel("Member token")).not.toBeVisible();
+    await expect(page.getByLabel("Member token")).toHaveCount(0);
     await indicator(page).click();
     await expect(popover(page).locator(".sync-summary")).toHaveText("Sign in to sync");
     await expect(detail(page, "Connection")).toHaveText("Online");
@@ -65,7 +62,7 @@ test("the cloud is the only sync entry point across tabs, widths and themes, wit
   await page.keyboard.press("Tab");
   await expect(popover(page).getByRole("button", { name: "Sync now" })).toBeFocused();
   await page.keyboard.press("Tab");
-  await expect(popover(page).getByLabel("Member token")).toBeFocused();
+  await expect(popover(page).getByRole("button", { name: "Development sign-in as first member" })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(popover(page)).not.toBeVisible();
   await expect(indicator(page)).toBeFocused();
@@ -104,13 +101,13 @@ test("the cloud is the only sync entry point across tabs, widths and themes, wit
 
 test("provider sign-in is shown only when enabled by the API", async ({ page }) => {
   await page.route("**/api/auth/config", (route) =>
-    route.fulfill({ json: { entraEnabled: true, legacyEnabled: false } }));
+    route.fulfill({ json: { entraEnabled: true, localSignInEnabled: false } }));
   await english(page);
   await indicator(page).click();
   await expect(popover(page).getByRole("button", {
     name: "Continue with email, Google, or Microsoft", exact: true
   })).toBeVisible();
-  await expect(popover(page).getByLabel("Member token")).toHaveCount(0);
+  await expect(popover(page).getByRole("button", { name: /Development sign-in/ })).toHaveCount(0);
 });
 
 test("busy sync stays inspectable and a failed sync can be retried from the popover", async ({ page }) => {
@@ -170,30 +167,20 @@ test("busy sync stays inspectable and a failed sync can be retried from the popo
   } finally { release(); }
 });
 
-test("sign-in and sync stay in the popover while sign-out is in Settings", async ({ page, context }) => {
+test("development sign-in and sync stay in the popover while sign-out is in Settings", async ({ page, context }) => {
   let signInRequests = 0;
-  page.on("request", (request) => { if (new URL(request.url()).pathname === "/api/auth/token") signInRequests++; });
+  page.on("request", (request) => { if (new URL(request.url()).pathname === "/api/auth/local") signInRequests++; });
   await page.goto("/");
   await page.getByRole("button", { name: "Synchronisierungsstatus", exact: true }).click();
   const germanPopover = page.locator(".sync-popover");
-  await expect(germanPopover.locator("form")).toHaveAttribute("novalidate", "");
-  await germanPopover.getByRole("button", { name: "Anmelden", exact: true }).click();
-  await expect(germanPopover.getByRole("alert")).toHaveText("Bitte fülle dieses Feld aus.");
-  await expect(germanPopover.getByLabel("Mitglieds-Token", { exact: true })).toBeFocused();
+  await expect(germanPopover.locator("form")).toHaveCount(0);
+  await expect(germanPopover.getByLabel("Mitglieds-Token", { exact: true })).toHaveCount(0);
   expect(signInRequests).toBe(0);
   await english(page);
-  await indicator(page).click();
-  await expect(popover(page).locator("form")).toHaveAttribute("novalidate", "");
-  await popover(page).getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(popover(page).getByRole("alert")).toHaveText("Please fill out this field.");
-  await expect(popover(page).getByLabel("Member token", { exact: true })).toBeFocused();
-  expect(signInRequests).toBe(0);
-  await popover(page).getByLabel("Member token").fill("invalid");
-  await popover(page).getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(popover(page).getByRole("alert")).toBeVisible();
-  await expect(page.locator("main").getByRole("alert")).toHaveCount(0);
-  await indicator(page).click();
   await signIn(page);
+  const accountDatabaseName = await page.evaluate(() => localStorage.getItem("splitty-active-database"));
+  if (!accountDatabaseName) throw new Error("The signed-in account database was not selected.");
+  expect(signInRequests).toBe(1);
   await expect(page.getByRole("heading", { name: /^Expenses/, level: 1 })).toBeVisible();
   await expect(popover(page).getByRole("alert")).toHaveCount(0);
   await indicator(page).click();
@@ -228,7 +215,7 @@ test("sign-in and sync stay in the popover while sign-out is in Settings", async
   await expect(detail(page, "Connection")).toHaveText("Offline");
   await expect(detail(page, "Changes waiting to sync")).toHaveText("2");
   await expect(popover(page).getByRole("button", { name: "Sync now" })).toBeDisabled();
-  await expect(popover(page).getByRole("button", { name: "Sign in", exact: true })).toBeDisabled();
+  await expect(popover(page).getByRole("button", { name: "Development sign-in as first member", exact: true })).toBeDisabled();
   await context.setOffline(false);
   await expect(popover(page).locator(".sync-summary")).toHaveText("Up to date");
   await expect(detail(page, "Changes waiting to sync")).toHaveText("0");
@@ -240,12 +227,13 @@ test("sign-in and sync stay in the popover while sign-out is in Settings", async
   await account.getByRole("button", { name: "Sign out", exact: true }).click();
   await indicator(page).click();
   await expect(popover(page).locator(".sync-summary")).toHaveText("Signed out · local history remains on this device");
-  await expect(popover(page).getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
-  await indicator(page).click();
-  await page.getByRole("navigation").getByRole("button", { name: "Expenses", exact: true }).click();
-  await expect(page.locator(".expense-row").filter({ hasText: expense })).toContainText("10.00");
-  await page.getByRole("navigation").getByRole("button", { name: "To-dos", exact: true }).click();
-  await expect(page.getByText(todo, { exact: true })).toBeVisible();
+  await expect(popover(page).getByRole("button", { name: "Development sign-in as first member", exact: true })).toBeVisible();
+  expect(await storedRecords(page)).toEqual({ entries: [], todos: [], outbox: [], todoOutbox: [] });
+  const retained = await storedRecords(page, accountDatabaseName);
+  expect(retained.entries).toEqual(expect.arrayContaining([
+    expect.objectContaining({ description: expense, amountCents: 1000 })
+  ]));
+  expect(retained.todos).toEqual(expect.arrayContaining([expect.objectContaining({ title: todo })]));
 });
 
 test("expense conflicts are resolved in the popover without changing the pending balance rules", async ({ browser, baseURL }) => {

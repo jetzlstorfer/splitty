@@ -8,8 +8,14 @@
     }
   },
   "logging": {
+    "logLevel": {
+      "default": "Warning",
+      "Host.Results": "Information",
+      "Function": "Warning"
+    },
     "applicationInsights": {
       "samplingSettings": { "isEnabled": true, "excludedTypes": "Request" },
+      "enableDependencyTracking": false,
       "enableLiveMetricsFilters": true
     }
   }

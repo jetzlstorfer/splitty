@@ -101,7 +101,14 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     const config = getConfig();
     const { auth } = await tables(config);
     const subject = crypto.randomUUID();
-    async function signIn(idp: string, name: string, picture?: string) {
+    const email = "alex@example.invalid";
+    const account = { username: email, environment: "splittytest.ciamlogin.com", tenantId: "test", localAccountId: subject, homeAccountId: subject };
+    const token = {
+      authority: config.entra!.authority, uniqueId: subject, tenantId: "test", account,
+      idToken: "", accessToken: "", fromCache: false, expiresOn: null, tokenType: "Bearer", correlationId: "", scopes: []
+    };
+    const acquireTokenSilent = vi.fn(async () => ({ ...token, accessToken: "synthetic-graph-token" }));
+    async function signIn(idp: string | undefined, name: string, picture?: string) {
       const start = await beginEntraSignIn(config, auth, {
         getAuthCodeUrl: async () => "https://splittytest.ciamlogin.com/authorize"
       });
@@ -111,12 +118,9 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
         headers: { cookie }
       }), config, auth, {
         acquireTokenByCode: async () => ({
-          authority: config.entra!.authority, uniqueId: subject, tenantId: "test", scopes: [], account: null,
-          idToken: "", idTokenClaims: {
-            iss: config.entra!.authority, sub: subject, email: "alex@example.invalid", name, idp, picture
-          },
-          accessToken: "", fromCache: false, expiresOn: null, tokenType: "Bearer", correlationId: ""
-        })
+          ...token, idTokenClaims: { iss: config.entra!.authority, sub: subject, email, name, idp, picture }
+        }),
+        acquireTokenSilent
       });
     }
     const first = await signIn("google.com", "Alex Sample", "https://profiles.example.invalid/alex.png");
@@ -139,6 +143,28 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     const secondProfile = await (await call("me", undefined, second.headers.get("set-cookie")!.split(";")[0])).json();
     expect(secondProfile).toMatchObject({ signInProvider: "microsoft", displayName: "Alex Updated" });
     expect(secondProfile).not.toHaveProperty("pictureUrl");
+    expect(acquireTokenSilent).not.toHaveBeenCalled();
+    const graph = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Unexpected network request"));
+    try {
+      for (const [expected, identity] of [
+        ["email", { signInType: "emailAddress", issuer: "example.onmicrosoft.com" }],
+        ["microsoft", { signInType: "federated", issuer: "MicrosoftAccount" }]
+      ] as const) {
+        graph.mockResolvedValueOnce(Response.json({ identities: [identity, { signInType: "userPrincipalName" }] }));
+        const session = await signIn(undefined, "Alex");
+        const me = await call("me", undefined, session.headers.get("set-cookie")!.split(";")[0]);
+        expect(await me.json()).toMatchObject({ userId: profile.userId, email, signInProvider: expected });
+        expect(acquireTokenSilent).toHaveBeenLastCalledWith({ account, scopes: ["https://graph.microsoft.com/User.Read"] });
+        expect(graph).toHaveBeenLastCalledWith("https://graph.microsoft.com/v1.0/me?$select=identities", expect.objectContaining({
+          headers: { Authorization: "Bearer synthetic-graph-token" }, redirect: "error"
+        }));
+      }
+      acquireTokenSilent.mockRejectedValueOnce(new Error("Missing delegated consent"));
+      const session = await signIn(undefined, "Alex");
+      const me = await call("me", undefined, session.headers.get("set-cookie")!.split(";")[0]);
+      expect(await me.json()).toMatchObject({ userId: profile.userId, signInProvider: "unknown" });
+      expect(graph).toHaveBeenCalledTimes(2);
+    } finally { graph.mockRestore(); }
     expect(await (await call("me", undefined, firstCookie)).json()).toEqual(profile);
     const legacy = await (await call("me", undefined, await login("a"))).json();
     expect(legacy).not.toHaveProperty("email");
@@ -301,6 +327,7 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     const before = await readChanges(ledger, household, 0);
 
     const authorizationClient: NonNullable<Parameters<typeof completeEntraSignIn>[3]> = {
+      acquireTokenSilent: async () => { throw new Error("Unexpected Graph token request"); },
       acquireTokenByCode: async () => ({
         authority: issuer, uniqueId: subject, tenantId: "test", scopes: [], account: null,
         idToken: "", idTokenClaims: { iss: issuer, sub: subject, email: "test@example.invalid" },
@@ -439,6 +466,7 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     const issuer = "https://issuer.example", subject = crypto.randomUUID();
     let displayName = "Sam Synthetic";
     const authorizationClient: NonNullable<Parameters<typeof completeEntraSignIn>[3]> = {
+      acquireTokenSilent: async () => { throw new Error("Unexpected Graph token request"); },
       acquireTokenByCode: async () => ({
         authority: issuer, uniqueId: subject, tenantId: "test", scopes: [], account: null, idToken: "",
         idTokenClaims: { iss: issuer, sub: subject, email: "sam@example.invalid", name: displayName },

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { beginEntraSignIn, identityClaims } from "../api/src/entra";
+import { directoryProvider } from "../api/src/signInProvider";
 import { profilePictureUrl } from "../shared/profile";
 import type { Config } from "../api/src/config";
 
@@ -12,14 +13,34 @@ describe("sign-in profile claims", () => {
     ["google.com", "google"],
     ["https://accounts.google.com/", "google"],
     ["live.com", "microsoft"],
+    ["MicrosoftAccount", "microsoft"],
+    ["https://login.microsoftonline.com/consumers/v2.0/tenant", "microsoft"],
     ["https://login.microsoftonline.com/tenant/v2.0", "microsoft"],
     ["https://sts.windows.net/9188040d-6c67-4c5b-b112-36a304b66dad/", "microsoft"],
     [issuer, "email"],
     ["email", "email"],
+    ["mail", "email"],
     [undefined, "unknown"],
+    ["https://login.microsoftonline.com.example.invalid/tenant/v2.0", "unknown"],
     ["https://accounts.google.com.example.invalid", "unknown"]
   ])("recognizes %s without guessing from the email domain", (idp, provider) => {
     expect(identityClaims({ ...claims, email: "alex@gmail.com", idp }).signInProvider).toBe(provider);
+  });
+
+  it("uses mapped provider claims without overriding the session's idp", () => {
+    expect(identityClaims({ ...claims, identityprovider: "MicrosoftAccount" }).signInProvider).toBe("microsoft");
+    expect(identityClaims({ ...claims, idp: "mail", identityprovider: "MicrosoftAccount" }).signInProvider).toBe("email");
+  });
+
+  it("does not mistake a directory UPN, an unrecognized issuer, or linked methods for the active sign-in", () => {
+    const upn = { signInType: "userPrincipalName", issuer: "example.onmicrosoft.com" };
+    const local = { signInType: "emailAddress", issuer: "example.onmicrosoft.com" };
+    const google = { signInType: "federated", issuer: "google.com" };
+    expect(directoryProvider([upn, google])).toBe("google");
+    expect(directoryProvider([upn])).toBe("unknown");
+    expect(directoryProvider([upn, local, google])).toBe("unknown");
+    expect(directoryProvider([local, { signInType: "federated", issuer: "other.example.invalid" }])).toBe("unknown");
+    expect(directoryProvider(null)).toBe("unknown");
   });
 
   it("keeps supplied profile details separate from the household name fallback", () => {
@@ -72,6 +93,7 @@ describe("Entra authorization request", () => {
     };
     let authorizationRequest: {
       scopes?: string[];
+      claims?: string;
       redirectUri?: string;
       responseMode?: string;
       state?: string;
@@ -84,6 +106,7 @@ describe("Entra authorization request", () => {
       getAuthCodeUrl: async (request) => {
         authorizationRequest = {
           scopes: request.scopes,
+          claims: request.claims,
           redirectUri: request.redirectUri,
           responseMode: request.responseMode,
           state: request.state,
@@ -107,6 +130,7 @@ describe("Entra authorization request", () => {
     expect(transaction.expiresAt).toBeGreaterThan(Date.now());
     expect(authorizationRequest).toMatchObject({
       scopes: ["openid", "profile", "email"],
+      claims: JSON.stringify({ id_token: { idp: { essential: false } } }),
       redirectUri: "http://127.0.0.1:5173/api/auth/callback",
       responseMode: "query",
       state: transaction.state,

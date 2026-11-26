@@ -90,7 +90,9 @@ context before removing its profile.
 
 Local browser tests run with three workers and can parallelize tests within each
 file. CI keeps two workers and runs tests within each file sequentially. Workers
-have separate process environments, emulators, and previews. The runner stops
+have separate process environments, emulators, and previews. A spec whose tests
+must share one worker's storage, such as the isolation check, sets
+`test.describe.configure({ mode: "default" })` to keep them in order. The runner stops
 scheduling tests after the first failure; another in-flight test may be
 interrupted. Disable fail-fast for a full diagnostic report or select one worker
 when investigating timing issues or running on a memory-constrained machine:

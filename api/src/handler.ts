@@ -3,7 +3,7 @@ import { isInsuranceTodoSetting, validateChange, validateEntry, type MutationRes
 import { validateTodo } from "../../shared/todo";
 import { authenticate, isSessionKey, logout, resumeSession, sessionCookie, signInWithToken } from "./auth";
 import { getConfig, HttpError } from "./config";
-import { beginEntraSignIn, completeEntraSignIn, getHouseholdNames, isLegacyClaimed, redeemDeviceKey } from "./entra";
+import { beginEntraSignIn, completeEntraSignIn, getAccountDetails, getHouseholdNames, redeemDeviceKey } from "./entra";
 import { expenseLedger, todoLedger, type createLedger } from "./ledger";
 import { createInvitation, listInvitations, revokeInvitation } from "./invitations";
 import {
@@ -87,7 +87,7 @@ export async function handler(request: Request, logError: (message: string) => v
         userId: identity.userId,
         householdId: identity.householdId,
         member: identity.member,
-        legacyClaimed: await isLegacyClaimed(auth, identity.userId, identity.householdId),
+        ...await getAccountDetails(auth, identity),
         ...(await getHouseholdNames(auth, identity.householdId) ?? { nameA: config.nameA, nameB: config.nameB })
       });
     }

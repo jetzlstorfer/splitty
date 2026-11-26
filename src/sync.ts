@@ -1,7 +1,8 @@
 import { activateAccountDatabase, applyStorePage, applyStoreResults, db, expenseStore, todoStore, getDeviceKey, getPreferences, importLegacyDatabase, isActiveDatabase, setDeviceKey, SplittyDatabase, type SyncStore } from "./db";
 import { isInsuranceTodoSetting, type Member, type MutationResult, type SyncPage, type VersionedRecord } from "../shared/model";
+import type { AccountProfile } from "../shared/profile";
 
-export interface Identity {
+export interface Identity extends AccountProfile {
   member: Member;
   nameA: string;
   nameB: string;

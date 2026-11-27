@@ -66,8 +66,10 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
       await expect(icon).toHaveCSS("animation-name", "none");
       await expect(icon).toHaveCSS("box-shadow", "none");
     };
-    await expect(page.locator(".settled-note")).toHaveText("All square. Nicely done.");
-    await expect(mark).not.toHaveClass(/celebrate/);
+    // An empty ledger is not celebrated as settled; the first expense comes first.
+    await expect(page.locator(".balance-card")).toContainText("No shared expenses yet");
+    await expect(page.locator(".settled-note")).toHaveCount(0);
+    await expect(mark).toHaveCount(0);
 
     await page.getByRole("button", { name: "Add expense", exact: true }).click();
     const dialog = page.getByRole("dialog");
@@ -231,7 +233,7 @@ test("category colors are consistent, accessible and responsive across both them
 
 test("German local-save and settled copy follows the device language", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".settled-note")).toHaveText("Gut gemacht, ihr zwei.");
+  await expect(page.locator(".balance-card")).toContainText("Noch keine gemeinsamen Ausgaben");
   await page.getByRole("button", { name: "Ausgabe hinzufügen", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await dialog.getByLabel("Beschreibung", { exact: true }).fill("Kaffee");
@@ -246,4 +248,5 @@ test("German local-save and settled copy follows the device language", async ({ 
   await expect(dialog).not.toBeVisible();
   await expect(page.locator(".save-feedback")).toHaveText("Zahlung auf diesem Gerät gespeichert");
   await expect(page.locator(".settled-mark")).toHaveClass(/celebrate/);
+  await expect(page.locator(".settled-note")).toHaveText("Gut gemacht, ihr zwei.");
 });

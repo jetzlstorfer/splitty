@@ -4,7 +4,7 @@ import type { Mutation } from "../shared/model";
 import type { Todo } from "../shared/todo";
 import { example, exampleTodo } from "../tests/fixtures";
 import { activateAnonymousDatabase, automaticInsuranceTodos, db, getDeviceKey, getPreparedDeviceKey, getPreferences, prepareDeviceKey, queueInsuranceTodoSetting, queueTodos, setDeviceKey } from "./db";
-import { ApiError, identify, signInLocally, signOutDevice, syncPollingInterval, synchronize } from "./sync";
+import { ApiError, identify, NotSignedInError, signInLocally, signOutDevice, syncPollingInterval, synchronize } from "./sync";
 
 beforeEach(async () => {
   await activateAnonymousDatabase();
@@ -113,14 +113,18 @@ describe("device session recovery", () => {
     expect(await getDeviceKey()).toBe(deviceKey);
 
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "Your household access has been revoked. Sign in again." }, { status: 401 })));
-    await expect(identify()).rejects.toBeInstanceOf(ApiError);
+    const revoked = identify();
+    await expect(revoked).rejects.toBeInstanceOf(ApiError);
+    await expect(revoked).rejects.not.toBeInstanceOf(NotSignedInError);
     expect(await getDeviceKey()).toBeNull();
   });
 
   it("does not try to recover without a stored key or after non-auth errors", async () => {
     const fetch = vi.fn(async () => Response.json({ error: "Sign in to sync this device." }, { status: 401 }));
     vi.stubGlobal("fetch", fetch);
-    await expect(identify()).rejects.toMatchObject({ status: 401 });
+    const local = identify();
+    await expect(local).rejects.toMatchObject({ status: 401 });
+    await expect(local).rejects.toBeInstanceOf(NotSignedInError);
     expect(fetch).toHaveBeenCalledOnce();
 
     await setDeviceKey(deviceKey);

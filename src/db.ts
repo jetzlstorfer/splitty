@@ -100,6 +100,11 @@ async function selectDatabase(name: string, persist = true): Promise<void> {
   if (db.name === name) return;
   const next = name === legacyDatabase.name ? legacyDatabase : new SplittyDatabase(name);
   await next.open();
+  // The app language is a device setting, so it follows the device into the next account or household.
+  let language: Language | undefined;
+  try { ({ language } = await getPreferences(db)); }
+  catch (error) { if ((error as Error | undefined)?.name !== "DatabaseClosedError") throw error; }
+  if (language && (await getPreferences(next)).language !== language) await updatePreferences({ language }, next);
   if (typeof window !== "undefined") window.dispatchEvent(new Event("splitty-database-changing"));
   db.close();
   db = next;
@@ -117,18 +122,41 @@ if (typeof window !== "undefined") {
   });
 }
 
-export async function activateAccountDatabase(userId: string, householdId: string): Promise<void> {
+/** The local database name of one account's membership in one household. */
+export async function accountDatabaseFor(userId: string, householdId: string): Promise<string> {
   if (!/^[a-zA-Z0-9_-]{1,100}$/.test(userId) || !/^[a-zA-Z0-9_-]{1,100}$/.test(householdId)) {
     throw new Error("Invalid sign-in response.");
   }
   const input = new TextEncoder().encode(`${userId}\0${householdId}`);
   const hash = await crypto.subtle.digest("SHA-256", input);
-  const suffix = [...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-  await selectDatabase(`splitty-account-${suffix}`);
+  return `splitty-account-${[...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
+export async function activateAccountDatabase(userId: string, householdId: string): Promise<void> {
+  await selectDatabase(await accountDatabaseFor(userId, householdId));
 }
 
 export async function activateAnonymousDatabase(): Promise<void> {
   await selectDatabase("splitty");
+}
+
+export const isAccountDatabase = (database: SplittyDatabase) => /^splitty-account-[a-f0-9]{64}$/.test(database.name);
+
+/**
+ * Records created on this device without an account. Only a database that never synced qualifies:
+ * legacy household history already reached its server and is adopted separately.
+ */
+export async function anonymousRecords(): Promise<{ entries: Entry[]; todos: Todo[]; member: Member } | null> {
+  await legacyDatabase.open();
+  const [preferences, entries, todos] = await Promise.all([
+    getPreferences(legacyDatabase), legacyDatabase.entries.toArray(), legacyDatabase.todos.toArray()
+  ]);
+  if (preferences.cursor !== 0 || preferences.todoCursor !== 0) return null;
+  return {
+    entries: entries.filter((entry) => !entry.deleted),
+    todos: todos.filter((todo) => !todo.deleted),
+    member: preferences.member
+  };
 }
 
 export async function getDeviceKey(database?: SplittyDatabase): Promise<string | null> {

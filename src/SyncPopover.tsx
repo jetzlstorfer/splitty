@@ -1,16 +1,16 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { RefreshCw, X } from "lucide-react";
-import { QRCodeSVG } from "qrcode.react";
+import { RefreshCw, Settings, X } from "lucide-react";
 import type { Todo } from "../shared/todo";
 import { resolveConflict, resolveStoreConflict, todoStore, type Preferences } from "./db";
 import { useLocale } from "./i18n";
+import SignInOptions from "./SignInOptions";
 import SyncIcon from "./SyncIcon";
 import type { AccountController } from "./useAccount";
 import type { Snapshot } from "./useLedger";
 import type { SyncController } from "./useSync";
 
-export function SyncPopover({ id, online, busy, pending, attention, upToDate, status, children }: {
-  id: string; online: boolean; busy: boolean; pending: number; attention: boolean; upToDate: boolean;
+export function SyncPopover({ id, online, busy, pending, attention, upToDate, localOnly, status, children }: {
+  id: string; online: boolean; busy: boolean; pending: number; attention: boolean; upToDate: boolean; localOnly: boolean;
   status: string; children: ReactNode;
 }) {
   const { t, number } = useLocale();
@@ -29,8 +29,9 @@ export function SyncPopover({ id, online, busy, pending, attention, upToDate, st
   return <div className="sync-control">
     <button className={`sync-pill ${attention ? "needs-attention" : ""}`} popoverTarget={id}
       aria-haspopup="dialog" aria-expanded={open} aria-controls={id} aria-busy={busy} aria-label={t("Sync status")}>
-      <SyncIcon state={!online ? "offline" : busy ? "syncing" : attention ? "attention" : upToDate ? "current" : "pending"} />
-      <span className={online && !attention ? "sr-only" : undefined}>{!online ? t("Offline") : busy ? t("Syncing…") : pending ? t("{count} pending", { count: number(pending) })
+      <SyncIcon state={!online ? "offline" : busy ? "syncing" : attention ? "attention" : localOnly ? "local" : upToDate ? "current" : "pending"} />
+      <span className={online && !attention && !localOnly ? "sr-only" : undefined}>{!online ? t("Offline") : busy ? t("Syncing…")
+        : localOnly && !attention ? t("Local only") : pending ? t("{count} pending", { count: number(pending) })
         : attention ? t("Needs attention") : upToDate ? t("Up-to-date") : t("Saved on this device")}</span>
     </button>
     <span className="sync-status sr-only" role="status">{status}</span>
@@ -46,70 +47,38 @@ export function SyncPopover({ id, online, busy, pending, attention, upToDate, st
   </div>;
 }
 
-/** Contents of the sync popover: connection details, sign-in, invitations, and conflict resolution. */
-export function SyncPanel({ ledger, preferences: p, conflictCount, sync, account, conflictResolved }: {
-  ledger: Snapshot; preferences: Preferences; conflictCount: number;
+/** Contents of the sync popover: connection details, sign-in, and conflict resolution. Household management lives in Settings. */
+export function SyncPanel({ id, ledger, preferences: p, conflictCount, localOnly, sync, account, conflictResolved, openSettings }: {
+  id: string; ledger: Snapshot; preferences: Preferences; conflictCount: number; localOnly: boolean;
   sync: Pick<SyncController, "online" | "identity" | "busy" | "lastSynced" | "actionError" | "setActionError" | "sync">;
   account: AccountController; conflictResolved: () => void;
+  openSettings: (section: "account" | "household") => void;
 }) {
   const { t, locale, number, money, message, person } = useLocale();
   const { online, identity, busy, lastSynced, actionError, setActionError, sync: syncNow } = sync;
-  const {
-    authOptions, signInBusy, signOutBusy,
-    invitations, invitationLink, invitationBusy, invitationCopied, canRemoveLocalData,
-    startProviderSignIn, createHouseholdInvitation, copyInvitationLink, revokeHouseholdInvitation,
-    removeLocalAccountData
-  } = account;
+  const { signInBusy, signOutBusy } = account;
   const todoVersion = (todo: Todo | null | undefined) => !todo ? t("Not present") : todo.deleted ? t("Deleted")
     : `${todo.title}${todo.description ? `\n${todo.description}` : ""}\n${t(todo.done ? "Done" : "Open to-dos")}`;
+  const goToSettings = (section: "account" | "household") => {
+    document.getElementById(id)?.hidePopover();
+    openSettings(section);
+  };
   return <>
     <dl className="sync-details">
       <div><dt>{t("Connection")}</dt><dd>{t(online ? "Online" : "Offline")}</dd></div>
-      <div><dt>{t("Changes waiting to sync")}</dt><dd>{number(ledger.pending)}</dd></div>
+      <div><dt>{t(localOnly ? "Saved only on this device" : "Changes waiting to sync")}</dt><dd>{number(ledger.pending)}</dd></div>
       {!!conflictCount && <div><dt>{t("Edits needing attention")}</dt><dd>{number(conflictCount)}</dd></div>}
       <div><dt>{t("Last sync this session")}</dt><dd>{lastSynced ? <time dateTime={lastSynced.toISOString()}>{lastSynced.toLocaleString(locale, { dateStyle: "short", timeStyle: "short" })}</time> : t("Not yet synced")}</dd></div>
     </dl>
     {actionError && <p className="error" role="alert">{message(actionError)}</p>}
     {identity && <p>{t("Signed in as {name}.", { name: person(p, identity.member) })}</p>}
-    <div className="button-row"><button className="secondary" disabled={!online || busy || signInBusy || signOutBusy} onClick={() => void syncNow()}><RefreshCw size={16} />{t("Sync now")}</button>
-      {canRemoveLocalData
-        && <button className="text-button" disabled={!online || busy || signOutBusy} aria-busy={signOutBusy} onClick={() => void removeLocalAccountData()}>{t("Remove local data from this device")}</button>}</div>
-    {identity && identity.householdId && authOptions.entraEnabled && <section className="invitation-panel" aria-label={t("Household invitations")}>
-      <h3>{t("Invite your partner")}</h3>
-      <p className="muted">{t("Invitation is valid for 7 days and takes over the invited member slot's existing balance.")}</p>
-      <button className="secondary" disabled={!online || invitationBusy} onClick={() => void createHouseholdInvitation()}>
-        {t(invitationBusy ? "Creating invitation…" : "Create invitation")}
-      </button>
-      {invitationLink && <div className="invitation-link">
-        <label>{t("Invitation link")}<input aria-label={t("Invitation link")} readOnly value={invitationLink} onFocus={(event) => event.currentTarget.select()} /></label>
-        <QRCodeSVG value={invitationLink} size={192} level="M" includeMargin role="img" aria-label={t("Invitation QR code")} />
-        <button className="secondary" disabled={invitationBusy} onClick={() => void copyInvitationLink()}>{t("Copy invite link")}</button>
-        {invitationCopied && <p role="status">{t("Invite was copied.")}</p>}
-      </div>}
-      {!!invitations.length && <ul>{invitations.map((invite) => <li key={invite.id}>
-        <p>{t("Pending invitation to {name}, expires {date}.", {
-          name: person(p, invite.slot),
-          date: new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(new Date(invite.expiresAt))
-        })}</p>
-        <button className="text-button" disabled={!online || invitationBusy} onClick={() => void revokeHouseholdInvitation(invite)}>{t("Revoke invitation")}</button>
-      </li>)}</ul>}
-    </section>}
-    {identity ? <p className="muted">{t("Signing out does not erase this device's offline history. Use a trusted device.")}</p> :
-      <div className="sync-sign-in">
-        {authOptions.entraEnabled && <>
-          <button className="primary" disabled={busy || signInBusy || !online} onClick={() => void startProviderSignIn()}>{t("Continue with email, Google, or Microsoft")}</button>
-          {authOptions.newHouseholdsEnabled === false && !new URLSearchParams(location.hash.slice(1)).has("invite")
-            && <p className="muted">{t("New household registration is currently closed. Ask a household member for an invitation.")}</p>}
-        </>}
-        {authOptions.localSignInEnabled && <div className="button-row">
-          <button className="primary" disabled={signInBusy || busy || !online} onClick={() => void account.signIn("a")}>
-            {t(signInBusy ? "Signing in…" : "Development sign-in as first member")}
-          </button>
-          <button className="secondary" disabled={signInBusy || busy || !online} onClick={() => void account.signIn("b")}>
-            {t(signInBusy ? "Signing in…" : "Development sign-in as second member")}
-          </button>
-        </div>}
-      </div>}
+    <div className="button-row"><button className="secondary" disabled={!online || busy || signInBusy || signOutBusy} onClick={() => void syncNow()}><RefreshCw size={16} />{t("Sync now")}</button></div>
+    {identity ? <button className="text-button sync-settings-link" onClick={() => goToSettings("household")}>
+      <Settings size={16} aria-hidden="true" />{t("Household and invitations in Settings")}
+    </button> : <>
+      <p className="muted">{t("Sign in to share expenses and to-dos with the other person and to sync your devices.")}</p>
+      <SignInOptions account={account} online={online} busy={busy} />
+    </>}
     {!!ledger.conflicts.length && <section className="conflict-panel" aria-label={t("Conflicting edits")}><h3>{t("Conflicting edits")}</h3><p>{t("These entries changed on another device. Choose which version to keep.")}</p>{ledger.conflicts.map((conflict) => {
       const local = ledger.entries.find((entry) => entry.id === conflict.entryId);
       return <div key={conflict.entryId}><strong>{local?.description}</strong><p>{t("This device: {local} · Other device: {remote} ({name}'s balance)", { local: local?.deleted ? t("Deleted") : money(local?.balanceA ?? 0), remote: conflict.remote?.deleted ? t("Deleted") : conflict.remote ? money(conflict.remote.balanceA) : t("Not present"), name: p.nameA })}</p><div className="button-row">

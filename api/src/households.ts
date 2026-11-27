@@ -90,6 +90,13 @@ async function membershipForSlot(
   return null;
 }
 
+/** Whether the other member slot has an active membership, as opposed to a name or a pending invitation. */
+export async function otherMemberJoined(
+  table: TableClient, context: Pick<AuthContext, "householdId" | "member">
+): Promise<boolean> {
+  return !!await membershipForSlot(table, context.householdId, context.member === "a" ? "b" : "a");
+}
+
 async function memberships(table: TableClient, householdId: string): Promise<Array<{ userId: string; member: Member }>> {
   const partitionKey = householdPartition(householdId);
   const results: Array<{ userId: string; member: Member }> = [];

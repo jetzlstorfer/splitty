@@ -223,9 +223,10 @@ test.describe("shared browser storage", () => {
     await upToDate(page);
     await addExpense(page, "Unsent local record", "8");
     await expect(page.locator(".expense-row")).toContainText("Unsent local record");
-    await openSync(page);
+    await page.getByRole("navigation").getByRole("button", { name: "Settings", exact: true }).click();
 
-    const removeButton = page.getByRole("button", { name: "Remove local data from this device" });
+    const removeButton = page.getByRole("region", { name: "This device", exact: true })
+      .getByRole("button", { name: "Remove local data from this device" });
     await removeButton.click();
     const confirmation = page.getByRole("dialog").filter({ hasText: /1 unsynced changes or conflicts/ });
     await expect(confirmation).toBeVisible();

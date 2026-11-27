@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { Member } from "../shared/model";
 import type { MessageKey } from "../shared/i18n";
-import { activateAccountDatabase, activateAnonymousDatabase, clearAccountDatabase, db, getPreferences, localQueueState, prepareDeviceKey, setDeviceKey, updatePreferences } from "./db";
+import { activateAccountDatabase, activateAnonymousDatabase, clearAccountDatabase, db, localQueueState, prepareDeviceKey, setDeviceKey, updatePreferences } from "./db";
 import { api, signInLocally, signOutDevice } from "./sync";
 import { SYNC_STATUS } from "./syncStatus";
 import type { SyncController } from "./useSync";
@@ -11,6 +11,8 @@ import { useConfirm } from "./Controls";
 export interface AuthOptions { entraEnabled: boolean; localSignInEnabled: boolean; newHouseholdsEnabled?: boolean }
 export interface Invitation { id: string; slot: Member; expiresAt: number }
 export interface HouseholdSummary { householdId: string; member: Member; nameA: string; nameB: string; current: boolean }
+/** Where a failed account action is reported, so the message appears beside the control that caused it. */
+export type AccountErrorArea = "sign-in" | "account" | "household" | "invitation" | "join" | "device";
 const authOptionsKey = "splitty-auth-options";
 const stableId = /^[a-zA-Z0-9_-]{1,100}$/;
 
@@ -41,19 +43,20 @@ function savedAuthOptions(): AuthOptions {
 
 /** The part of the sync controller that account flows read or drive. */
 export type AccountSync = Pick<SyncController,
-  "online" | "identity" | "setIdentity" | "setActionError" | "sync" | "endSession" | "startSession" | "suspendSync" | "resumeSync">;
+  "online" | "identity" | "setIdentity" | "sync" | "endSession" | "startSession" | "suspendSync" | "resumeSync">;
 
 /**
- * Sign-in, household and invitation flows. Failures are reported through the sync controller's
- * `actionError`, and an ended session is cleared through its `endSession`.
+ * Sign-in, household and invitation flows. Failures are reported per area through `errorFor`, not as
+ * sync problems, and an ended session is cleared through the sync controller's `endSession`.
  */
-export function useAccount({ online, identity, setIdentity, setActionError, sync, endSession, startSession, suspendSync, resumeSync }: AccountSync) {
+export function useAccount({ online, identity, setIdentity, sync, endSession, startSession, suspendSync, resumeSync }: AccountSync) {
   const { t, number } = useLocale();
   const confirm = useConfirm();
   const [signInBusy, setSignInBusy] = useState(false);
   const [signOutBusy, setSignOutBusy] = useState(false);
   const [authOptions, setAuthOptions] = useState<AuthOptions>(savedAuthOptions);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
+  const [invitationsLoaded, setInvitationsLoaded] = useState(false);
   const [invitationLink, setInvitationLink] = useState("");
   const [createdInvitationId, setCreatedInvitationId] = useState("");
   const [invitationBusy, setInvitationBusy] = useState(false);
@@ -64,15 +67,24 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
   const [householdsBusy, setHouseholdsBusy] = useState(false);
   const [householdsVersion, setHouseholdsVersion] = useState(0);
   const [inviteCode, setInviteCode] = useState(pendingInviteCode);
+  const [error, setError] = useState<{ area: AccountErrorArea; message: string } | null>(null);
 
   const userId = identity?.userId, householdId = identity?.householdId;
+  const otherMemberJoined = identity?.otherMemberJoined;
   const context = userId && householdId ? { userId, householdId } : undefined;
   const householdKey = context && `${context.userId}:${context.householdId}`;
   if (shownHousehold !== householdKey) {
     setShownHousehold(householdKey);
-    setInvitations([]); setInvitationLink(""); setCreatedInvitationId("");
+    setInvitations([]); setInvitationsLoaded(false); setInvitationLink(""); setCreatedInvitationId("");
     setHouseholds([]); setCanCreateHousehold(false);
+    setError(null);
   }
+
+  const fail = useCallback((area: AccountErrorArea, e: unknown, fallback: string) => {
+    setError({ area, message: e instanceof Error ? e.message : fallback });
+  }, []);
+  const errorFor = (area: AccountErrorArea) => error?.area === area ? error.message : "";
+  const clearError = () => setError(null);
 
   useEffect(() => {
     const update = () => setInviteCode(pendingInviteCode());
@@ -96,18 +108,19 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
   useEffect(() => {
     if (!userId || !householdId || !authOptions.entraEnabled || !online) return;
     let active = true;
+    // Also refetched when the other slot's membership changes: joining consumes the pending invitation.
     void api<{ invitations: Invitation[] }>("household/invitations", undefined, { userId, householdId }).then((result) => {
       if (!Array.isArray(result.invitations) || result.invitations.some((invite) =>
         !invite || typeof invite.id !== "string" || (invite.slot !== "a" && invite.slot !== "b")
         || typeof invite.expiresAt !== "number")) {
         throw new Error("Invalid invitation response.");
       }
-      if (active) setInvitations(result.invitations);
+      if (active) { setInvitations(result.invitations); setInvitationsLoaded(true); }
     }).catch((e: unknown) => {
-      if (active) setActionError(e instanceof Error ? e.message : "Could not load household invitations.");
+      if (active) fail("invitation", e, "Could not load household invitations.");
     });
     return () => { active = false; };
-  }, [authOptions.entraEnabled, userId, householdId, online, setActionError]);
+  }, [authOptions.entraEnabled, userId, householdId, otherMemberJoined, online, fail]);
 
   const providerAccount = !!identity?.userId;
   const canRemoveLocalData = providerAccount && db.name.startsWith("splitty-account-");
@@ -122,10 +135,10 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
       }
       if (active) { setHouseholds(result.households); setCanCreateHousehold(result.canCreate); }
     }).catch((e: unknown) => {
-      if (active) setActionError(e instanceof Error ? e.message : "Could not load your households.");
+      if (active) fail("household", e, "Could not load your households.");
     });
     return () => { active = false; };
-  }, [identity?.userId, identity?.householdId, online, householdsVersion, setActionError]);
+  }, [identity?.userId, identity?.householdId, online, householdsVersion, fail]);
 
   /** Adopts a session the server issued for another of the account's households. */
   async function enterHousehold(result: unknown) {
@@ -134,12 +147,9 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
       || typeof next.deviceKey !== "string" || !/^[a-zA-Z0-9_-]{43}$/.test(next.deviceKey)) {
       throw new Error("Invalid household response.");
     }
-    const { language } = await getPreferences();
     await setDeviceKey(next.deviceKey);
     await activateAccountDatabase(next.userId, next.householdId);
-    // The app language is a device setting, so it follows the device into the other household.
-    await updatePreferences({ language });
-    setInvitations([]); setInvitationLink(""); setCreatedInvitationId("");
+    setInvitations([]); setInvitationsLoaded(false); setInvitationLink(""); setCreatedInvitationId("");
   }
 
   async function householdChanged() {
@@ -165,8 +175,9 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
   async function changeHousehold(
     path: "households/switch" | "households/join" | "households/create", data: Record<string, string>
   ): Promise<boolean> {
+    const area = path === "households/join" ? "join" : "household";
     setHouseholdsBusy(true);
-    setActionError("");
+    clearError();
     let changed = false;
     try {
       await sync();
@@ -176,7 +187,7 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
       await enterHousehold(await api(path, { ...data, source }, context));
       changed = true;
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Could not change the household.");
+      fail(area, e, "Could not change the household.");
     } finally { resumeSync(); setHouseholdsBusy(false); }
     if (changed) await householdChanged();
     return changed;
@@ -195,6 +206,7 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
   function dismissInvite() {
     history.replaceState(null, "", `${location.pathname}${location.search}`);
     setInviteCode("");
+    setError((current) => current?.area === "join" ? null : current);
   }
 
   async function createHousehold() {
@@ -207,12 +219,12 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
   }
 
   async function signIn(member: Member) {
-    setSignInBusy(true); setActionError("");
+    setSignInBusy(true); clearError();
     startSession();
     try {
       await signInLocally(member);
       await sync();
-    } catch (e) { setActionError(e instanceof Error ? e.message : "Could not sign in for local development."); }
+    } catch (e) { fail("sign-in", e, "Could not sign in for local development."); }
     finally { setSignInBusy(false); }
   }
 
@@ -223,7 +235,7 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
       return;
     }
     setSignInBusy(true);
-    setActionError("");
+    clearError();
     try {
       const result = await api<{ authorizationUrl?: unknown }>("auth/start", {
         inviteCode
@@ -231,7 +243,7 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
       if (typeof result.authorizationUrl !== "string") throw new Error("Invalid sign-in response.");
       window.location.assign(result.authorizationUrl);
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Could not start provider sign-in.");
+      fail("sign-in", e, "Could not start provider sign-in.");
       setSignInBusy(false);
     }
   }
@@ -239,7 +251,7 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
   async function createHouseholdInvitation() {
     const database = db;
     setInvitationBusy(true);
-    setActionError("");
+    clearError();
     setInvitationCopied(false);
     try {
       const result = await api<{ invitation: Invitation; code: string }>("household/invitations", {}, context);
@@ -255,7 +267,7 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
       setCreatedInvitationId(result.invitation.id);
       setInvitations((current) => [...current.filter((invite) => invite.id !== result.invitation.id), result.invitation]);
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Could not create an invitation.");
+      fail("invitation", e, "Could not create an invitation.");
     } finally { setInvitationBusy(false); }
   }
 
@@ -264,13 +276,13 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
       await navigator.clipboard.writeText(invitationLink);
       setInvitationCopied(true);
     } catch {
-      setActionError("Could not copy the invitation link. Select and copy the link above.");
+      setError({ area: "invitation", message: "Could not copy the invitation link. Select and copy the link above." });
     }
   }
 
-  async function revokeHouseholdInvitation(invitation: Invitation) {
+  async function revokeHouseholdInvitation(invitation: Invitation): Promise<boolean> {
     setInvitationBusy(true);
-    setActionError("");
+    clearError();
     try {
       await api("household/invitations/revoke", { id: invitation.id }, context);
       setInvitations((current) => current.filter((item) => item.id !== invitation.id));
@@ -278,9 +290,21 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
         setInvitationLink("");
         setCreatedInvitationId("");
       }
+      return true;
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Could not revoke the invitation.");
+      fail("invitation", e, "Could not revoke the invitation.");
+      return false;
     } finally { setInvitationBusy(false); }
+  }
+
+  /** Only a hash of an invitation is stored, so a lost link can be replaced but not shown again. */
+  async function replaceHouseholdInvitation(invitation: Invitation) {
+    if (!await confirm({
+      title: t("Replace invitation"),
+      description: t("Create a new invitation link? The previous link will stop working."),
+      action: t("Replace invitation")
+    })) return;
+    if (await revokeHouseholdInvitation(invitation)) await createHouseholdInvitation();
   }
 
   async function saveHouseholdName(member: Member, value: string) {
@@ -295,7 +319,7 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
         [member === "a" ? "nameA" : "nameB"]: name
       }) : current);
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Could not update the household member name.");
+      fail("household", e, "Could not update the household member name.");
     }
   }
 
@@ -306,7 +330,7 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
   ) {
     if (!await confirm({ title: t(title), description: t(description), action: t(title), dangerous: true })) return;
     setSignOutBusy(true);
-    setActionError("");
+    clearError();
     const endsAccess = path !== "household/remove-member";
     let continued = false;
     try {
@@ -314,7 +338,8 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
       const source = path === "household/delete" || path === "household/leave" ? await prepareHouseholdChange() : undefined;
       const result = await api<{ continued?: unknown }>(path, { source }, context);
       if (!endsAccess) {
-        await sync();
+        // Refresh the identity so the now vacant slot can be invited again.
+        await sync(true);
         return;
       }
       if (result.continued === true) {
@@ -327,7 +352,7 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
         window.location.reload();
       }
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Could not update household access.");
+      fail(path === "account/delete" ? "account" : "household", e, "Could not update household access.");
     } finally {
       if (endsAccess) resumeSync();
       setSignOutBusy(false);
@@ -341,20 +366,20 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
       description: t("Sign out on this device? Your offline history will remain on this device."),
       action: t("Sign out")
     })) return;
-    setSignOutBusy(true); setActionError("");
+    setSignOutBusy(true); clearError();
     try {
       await suspendSync();
       await signOutDevice();
       await activateAnonymousDatabase();
       endSession(SYNC_STATUS.signedOut);
-    } catch (e) { setActionError(e instanceof Error ? e.message : "Could not sign out."); }
+    } catch (e) { fail("account", e, "Could not sign out."); }
     finally { resumeSync(); setSignOutBusy(false); }
   }
 
   async function removeLocalAccountData() {
     const database = db;
     if (!identity?.userId || !database.name.startsWith("splitty-account-")) return;
-    setSignOutBusy(true); setActionError("");
+    setSignOutBusy(true); clearError();
     try {
       const [queue, conflicts, todoConflicts] = await Promise.all([
         localQueueState(database), database.conflicts.count(), database.todoConflicts.count()
@@ -376,16 +401,16 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
       endSession(SYNC_STATUS.localDataRemoved);
       window.location.reload();
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Could not remove local account data.");
+      fail("device", e, "Could not remove local account data.");
     } finally { resumeSync(); setSignOutBusy(false); }
   }
 
   return {
-    authOptions, signInBusy, signOutBusy,
-    invitations, invitationLink, invitationBusy, invitationCopied, providerAccount, canRemoveLocalData,
+    authOptions, signInBusy, signOutBusy, errorFor,
+    invitations, invitationsLoaded, invitationLink, invitationBusy, invitationCopied, providerAccount, canRemoveLocalData,
     households, canCreateHousehold, householdsBusy, inviteCode,
     signIn, startProviderSignIn, createHouseholdInvitation, copyInvitationLink, revokeHouseholdInvitation,
-    saveHouseholdName, runHouseholdAction, signOut, removeLocalAccountData,
+    replaceHouseholdInvitation, saveHouseholdName, runHouseholdAction, signOut, removeLocalAccountData,
     switchHousehold, joinHousehold, dismissInvite, createHousehold
   };
 }

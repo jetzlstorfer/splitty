@@ -4,7 +4,7 @@
 
 A private, offline-first expense ledger for two people. Record shared expenses in EUR, see who owes whom, and keep both devices in sync when you sign in.
 
-The screenshots below show the expenses and to-do screens with synthetic sample data in light mode. The empty expenses screen introduces splitting, balances, and offline saving, with a hint for syncing devices. Default household labels are gender-neutral; set your own names in Settings or use your configured household names when signing in.
+The screenshots below show the expenses and to-do screens with synthetic sample data in light mode. The empty expenses screen introduces splitting, balances, and offline saving. Without an account it explains that Splitty is for two people and offers **Sign in to share**; using it only on this device remains a supported choice. Default household labels are gender-neutral; set your own names in Settings or use your configured household names when signing in.
 
 <p align="center">
   <img src="docs/screenshots/expenses.png" width="320" alt="Splitty expense ledger with a shared balance and recent expenses in the light theme" />
@@ -43,7 +43,21 @@ When a new app version is ready, a prominent green card above the current page o
 
 Each device saves changes to IndexedDB first, so recording an expense does not wait for the network. When online, the app sends queued changes to the same-origin API. The API stores versioned records and an ordered change log; devices pull updates to converge. Expenses and manual to-dos have separate outboxes and sync cursors.
 
-Select the cloud indicator in the top-right corner for sync status, connection details, pending changes, and the last successful sync in the current session. It shows **Up-to-date** (**Aktuell** in German) with a check inside the cloud only when everything is synced. During synchronization, two arrows spin inside the cloud (static when reduced motion is preferred). All states share one cloud outline, with a clock for waiting changes, an exclamation mark for attention, and a cross when offline, alongside distinct labels. This popover is also where you sign in, sync manually, inspect errors, and resolve conflicting expense or to-do edits. You can start sign-in from the cloud popover or **Settings → Account**; signing out is in **Settings → Account**. The popover remains available while syncing or offline; close it with Escape, its close button, or a click outside.
+Select the cloud indicator in the top-right corner for sync status, connection details, pending changes, and the last successful sync in the current session. It shows **Up-to-date** (**Aktuell** in German) with a check inside the cloud only when everything is synced. During synchronization, two arrows spin inside the cloud (static when reduced motion is preferred). All states share one cloud outline, with a clock for waiting changes, an exclamation mark for attention, and a cross when offline, alongside distinct labels. A device that has never signed in, or that signed out on purpose, shows the bare outline labelled **Local only** (**Nur lokal**); this is not an error. Only a lost session, a sync error, or conflicting edits show **Needs attention**. The popover is where you sync manually, inspect errors, and resolve conflicting expense or to-do edits; while signed out it also offers sign-in. Signed-in members get a shortcut to **Settings → Household**, where invitations and other household changes live. The popover remains available while syncing or offline; close it with Escape, its close button, or a click outside.
+
+### Getting started and household setup
+
+Settings is the single place for account, household, and device actions:
+
+- **Settings → Account**: sign in, sign out, and delete your account.
+- **Settings → Household**: names, the other member's status (**Joined**, **Invitation pending**, or **Not joined yet**), invitations, switching or creating households, and leaving, removing, or deleting.
+- **Settings → This device**: backups, restoring, and removing this account's local data.
+
+After signing in to a household whose second member has not joined yet, the expenses screen shows **Set up your household** with three steps in any order: check both names, invite the other person, and add a first expense. The card disappears when the other person joins, or when you hide it on this device. Membership comes from the server, so a typed-in name or a pending invitation is never shown as a joined member.
+
+Invitations are single-use links with a QR code, valid for 7 days. Only a hash is stored, so the link is shown once; after a reload a pending invitation can be revoked or replaced, which stops the previous link. Opening an invitation link without being signed in shows **You're invited to a shared household** with **Sign in to join**; signed-in accounts see **Join this household** instead.
+
+Entries saved on a device before its first sign-in stay in that device's local ledger. They are never moved into a household automatically. After signing in, **Entries from before you signed in** lists them; **Settings → This device → Add to this household** copies them into the household's sync queue after a confirmation, keeping amounts, payers, splits, and imported balance contributions unchanged. This is offered only when the device recorded you as the same first or second person as in the household; otherwise the entries can be downloaded as a backup. The app language is a device setting and stays the same when signing in, switching households, or signing out.
 
 ```mermaid
 flowchart LR
@@ -145,7 +159,7 @@ npm run dev
 
 Open <http://127.0.0.1:5173>. The frontend works on its own; without a backend, entries stay in that browser. The `jobs` install is only needed to build or test the scheduled jobs. If your environment requires the approved Microsoft npm proxy, use `npm run setup:approved` instead of the install commands.
 
-For local sign-in and sync, copy `api\local.settings.example.json` to `api\local.settings.json`. The cloud popover exposes synthetic first- and second-member sign-in buttons only in loopback development.
+For local sign-in and sync, copy `api\local.settings.example.json` to `api\local.settings.json`. The cloud popover and **Settings → Account** expose synthetic first- and second-member sign-in buttons only in loopback development.
 
 ```powershell
 # Local Azure Table Storage emulator

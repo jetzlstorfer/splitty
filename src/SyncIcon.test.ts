@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import SyncIcon from "./SyncIcon";
 
-const states = ["current", "syncing", "pending", "attention", "offline"] as const;
+const states = ["current", "syncing", "pending", "attention", "offline", "local"] as const;
 const render = (state: typeof states[number]) => renderToStaticMarkup(createElement(SyncIcon, { state }));
 
 describe("sync status icons", () => {
@@ -23,6 +23,10 @@ describe("sync status icons", () => {
     const outlines = states.map((state) => render(state).match(/class="sync-cloud" d="([^"]+)"/)?.[1]);
     expect(outlines[0]).toBeTruthy();
     expect(new Set(outlines).size).toBe(1);
+  });
+
+  it("draws only the outline for intentional local use", () => {
+    expect(render("local").match(/<(?:path|circle|g)\b/g)).toEqual(["<path"]);
   });
 
   it("keeps the pending clock large enough to read at the native icon size", () => {

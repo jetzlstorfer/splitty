@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { activateAnonymousDatabase, db, localQueueState, updatePreferences } from "./db";
-import { ApiError, identify, syncPollingInterval, synchronize, type Identity } from "./sync";
+import { ApiError, identify, NotSignedInError, syncPollingInterval, synchronize, type Identity } from "./sync";
 import { SYNC_STATUS, type SyncStatus } from "./syncStatus";
 
 /**
@@ -75,8 +75,10 @@ export function useSync(pending: number | undefined) {
       } while (syncRequested.current && navigator.onLine && !removingLocalData.current && !signedOutByUser.current);
     })().catch(async (e: unknown) => {
       if (e instanceof ApiError && e.status === 401) {
+        // A device without any session or key is used locally; losing an existing sign-in needs attention.
+        const neverSignedIn = e instanceof NotSignedInError && !identityRef.current;
         await activateAnonymousDatabase();
-        endSession(SYNC_STATUS.signInRequired, false);
+        endSession(neverSignedIn ? SYNC_STATUS.localOnly : SYNC_STATUS.signInRequired, false);
       }
       else setStatus({ kind: "error", message: e instanceof Error ? e.message : "Sync failed; your changes remain on this device." });
     }).finally(() => { syncLock.current = null; setBusy(false); });

@@ -152,19 +152,16 @@ for (const language of ["de", "en"] as const) {
     expect(logoutRequests).toBe(1);
     await close.tap();
     await page.getByRole("navigation").getByRole("button", { name: language === "de" ? "Einstellungen" : "Settings", exact: true }).tap();
+    // Settings offers sign-in directly instead of sending people to the sync popover.
     const accountSignIn = page.getByRole("region", { name: language === "de" ? "Konto" : "Account", exact: true })
-      .getByRole("button", { name: language === "de" ? "Anmelden" : "Sign in", exact: true });
-    await expect(popover).not.toBeVisible();
-    await accountSignIn.tap();
-    await expect(popover).toBeVisible();
-    await expect(page.getByRole("dialog", { name: language === "de" ? "Synchronisierung" : "Synchronization", exact: true })
       .getByRole("button", {
         name: language === "de" ? "Als erstes Mitglied zur Entwicklung anmelden" : "Development sign-in as first member",
         exact: true
-      })).toBeVisible();
-    await page.keyboard.press("Escape");
+      });
+    await expect(accountSignIn).toBeVisible();
+    await expect(accountSignIn).toBeEnabled();
     await expect(popover).not.toBeVisible();
-    await expect(syncIndicator(page)).toHaveAttribute("aria-expanded", "false");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await openSync(page);
     for (const viewport of viewports.slice(0, 2)) {
       await page.setViewportSize(viewport);

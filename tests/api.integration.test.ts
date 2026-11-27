@@ -327,6 +327,7 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     await createMembership(auth, householdId, userId, "a");
     const owner = await createUserSession(getConfig(), auth, { userId, householdId, member: "a" });
     const cookie = owner.cookie.split(";")[0];
+    expect(await (await call("me", undefined, cookie)).json()).toMatchObject({ otherMemberJoined: false });
 
     const created = await call("household/invitations", {}, cookie);
     expect(created.status).toBe(201);
@@ -390,6 +391,8 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
       userId: joinedUser, member: "b", active: true
     });
     expect((await call("household/invitations", undefined, cookie).then((response) => response.json())).invitations).toEqual([]);
+    // A pending invitation is not a member; only the consumed one is.
+    expect(await (await call("me", undefined, cookie)).json()).toMatchObject({ otherMemberJoined: true });
     await expect(consumeInvitation(auth, target, lateUser)).rejects.toMatchObject({ status: 410 });
     expect((await call("household/invitations", {}, cookie)).status).toBe(409);
   });
@@ -455,9 +458,10 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     const ownerCookie = owner.cookie.split(";")[0], otherCookie = other.cookie.split(";")[0];
 
     expect((await call("household/member-name", { slot: "b", name: "Sammy" }, ownerCookie)).status).toBe(200);
-    expect(await (await call("me", undefined, ownerCookie)).json()).toMatchObject({ nameB: "Sammy" });
+    expect(await (await call("me", undefined, ownerCookie)).json()).toMatchObject({ nameB: "Sammy", otherMemberJoined: true });
     expect((await call("household/remove-member", {}, ownerCookie)).status).toBe(200);
     expect((await call("me", undefined, otherCookie)).status).toBe(401);
+    expect(await (await call("me", undefined, ownerCookie)).json()).toMatchObject({ nameB: "", otherMemberJoined: false });
     expect(await auth.getEntity<Record<string, unknown>>("users", `u-${userB}`)).toMatchObject({
       householdId: "", member: "", membershipInitialized: false
     });

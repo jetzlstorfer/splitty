@@ -2,7 +2,7 @@ import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { VersionedRecord } from "../shared/model";
 import { example, exampleTodo } from "../tests/fixtures";
-import { activateAccountDatabase, activateAnonymousDatabase, assertLegacyMigrationTarget, clearAccountDatabase, db, importLegacyDatabase, SplittyDatabase, applyPage, applyResults, applyStorePage, expenseStore, getPreferences, queueEntries, queueTodos, resolveConflict, setDeviceKey, todoStore, updatePreferences, type SyncStore } from "./db";
+import { accountDatabaseFor, activateAccountDatabase, activateAnonymousDatabase, anonymousRecords, assertLegacyMigrationTarget, clearAccountDatabase, db, importLegacyDatabase, SplittyDatabase, applyPage, applyResults, applyStorePage, expenseStore, getPreferences, queueEntries, queueTodos, resolveConflict, setDeviceKey, todoStore, updatePreferences, type SyncStore } from "./db";
 
 let database: SplittyDatabase;
 beforeEach(() => { database = new SplittyDatabase(crypto.randomUUID()); });
@@ -14,6 +14,9 @@ describe("offline ledger", () => {
     const userB = `user-b-${crypto.randomUUID()}`, householdB = `household-b-${crypto.randomUUID()}`;
     try {
       await activateAccountDatabase(userA, householdA);
+      // A stale identity for another household never names the active database.
+      expect(db.name).toBe(await accountDatabaseFor(userA, householdA));
+      expect(db.name).not.toBe(await accountDatabaseFor(userA, householdB));
       await queueEntries([example({ id: "scoped-expense" })]);
       await queueTodos([exampleTodo({ id: "scoped-todo" })]);
       await db.conflicts.put({ entryId: "scoped-expense", remote: null });
@@ -48,6 +51,42 @@ describe("offline ledger", () => {
       await activateAccountDatabase(userB, householdB);
       await db.delete();
       await activateAnonymousDatabase();
+    }
+  });
+  it("keeps the device language when signing in, switching households and signing out", async () => {
+    const user = `user-${crypto.randomUUID()}`, first = `household-${crypto.randomUUID()}`, second = `household-${crypto.randomUUID()}`;
+    try {
+      await activateAnonymousDatabase();
+      await updatePreferences({ language: "en", nameA: "Local" });
+      await activateAccountDatabase(user, first);
+      expect(await getPreferences()).toMatchObject({ language: "en", nameA: "You", cursor: 0 });
+      await updatePreferences({ language: "de" });
+      await activateAccountDatabase(user, second);
+      expect((await getPreferences()).language).toBe("de");
+      await activateAnonymousDatabase();
+      expect(await getPreferences()).toMatchObject({ language: "de", nameA: "Local" });
+    } finally {
+      for (const household of [first, second]) {
+        await activateAccountDatabase(user, household);
+        await db.delete();
+      }
+      await activateAnonymousDatabase();
+      await db.preferences.clear();
+    }
+  });
+  it("offers only live records from an anonymous database that never synced", async () => {
+    try {
+      await activateAnonymousDatabase();
+      await queueEntries([example({ id: "local-expense" }), example({ id: "local-tombstone", deleted: true })]);
+      await queueTodos([exampleTodo({ id: "local-todo" })]);
+      await updatePreferences({ member: "b" });
+      expect(await anonymousRecords()).toMatchObject({
+        entries: [{ id: "local-expense" }], todos: [{ id: "local-todo" }], member: "b"
+      });
+      await applyPage({ entries: [], cursor: 3, more: false });
+      expect(await anonymousRecords()).toBeNull();
+    } finally {
+      await Promise.all([db.entries.clear(), db.outbox.clear(), db.todos.clear(), db.todoOutbox.clear(), db.preferences.clear()]);
     }
   });
   it("imports legacy cache, both outboxes, conflicts and cursors once without replacing the device session", async () => {

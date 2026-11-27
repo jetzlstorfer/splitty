@@ -1,8 +1,15 @@
 import { validateEntry, type Entry } from "../shared/model";
 import { validateTodo, type Todo } from "../shared/todo";
-import { db, queueEntries, queueTodos } from "./db";
+import { db, queueEntries, queueTodos, type Preferences } from "./db";
 
 export interface BackupRecords { entries: Entry[]; todos: Todo[] }
+
+export function downloadBackup(data: BackupRecords & { preferences?: Preferences }, fileName: string) {
+  const blob = new Blob([JSON.stringify({ format: "splitty-v2", exportedAt: new Date().toISOString(), ...data }, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob), anchor = document.createElement("a");
+  anchor.href = url; anchor.download = fileName; anchor.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 export function readBackup(value: unknown): BackupRecords {
   if (!value || typeof value !== "object") throw new Error("Choose a Splitty JSON backup.");

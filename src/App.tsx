@@ -1,19 +1,20 @@
-import { lazy, Suspense, useEffect, useId, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useState } from "react";
 import {
-  BarChart3, Check, ClipboardCheck, Download, Plus, Receipt, RefreshCw, Search, Settings, Sparkles, Upload, UsersRound, X
+  BarChart3, Check, ClipboardCheck, Download, Plus, Receipt, RefreshCw, Search, Settings, Sparkles, Upload, X
 } from "lucide-react";
 import type { Entry } from "../shared/model";
 import { translate } from "../shared/i18n";
 import type { Todo } from "../shared/todo";
-import { isActiveDatabase, queueEntries, queueTodos } from "./db";
-import { missingBackupRecords, readBackup, restoreBackup } from "./backup";
+import { isAccountDatabase, isActiveDatabase, queueEntries, queueTodos } from "./db";
+import { downloadBackup, missingBackupRecords, readBackup, restoreBackup } from "./backup";
 import { LanguageContext, useLocale } from "./i18n";
 import { categoryLabels, expenseCategory, normalizeText } from "./categories";
 import ExpenseIcon from "./ExpenseIcon";
 import ExpenseForm from "./ExpenseForm";
 import ImportForm from "./ImportForm";
 import { LegalLinks } from "./LegalPage";
-import SettingsPage from "./SettingsPage";
+import { ExpenseWelcome, HouseholdSetup, InvitationLanding, JoinInvitation, LocalRecordsNotice, recordCounts, useDismissal, type SharingAvailability } from "./Onboarding";
+import SettingsPage, { type SettingsSection } from "./SettingsPage";
 import SwipeableRow from "./SwipeableRow";
 import { SyncPanel, SyncPopover } from "./SyncPopover";
 import TodoForm from "./TodoForm";
@@ -24,6 +25,7 @@ import { describeSyncStatus, deriveSyncStatus } from "./syncStatus";
 import { useAccount } from "./useAccount";
 import { useInstall } from "./useInstall";
 import { useLedger, type Snapshot } from "./useLedger";
+import { ownsDatabase, useLocalRecords } from "./useLocalRecords";
 import { useSync } from "./useSync";
 
 const loadStatistics = () => import("./StatisticsPage");
@@ -46,6 +48,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const account = useAccount(sync);
   const syncPopoverId = useId();
   const [tab, setTab] = useState<"expenses" | "todos" | "search" | "statistics" | "settings">("expenses");
+  const [settingsFocus, setSettingsFocus] = useState<SettingsSection | null>(null);
   const [form, setForm] = useState<"expense" | "settlement" | Entry | null>(null);
   const [todoForm, setTodoForm] = useState<"new" | Todo | null>(null);
   const [swipedEntry, setSwipedEntry] = useState<string | null>(null);
@@ -113,12 +116,12 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     window.scrollTo(0, 0);
   }
 
+  const openSettings = (section: SettingsSection) => { navigate("settings"); setSettingsFocus(section); };
+  const settingsFocused = useCallback(() => setSettingsFocus(null), []);
+
   function backup() {
     if (!ledger) return;
-    const blob = new Blob([JSON.stringify({ format: "splitty-v2", exportedAt: new Date().toISOString(), preferences: ledger.preferences, entries: ledger.entries, todos: ledger.todos }, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob), anchor = document.createElement("a");
-    anchor.href = url; anchor.download = `splitty-backup-${today()}.json`; anchor.click();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    downloadBackup({ preferences: ledger.preferences, entries: ledger.entries, todos: ledger.todos }, `splitty-backup-${today()}.json`);
   }
 
   async function restore(file?: File) {
@@ -155,6 +158,10 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   const conflictIds = useMemo(() => new Set(ledger?.conflicts.map((conflict) => conflict.entryId) ?? []), [ledger?.conflicts]);
   const todos = useMemo(() => householdTodos(active, ledger?.todos ?? []), [active, ledger?.todos]);
   const openTodos = useMemo(() => todos.filter((todo) => !todo.done).length, [todos]);
+  const accountScope = ledger && isAccountDatabase(ledger.database) ? ledger.database.name : undefined;
+  const localRecords = useLocalRecords(ledger?.database, sync.identity, `${ledger?.entries.length}:${ledger?.todos.length}`);
+  const [setupDismissed, dismissSetup] = useDismissal("setup", accountScope);
+  const [localRecordsDismissed, dismissLocalRecords] = useDismissal("local-records", accountScope);
 
   if (!ledger) return <main className="loading"><img src="/icon.svg" width="64" height="64" alt="" /><h1>Splitty</h1><p>{t("Opening your shared ledger…")}</p>{error && <p className="error" role="alert">{message(error)}</p>}</main>;
 
@@ -182,13 +189,47 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     const { insuranceSubmittedAt: _previous, ...rest } = entry;
     return queueEntries([submitted ? { ...rest, insuranceSubmittedAt: new Date().toISOString() } : rest], ledger.database);
   };
+  const identity = sync.identity;
+  // An account database stays active offline, before the identity can be refreshed.
+  const signedIn = !!identity || isAccountDatabase(ledger.database);
+  const { authOptions } = account;
+  const sharing: SharingAvailability = !authOptions.entraEnabled && !authOptions.localSignInEnabled ? "unavailable"
+    : authOptions.entraEnabled && authOptions.newHouseholdsEnabled === false ? "closed" : "available";
+  const shareFromWelcome = () => {
+    if (authOptions.entraEnabled) void account.startProviderSignIn();
+    else openSettings("account");
+  };
+  const named = (member: "a" | "b") => p[member === "a" ? "nameA" : "nameB"] !== t(member === "a" ? "You" : "Your spouse");
+  const setupVisible = !!identity?.userId && identity.otherMemberJoined === false && !setupDismissed;
+  const localRecordsMatch = !!localRecords && localRecords.member === localRecords.householdMember;
+
+  async function addLocalRecords() {
+    if (!ledger || !localRecords || !localRecordsMatch) return;
+    const { database } = ledger;
+    if (!await confirm({
+      title: t("Add entries to this household"),
+      description: t("Add {expenses} and {todos} from this device to this household? Both of you will see them after the next sync. Amounts, payers and splits stay exactly as recorded, with the same first and second person.",
+        recordCounts({ t, number }, localRecords.entries.length, localRecords.todos.length)),
+      action: t("Add to this household")
+    })) return;
+    try {
+      if (!isActiveDatabase(database) || !await ownsDatabase(database, identity)) return;
+      await restoreBackup(localRecords, database);
+      if (isActiveDatabase(database)) saved();
+    } catch (e) { if (isActiveDatabase(database)) setError(e instanceof Error ? e.message : "Could not restore the backup."); }
+  }
+
+  const downloadLocalRecords = () => {
+    if (localRecords) downloadBackup({ entries: localRecords.entries, todos: localRecords.todos }, `splitty-local-entries-${today()}.json`);
+  };
 
   return <div className="app-shell">
     <header className="topbar"><a className="wordmark" href="/" aria-label={t("Splitty home")}><img key={logoPulse.sequence} className={`brand-mark ${sync.busy ? "is-syncing" : logoPulse.active ? "is-saving" : ""}`} src="/icon.svg" width="36" height="36" alt="" />Splitty</a>
       <div className="topbar-actions">
       {install.canInstall && <button className="pill-button install-button" aria-label={t("Install")} onClick={() => void install.install()}><Download size={16} aria-hidden="true" /><span className="install-button-label">{t("Install")}</span></button>}
-      <SyncPopover id={syncPopoverId} online={sync.online} busy={sync.busy} pending={ledger.pending} attention={status.needsAttention} upToDate={status.upToDate} status={describeSyncStatus(status.current, language)}>
-        <SyncPanel ledger={ledger} preferences={p} conflictCount={conflictCount} sync={sync} account={account} conflictResolved={conflictResolved} />
+      <SyncPopover id={syncPopoverId} online={sync.online} busy={sync.busy} pending={ledger.pending} attention={status.needsAttention} upToDate={status.upToDate} localOnly={status.localOnly} status={describeSyncStatus(status.current, language)}>
+        <SyncPanel id={syncPopoverId} ledger={ledger} preferences={p} conflictCount={conflictCount} localOnly={status.localOnly} sync={sync} account={account}
+          conflictResolved={conflictResolved} openSettings={openSettings} />
       </SyncPopover>
       </div>
     </header>
@@ -201,15 +242,9 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
         </div>
         <button onClick={() => void update().catch((e: Error) => setError(e.message))} className="primary"><RefreshCw size={18} aria-hidden="true" />{t("Update")}</button>
       </section>}
-      {account.providerAccount && account.inviteCode && <section className="update-card accent-hero" aria-labelledby="join-household-title">
-        <h2 id="join-household-title"><UsersRound size={24} aria-hidden="true" />{t("Household invitation")}</h2>
-        <p>{t("Join the invited household with this account? Your current household stays available in Settings.")}</p>
-        <div className="button-row">
-          <button className="primary" disabled={!sync.online || account.householdsBusy} aria-busy={account.householdsBusy}
-            onClick={() => void account.joinHousehold()}>{t("Join this household")}</button>
-          <button className="secondary" disabled={account.householdsBusy} onClick={account.dismissInvite}>{t("Not now")}</button>
-        </div>
-      </section>}
+      {account.providerAccount && account.inviteCode && <JoinInvitation account={account} online={sync.online} />}
+      {!signedIn && account.inviteCode && <InvitationLanding account={account} online={sync.online} busy={sync.busy}
+        onLocalSignIn={() => openSettings("account")} />}
       {tab === "todos" ? <TodoList todos={todos} openCount={openTodos} blocked={conflictIds} open={setForm}
         conflicts={ledger.todoConflicts}
         edit={setTodoForm}
@@ -228,7 +263,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
           </header>
           <section className={`balance-card ${balance === 0 ? "is-settled" : ""}`} aria-label={t("Household balance")}>
             <div className="balance-summary">
-              {balance === 0 ? <div className="settled-heading">
+              {!active.length ? <p>{t("No shared expenses yet")}</p> : balance === 0 ? <div className="settled-heading">
                 <span className={`settled-mark ${saveFeedback?.settled ? "celebrate" : ""}`} aria-hidden="true">
                   <img src="/icon.svg" width="28" height="28" alt="" />
                   {saveFeedback?.settled && <Sparkles className="settled-sparkles" size={18} />}
@@ -236,10 +271,16 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
                 <p>{t("You are all settled up")}</p>
               </div> : <p>{balance < 0 && other === t("Your spouse") ? t("You owe your spouse") : t(balance > 0 ? "{name} owes you" : "You owe {name}", { name: other })}</p>}
               <div className={`balance-amount ${balance < 0 ? "owed" : balance === 0 ? "settled" : ""}`}>{money(Math.abs(balance))}</div>
-              {balance === 0 && <small className="settled-note">{t("All square. Nicely done.")}</small>}
+              {balance === 0 && !!active.length && <small className="settled-note">{t("All square. Nicely done.")}</small>}
             </div>
-            <button className="settle-button" onClick={() => setForm("settlement")}>{t("Settle up")}</button>
+            {!!active.length && <button className="settle-button" onClick={() => setForm("settlement")}>{t("Settle up")}</button>}
           </section>
+          {setupVisible && <HouseholdSetup namesDone={named("a") && named("b")} invitationPending={!!account.invitations.length}
+            hasExpenses={!!active.length} onNames={() => openSettings("household")} onInvite={() => openSettings("invite")}
+            onAddExpense={() => setForm("expense")} onDismiss={dismissSetup} />}
+          {localRecords && !localRecordsDismissed && <LocalRecordsNotice compact entries={localRecords.entries.length}
+            todos={localRecords.todos.length} matchesMember={localRecordsMatch}
+            onReview={() => openSettings("device")} onDismiss={dismissLocalRecords} />}
         </> : <>
           <header className="page-heading">
             <div><h1>{t("Search")}</h1><p>{shown.length === 1 ? t("1 entry") : t("{count} entries", { count: number(shown.length) })}</p></div>
@@ -250,12 +291,9 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
           }}><X size={18} /></button>}</label>
         </>}
         <section className="ledger-section" aria-label={t(tab === "search" ? "Search results" : "Expenses")}>
-          {!shown.length ? tab === "expenses" ? <div className="empty-state expense-welcome">
-            <span className="expense-welcome-icon" aria-hidden="true"><Receipt size={30} /></span>
-            <h2>{t("Together, fairly split")}</h2>
-            <p>{t("Track shared expenses, split them your way and see who owes whom. Add your first expense to get started.")}</p>
-            <p className="expense-welcome-hint">{t("Saved on this device, even offline. Sign in via Sync to share across devices.")}</p>
-          </div> : <div className="empty-state"><h2>{t(query ? "No matching expenses" : "No expenses yet")}</h2>{query && <p>{t("Try a different description, category or date.")}</p>}</div> :
+          {!shown.length ? tab === "expenses" ? !setupVisible && <ExpenseWelcome signedIn={signedIn} sharing={account.inviteCode ? "unavailable" : sharing}
+            signInBusy={account.signInBusy} online={sync.online} error={account.inviteCode ? "" : account.errorFor("sign-in")} onShare={shareFromWelcome} />
+            : <div className="empty-state"><h2>{t(query ? "No matching expenses" : "No expenses yet")}</h2>{query && <p>{t("Try a different description, category or date.")}</p>}</div> :
             <div className="expense-list">{shown.slice(0, limit).map((entry, index) => {
               const day = new Date(`${entry.date}T12:00:00`);
               const month = day.toLocaleDateString(locale, { month: "long", ...(day.getFullYear() === new Date().getFullYear() ? {} : { year: "numeric" }) });
@@ -287,8 +325,9 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
               </SwipeableRow></div>;
             })}{shown.length > limit && <button className="secondary load-more" onClick={() => setLimit(limit + 100)}>{t("Show more ({count})", { count: number(shown.length - limit) })}</button>}</div>}
         </section>
-      </> : <SettingsPage preferences={p} sync={sync} account={account} syncPopoverId={syncPopoverId}
-        saved={saved} backup={backup} restore={restore} onError={setError} />}
+      </> : <SettingsPage preferences={p} sync={sync} account={account} localRecords={localRecords}
+        focus={settingsFocus} onFocused={settingsFocused} saved={saved} backup={backup} restore={restore}
+        addLocalRecords={() => void addLocalRecords()} downloadLocalRecords={downloadLocalRecords} onError={setError} />}
       <LegalLinks />
     </main>
     {(tab === "expenses" || tab === "todos") && <div className="expense-action">

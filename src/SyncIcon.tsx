@@ -1,5 +1,6 @@
-type SyncIconState = "current" | "syncing" | "pending" | "attention" | "offline";
+type SyncIconState = "current" | "syncing" | "pending" | "attention" | "offline" | "local";
 
+/** "local" keeps the bare outline: nothing is wrong, the device is simply not syncing. */
 export default function SyncIcon({ state }: { state: SyncIconState }) {
   return <svg className="sync-icon" data-sync-state={state} width="24" height="24" viewBox="0 0 24 24"
     fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"

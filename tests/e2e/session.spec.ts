@@ -111,7 +111,8 @@ test("recovers when the browser drops the session cookie but keeps offline data"
     await context.addCookies([cookie!]);
     await page.reload();
     await syncDetails(page);
-    await expect(page.getByRole("status")).toHaveText("Sign in to sync");
+    // The device signed out on purpose, so a stale cookie does not make it look like a lost session.
+    await expect(page.getByRole("status")).toHaveText("Not signed in · saved only on this device");
     await expect(page.locator(".sync-popover").getByRole("button", {
       name: "Development sign-in as first member", exact: true
     })).toBeVisible();

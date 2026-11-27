@@ -2,14 +2,15 @@ import type { TableClient } from "@azure/data-tables";
 import { isInsuranceTodoSetting, validateChange, validateEntry, type MutationResult, type VersionedRecord } from "../../shared/model";
 import { validateTodo } from "../../shared/todo";
 import { scrubLog } from "../../shared/logScrub";
-import { authenticate, isSessionKey, logout, resumeSession, sessionCookie } from "./auth";
+import { authenticate, createUserSession, householdSuccessor, isSessionKey, logout, resumeSession, sessionCookie } from "./auth";
 import { getConfig, HttpError } from "./config";
 import { beginEntraSignIn, completeEntraSignIn, getAccountDetails, getHouseholdNames, redeemDeviceKey } from "./entra";
 import { signInLocally } from "./localSignIn";
 import { expenseLedger, todoLedger, type createLedger } from "./ledger";
 import { createInvitation, listInvitations, revokeInvitation } from "./invitations";
 import {
-  deleteAccount, deleteHousehold, insuranceTodoSetting, leaveHousehold, removeOtherMember, renameHouseholdMember
+  createAdditionalHousehold, deleteAccount, deleteHousehold, insuranceTodoSetting, joinHousehold, leaveHousehold,
+  listHouseholds, remainingHousehold, removeOtherMember, renameHouseholdMember, switchHousehold
 } from "./households";
 import { consumeRateLimit, signInRateLimitKey } from "./rateLimit";
 import { tables } from "./storage";
@@ -82,14 +83,25 @@ export async function handler(
     }
     if (path === "auth/logout" && request.method === "POST") {
       const data = await body(request);
-      await logout(request, config, auth, isSessionKey(data.deviceKey) ? data.deviceKey : undefined);
+      await logout(request, config, auth, data.deviceKey, data.preparedKey);
       return json({ signedOut: true }, 200, { "Set-Cookie": sessionCookie(config, "", 0) });
     }
     const identity = await authenticate(request, config, auth);
     if (identity.sessionId) await consumeRateLimit(auth, `session:${identity.sessionId}`, 600, 10 * 60_000);
+    // A second tab can replace the cookie after a form or confirmation was opened.
+    if (path === "sync" || path === "todo-sync" || path.startsWith("household/")
+      || path === "account/delete" || (request.method === "POST" && path.startsWith("households/"))) {
+      if (request.headers.get("x-splitty-user") !== identity.userId
+        || request.headers.get("x-splitty-household") !== identity.householdId) {
+        throw new HttpError(409, "The signed-in household changed. Retry sync on this device.");
+      }
+    }
     if (path === "auth/device-key" && request.method === "POST") {
       const data = await body(request);
       return json({ deviceKey: await redeemDeviceKey(auth, identity, data.code) });
+    }
+    if (path === "households/prepare" && request.method === "POST") {
+      return json({ deviceKey: householdSuccessor(request, config, identity.membershipId), source: identity.sessionId });
     }
     if (path === "me" && request.method === "GET") {
       return json({
@@ -99,6 +111,31 @@ export async function handler(
         ...await getAccountDetails(auth, identity),
         ...(await getHouseholdNames(auth, identity.householdId) ?? { nameA: "", nameB: "" })
       });
+    }
+    if (path === "households" && request.method === "GET") {
+      return json(await listHouseholds(auth, config, identity));
+    }
+    // A session is bound to one household membership, so changing households issues a new device session.
+    const continueIn = async (target: { householdId: string; member: "a" | "b" }, result: Record<string, unknown> = {}) => {
+      const { cookie, deviceKey } = await createUserSession(config, auth, {
+        userId: identity.userId,
+        ...target,
+        signInProvider: identity.signInProvider,
+        displayName: identity.displayName,
+        email: identity.email,
+        pictureUrl: identity.pictureUrl
+      }, { source: identity.sessionId, key: householdSuccessor(request, config, identity.membershipId) });
+      return json({ ...result, userId: identity.userId, ...target, deviceKey }, 200, { "Set-Cookie": cookie });
+    };
+    if (["households/switch", "households/join", "households/create"].includes(path) && request.method === "POST") {
+      const data = await body(request);
+      if (data.source !== undefined && data.source !== identity.sessionId) {
+        throw new HttpError(409, "The signed-in household changed. Retry sync on this device.");
+      }
+      const target = path === "households/switch" ? await switchHousehold(auth, identity, data.householdId)
+        : path === "households/join" ? await joinHousehold(auth, identity, data.inviteCode)
+          : await createAdditionalHousehold(auth, config, identity);
+      return await continueIn(target);
     }
     if (path === "household/invitations" && request.method === "GET") {
       return json({ invitations: await listInvitations(auth, identity) });
@@ -117,39 +154,34 @@ export async function handler(
       await renameHouseholdMember(auth, identity, data.slot, data.name);
       return json({ renamed: true });
     }
-    if (path === "household/leave" && request.method === "POST") {
-      await leaveHousehold(auth, identity);
+    if ((path === "household/leave" || path === "household/delete") && request.method === "POST") {
+      const { source } = await body(request);
+      if (source !== undefined && source !== identity.sessionId) {
+        throw new HttpError(409, "The signed-in household changed. Retry sync on this device.");
+      }
+      if (path === "household/leave") await leaveHousehold(auth, identity);
+      else await deleteHousehold(auth, identity);
+      const result = path === "household/leave" ? { left: true } : { deleted: true };
+      // Accounts with another household continue there instead of signing out.
+      const next = await remainingHousehold(auth, identity.userId);
+      if (next) return await continueIn(next, { ...result, continued: true });
       await logout(request, config, auth);
-      return json({ left: true }, 200, { "Set-Cookie": sessionCookie(config, "", 0) });
+      return json(result, 200, { "Set-Cookie": sessionCookie(config, "", 0) });
     }
     if (path === "household/remove-member" && request.method === "POST") {
       await removeOtherMember(auth, identity);
       return json({ removed: true });
-    }
-    if (path === "household/delete" && request.method === "POST") {
-      await deleteHousehold(auth, identity);
-      await logout(request, config, auth);
-      return json({ deleted: true }, 200, { "Set-Cookie": sessionCookie(config, "", 0) });
     }
     if (path === "account/delete" && request.method === "POST") {
       await deleteAccount(auth, identity);
       await logout(request, config, auth);
       return json({ deletionScheduled: true }, 200, { "Set-Cookie": sessionCookie(config, "", 0) });
     }
-    if (path === "sync" || path === "todo-sync" || path === "household/insurance-todos") {
-      const requestUser = request.headers.get("x-splitty-user");
-      const requestHousehold = request.headers.get("x-splitty-household");
-      const hasContext = requestUser !== null || requestHousehold !== null;
-      if ((!requestUser || !requestHousehold)
-        || (hasContext && (requestUser !== identity.userId || requestHousehold !== identity.householdId))) {
-        throw new HttpError(409, "The signed-in household changed. Retry sync on this device.");
-      }
-      if (path === "household/insurance-todos") {
-        if (request.method === "GET") return json(await insuranceTodoSetting(ledger, identity.householdId));
-        const change = await body(request);
-        if (!isInsuranceTodoSetting(change)) throw new HttpError(400, "Invalid insurance to-do setting.");
-        return json(await insuranceTodoSetting(ledger, identity.householdId, change));
-      }
+    if (path === "household/insurance-todos") {
+      if (request.method === "GET") return json(await insuranceTodoSetting(ledger, identity.householdId));
+      const change = await body(request);
+      if (!isInsuranceTodoSetting(change)) throw new HttpError(400, "Invalid insurance to-do setting.");
+      return json(await insuranceTodoSetting(ledger, identity.householdId, change));
     }
     if (path === "sync") return await syncRequest(request, url, ledger, identity.householdId, validateEntry, expenseLedger);
     if (path === "todo-sync") return await syncRequest(request, url, ledger, identity.householdId, validateTodo, todoLedger);

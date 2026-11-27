@@ -5,7 +5,9 @@ import { getConfig } from "../api/src/config";
 import { statusCode, tables } from "../api/src/storage";
 import { createMembership, createUserSession, revokeMembership } from "../api/src/auth";
 import { applyMutation, readChanges, todoLedger } from "../api/src/ledger";
-import { consumeInvitation, inspectInvitation } from "../api/src/invitations";
+import { consumeInvitation, createInvitation, inspectInvitation, revokeInvitation } from "../api/src/invitations";
+import { createAdditionalHousehold, joinHousehold } from "../api/src/households";
+import { listUserMemberships } from "../api/src/membershipIndex";
 import { beginEntraSignIn, completeEntraSignIn } from "../api/src/entra";
 import { consumeRateLimit } from "../api/src/rateLimit";
 import { example, exampleTodo } from "./fixtures";
@@ -53,6 +55,11 @@ async function login(member: "a" | "b"): Promise<string> {
   const signedIn = await call("auth/local", { member });
   expect(signedIn.status).toBe(200);
   return signedIn.headers.get("set-cookie")!.split(";")[0];
+}
+
+async function seedAccounts(...ids: string[]) {
+  const { auth } = await tables(getConfig());
+  for (const userId of ids) await auth.createEntity({ partitionKey: "users", rowKey: `u-${userId}`, userId });
 }
 
 describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
@@ -253,6 +260,7 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     partitions.push(householdId);
     const { auth, ledger } = await tables(getConfig());
     const context = { userId, householdId, member: "b" as const };
+    await seedAccounts(userId);
     await createMembership(auth, householdId, userId, context.member);
     const { cookie, deviceKey } = await createUserSession(getConfig(), auth, context);
 
@@ -288,6 +296,7 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     const otherUserId = `user-${crypto.randomUUID()}`;
     partitions.push(householdId);
     const { auth } = await tables(getConfig());
+    await seedAccounts(userId, otherUserId);
     await createMembership(auth, householdId, userId, "a");
     await createMembership(auth, householdId, otherUserId, "b");
     const owner = await createUserSession(getConfig(), auth, { userId, householdId, member: "a" });
@@ -311,6 +320,7 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     const userId = `user-${crypto.randomUUID()}`;
     partitions.push(householdId);
     const { auth } = await tables(getConfig());
+    await seedAccounts(userId);
     await auth.createEntity({
       partitionKey: `h-${householdId}`, rowKey: "household", nameA: "Alex", nameB: ""
     });
@@ -336,6 +346,7 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
 
     const otherHousehold = `invite-other-${crypto.randomUUID()}`;
     const otherUser = `user-${crypto.randomUUID()}`;
+    await seedAccounts(otherUser);
     partitions.push(otherHousehold);
     await auth.createEntity({
       partitionKey: `h-${otherHousehold}`, rowKey: "household", nameA: "Other", nameB: ""
@@ -372,17 +383,20 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
 
     const target = await inspectInvitation(auth, second.code);
     const joinedUser = `user-${crypto.randomUUID()}`;
+    const lateUser = `user-${crypto.randomUUID()}`;
+    await seedAccounts(joinedUser, lateUser);
     await consumeInvitation(auth, target, joinedUser);
     expect(await auth.getEntity<Record<string, unknown>>(`h-${householdId}`, `m-${joinedUser}`)).toMatchObject({
       userId: joinedUser, member: "b", active: true
     });
     expect((await call("household/invitations", undefined, cookie).then((response) => response.json())).invitations).toEqual([]);
-    await expect(consumeInvitation(auth, target, `user-${crypto.randomUUID()}`)).rejects.toMatchObject({ status: 410 });
+    await expect(consumeInvitation(auth, target, lateUser)).rejects.toMatchObject({ status: 410 });
     expect((await call("household/invitations", {}, cookie)).status).toBe(409);
   });
   it("uses the Entra name for an empty member slot without overwriting chosen names", async () => {
     const householdId = `entra-name-${crypto.randomUUID()}`;
     const ownerId = `user-${crypto.randomUUID()}`;
+    await seedAccounts(ownerId);
     partitions.push(householdId);
     const { auth } = await tables(getConfig());
     await auth.createEntity({ partitionKey: `h-${householdId}`, rowKey: "household", nameA: "Alex", nameB: "" });
@@ -483,6 +497,227 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     });
     expect(await auth.getEntity<Record<string, unknown>>(`h-${householdId}`, "household"))
       .toMatchObject({ nameA: "", nameB: "Sam" });
+  });
+  it("lets one account join, create, switch between, and leave several households", async () => {
+    const { auth } = await tables(getConfig());
+    const userId = `user-${crypto.randomUUID()}`, ownerId = `user-${crypto.randomUUID()}`;
+    const first = `multi-first-${crypto.randomUUID()}`, invited = `multi-invited-${crypto.randomUUID()}`;
+    partitions.push(first, invited);
+    for (const [householdId, id, name] of [[first, userId, "Una"], [invited, ownerId, "Olli"]] as const) {
+      await auth.createEntity({ partitionKey: `h-${householdId}`, rowKey: "household", nameA: name, nameB: "" });
+      await auth.createEntity({
+        partitionKey: "users", rowKey: `u-${id}`, userId: id, issuer: "test", subject: id,
+        name, householdId, member: "a", membershipInitialized: true
+      });
+      await createMembership(auth, householdId, id, "a");
+    }
+    const cookieOf = (response: Response) => response.headers.get("set-cookie")!.split(";")[0];
+    const indexRows = async () => {
+      const rows: string[] = [];
+      for await (const row of auth.listEntities({ queryOptions: {
+        filter: `PartitionKey eq 'users' and RowKey ge 'm-${userId}.' and RowKey lt 'm-${userId}/'`
+      } })) rows.push(row.rowKey!);
+      return rows;
+    };
+    // Each change replaces the device session, so the previous cookie stops working.
+    async function change(path: string, data: unknown, cookie: string) {
+      const response = await call(path, data, cookie);
+      expect(response.status).toBe(200);
+      const result = await response.json() as { householdId: string; member: string; deviceKey: string };
+      expect(result.deviceKey).toMatch(/^[a-zA-Z0-9_-]{43}$/);
+      expect((await call("me", undefined, cookie)).status).toBe(401);
+      expect((await call("auth/resume", { deviceKey: cookie.slice(cookie.indexOf("=") + 1) })).status).toBe(401);
+      const next = cookieOf(response);
+      expect(await (await call("me", undefined, next)).json()).toMatchObject({
+        userId, householdId: result.householdId, member: result.member
+      });
+      return { ...result, cookie: next };
+    }
+
+    const start = (await createUserSession(getConfig(), auth, { userId, householdId: first, member: "a" })).cookie.split(";")[0];
+    // Memberships from before the index are found through the default household and indexed.
+    await auth.deleteEntity("users", `m-${userId}.${first}`);
+    expect(await (await call("households", undefined, start)).json()).toEqual({
+      households: [{ householdId: first, member: "a", nameA: "Una", nameB: "", current: true }], canCreate: true
+    });
+    expect(await indexRows()).toEqual([`m-${userId}.${first}`]);
+
+    const ownInvite = await (await call("household/invitations", {}, start)).json() as { code: string };
+    const alreadyMember = await call("households/join", { inviteCode: ownInvite.code }, start);
+    expect(alreadyMember.status).toBe(409);
+    expect(await alreadyMember.json()).toEqual({ error: "This account is already a member of this household." });
+
+    const owner = (await createUserSession(getConfig(), auth, { userId: ownerId, householdId: invited, member: "a" })).cookie.split(";")[0];
+    const { code } = await (await call("household/invitations", {}, owner)).json() as { code: string };
+    const joined = await change("households/join", { inviteCode: code }, start);
+    expect(joined).toMatchObject({ householdId: invited, member: "b" });
+    expect(await auth.getEntity<Record<string, unknown>>(`h-${invited}`, "household")).toMatchObject({ nameA: "Olli", nameB: "Una" });
+    expect((await call("me", undefined, owner)).status).toBe(200);
+
+    const created = await change("households/create", {}, joined.cookie);
+    partitions.push(created.householdId);
+    expect(created.member).toBe("a");
+    expect(await auth.getEntity<Record<string, unknown>>(`h-${created.householdId}`, "household"))
+      .toMatchObject({ nameA: "Una", nameB: "" });
+    expect(await (await call("households", undefined, created.cookie)).json()).toEqual({
+      households: [
+        { householdId: first, member: "a", nameA: "Una", nameB: "", current: false },
+        { householdId: invited, member: "b", nameA: "Olli", nameB: "Una", current: false },
+        { householdId: created.householdId, member: "a", nameA: "Una", nameB: "", current: true }
+      ],
+      canCreate: true
+    });
+    expect(await auth.getEntity<Record<string, unknown>>("users", `u-${userId}`))
+      .toMatchObject({ householdId: created.householdId, member: "a" });
+
+    expect((await call("households/switch", { householdId: "not valid!" }, created.cookie)).status).toBe(400);
+    expect((await call("households/switch", { householdId: `missing-${crypto.randomUUID()}` }, created.cookie)).status).toBe(404);
+    const prepared = await (await call("households/prepare", {}, created.cookie)).json();
+    expect((await call("auth/resume", { deviceKey: prepared.deviceKey })).status).toBe(401);
+    const switched = await change("households/switch", { householdId: first, source: prepared.source }, created.cookie);
+    expect(switched).toMatchObject({ householdId: first, member: "a" });
+    // Even if no switch response headers arrive, the previously stored successor resumes only the target.
+    const recovered = await call("auth/resume", { deviceKey: prepared.deviceKey });
+    expect(recovered.status).toBe(200);
+    expect(cookieOf(recovered)).toBe(switched.cookie);
+
+    // A confirmation or editor in a stale tab still belongs to the household it displayed.
+    for (const path of ["household/delete", "household/leave", "household/remove-member", "household/member-name",
+      "household/invitations", "household/invitations/revoke", "households/create", "account/delete"]) {
+      const stale = await call(path, {}, switched.cookie, origin, { userId, householdId: created.householdId });
+      expect(stale.status, path).toBe(409);
+      expect(await stale.json()).toEqual({ error: "The signed-in household changed. Retry sync on this device." });
+    }
+    expect((await call("household/delete", {}, switched.cookie, origin, null)).status).toBe(409);
+    expect((await call("household/delete", {}, switched.cookie, origin, { userId: ownerId, householdId: first })).status).toBe(409);
+    expect((await call("me", undefined, switched.cookie)).status).toBe(200);
+
+    // Leaving or deleting continues in the account's next household instead of signing the device out.
+    const left = await call("household/leave", {}, switched.cookie);
+    expect(left.status).toBe(200);
+    expect(await left.json()).toMatchObject({ left: true, continued: true, userId, householdId: invited, member: "b" });
+    expect((await call("me", undefined, switched.cookie)).status).toBe(401);
+    expect(await (await call("me", undefined, cookieOf(left))).json()).toMatchObject({ householdId: invited, member: "b" });
+    expect(await auth.getEntity<Record<string, unknown>>(`h-${first}`, "household"))
+      .toMatchObject({ deletedAt: expect.any(Number) });
+
+    const backToCreated = await change("households/switch", { householdId: created.householdId }, cookieOf(left));
+    const deleted = await call("household/delete", {}, backToCreated.cookie);
+    expect(await deleted.json()).toMatchObject({ deleted: true, continued: true, householdId: invited, member: "b" });
+    const current = cookieOf(deleted);
+    expect(await indexRows()).toEqual([`m-${userId}.${invited}`]);
+
+    for (let index = 0; index < 9; index++) {
+      const householdId = `multi-cap-${index}-${crypto.randomUUID()}`;
+      partitions.push(householdId);
+      await createMembership(auth, householdId, userId, "a");
+    }
+    expect(await (await call("households", undefined, current)).json()).toMatchObject({ canCreate: false });
+    const overLimit = await call("households/create", {}, current);
+    expect(overLimit.status).toBe(409);
+    expect(await overLimit.json()).toEqual({ error: "This account already belongs to the maximum number of households." });
+
+    const removed = await call("account/delete", {}, current);
+    expect(await removed.json()).toEqual({ deletionScheduled: true });
+    expect(removed.headers.get("set-cookie")).toContain("Max-Age=0");
+    expect(await indexRows()).toEqual([]);
+    await expect(auth.getEntity("h-" + invited, `m-${userId}`)).rejects.toMatchObject({ statusCode: 404 });
+    expect((await call("me", undefined, owner)).status).toBe(200);
+  });
+  it("reserves one final place across concurrent create, join and Entra invitation sign-in", async () => {
+    const config = getConfig(), { auth } = await tables(config);
+    const issuer = "https://issuer.example", subject = crypto.randomUUID();
+    const userId = `user-${createHash("sha256").update(`${issuer}\0${subject}`).digest("hex").slice(0, 40)}`;
+    const homes = Array.from({ length: 11 }, () => `cap-${crypto.randomUUID()}`);
+    partitions.push(...homes);
+    const account = { userId, householdId: homes[0], member: "a" as const };
+    await auth.createEntity({ partitionKey: "users", rowKey: `u-${userId}`, ...account, issuer, subject, membershipInitialized: true });
+    for (const id of homes) await auth.createEntity({ partitionKey: `h-${id}`, rowKey: "household", nameA: "A", nameB: "" });
+    for (const id of homes.slice(0, 9)) await createMembership(auth, id, userId, "a");
+    const invite = async (id: string) => createInvitation(auth, { userId: "owner", householdId: id, member: "a" });
+    const [join, entra] = await Promise.all([invite(homes[9]), invite(homes[10])]);
+    const start = await beginEntraSignIn(config, auth, { getAuthCodeUrl: async () => "https://issuer.example/authorize" }, entra.code);
+    const cookie = start.headers.get("set-cookie")!.split(";")[0], state = cookie.slice(cookie.indexOf("=") + 1);
+
+    // Hold the first write so every contender reads nine, even on a fast local emulator.
+    let arrived = 0, release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const submit = auth.submitTransaction.bind(auth);
+    const barrier = vi.spyOn(auth, "submitTransaction").mockImplementation(async (actions, options) => {
+      if (actions.some(([, entity]) => entity.rowKey === `u-${userId}` && entity.pendingMembership)) {
+        if (++arrived === 3) release();
+        await gate;
+      }
+      return submit(actions, options);
+    });
+    try {
+      const results = await Promise.allSettled([
+        createAdditionalHousehold(auth, config, account), joinHousehold(auth, account, join.code),
+        completeEntraSignIn(new Request(`${origin}/api/auth/callback?state=${state}&code=test`, { headers: { cookie } }), config, auth, {
+          acquireTokenByCode: async () => ({
+            authority: issuer, uniqueId: subject, tenantId: "test", scopes: [], account: null, idToken: "",
+            idTokenClaims: { iss: issuer, sub: subject, email: "cap@example.invalid", name: "Member" },
+            accessToken: "", fromCache: false, expiresOn: null, tokenType: "Bearer", correlationId: ""
+          }),
+          acquireTokenSilent: async () => { throw new Error("Unexpected Graph token request"); }
+        })
+      ]);
+      const winners = results.filter((result) => result.status === "fulfilled");
+      expect(winners).toHaveLength(1);
+      for (const result of results) if (result.status === "rejected") expect(result.reason).toMatchObject({
+        status: 409, message: "This account already belongs to the maximum number of households."
+      });
+      const memberships = await listUserMemberships(auth, userId);
+      expect(memberships).toHaveLength(10);
+      partitions.push(...memberships.map((m) => m.householdId).filter((id) => !homes.includes(id)));
+      const actual = [];
+      for await (const row of auth.listEntities({ queryOptions: { filter: `RowKey eq 'm-${userId}' and active eq true` } })) actual.push(row.partitionKey);
+      expect(actual.sort()).toEqual(memberships.map((m) => `h-${m.householdId}`).sort());
+      for (const [index, invitation] of [join, entra].entries()) {
+        if (results[index + 1].status === "rejected") expect(await inspectInvitation(auth, invitation.code)).toMatchObject({ slot: "b" });
+      }
+    } finally { release(); barrier.mockRestore(); }
+  }, 30_000);
+
+  it("recovers an interrupted invitation reservation without charging a revoked invitation a place", async () => {
+    const { auth } = await tables(getConfig());
+    const userId = `user-${crypto.randomUUID()}`, householdId = `cap-${crypto.randomUUID()}`;
+    partitions.push(householdId);
+    await seedAccounts(userId);
+    const owner = { userId: "owner", householdId, member: "a" as const };
+    await auth.createEntity({ partitionKey: `h-${householdId}`, rowKey: "household", nameA: "Owner", nameB: "" });
+    const invitation = await createInvitation(auth, owner);
+    const target = await inspectInvitation(auth, invitation.code);
+    const submit = auth.submitTransaction.bind(auth);
+    const interrupted = vi.spyOn(auth, "submitTransaction").mockImplementation(async (actions, options) => {
+      if (actions.some(([, entity]) => entity.rowKey === `m-${userId}`)) throw new Error("interrupted before household commit");
+      return submit(actions, options);
+    });
+    try { await expect(consumeInvitation(auth, target, userId)).rejects.toThrow("interrupted before household commit"); }
+    finally { interrupted.mockRestore(); }
+    await revokeInvitation(auth, owner, target.id);
+    const next = await createInvitation(auth, owner);
+    await consumeInvitation(auth, await inspectInvitation(auth, next.code), userId);
+    expect(await listUserMemberships(auth, userId)).toMatchObject([{ householdId, member: "b" }]);
+    expect((await auth.getEntity("users", `u-${userId}`)).pendingMembership).toBe("");
+  });
+  it("finishes an unacknowledged household commit without reviving a membership that has since left", async () => {
+    const { auth } = await tables(getConfig());
+    const userId = `user-${crypto.randomUUID()}`, first = `cap-${crypto.randomUUID()}`, second = `cap-${crypto.randomUUID()}`;
+    partitions.push(first, second);
+    await seedAccounts(userId);
+    const submit = auth.submitTransaction.bind(auth);
+    const lostResponse = vi.spyOn(auth, "submitTransaction").mockImplementation(async (actions, options) => {
+      const result = await submit(actions, options);
+      if (actions.some(([, entity]) => entity.rowKey === `m-${userId}`)) throw new Error("lost commit response");
+      return result;
+    });
+    try { await expect(createMembership(auth, first, userId, "a")).rejects.toThrow("lost commit response"); }
+    finally { lostResponse.mockRestore(); }
+    await revokeMembership(auth, first, userId);
+    await createMembership(auth, second, userId, "a");
+    expect(await listUserMemberships(auth, userId)).toMatchObject([{ householdId: second }]);
+    await expect(auth.getEntity(`h-${first}`, `m-${userId}`)).rejects.toMatchObject({ statusCode: 404 });
   });
   it("enforces active-record and daily household quotas with retry guidance", async () => {
     const expenseHousehold = `quota-expenses-${crypto.randomUUID()}`;

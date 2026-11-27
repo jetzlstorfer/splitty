@@ -1,8 +1,9 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { TableClient } from "@azure/data-tables";
 import type { Member } from "../../shared/model";
 import type { AuthContext } from "./auth";
 import { HttpError } from "./config";
+import { addHouseholdMembership } from "./membershipIndex";
 import { consumeRateLimit } from "./rateLimit";
 import { optionalEntity, statusCode } from "./storage";
 
@@ -58,39 +59,11 @@ export async function inspectInvitation(table: Pick<TableClient, "getEntity">, c
 }
 
 export async function consumeInvitation(
-  table: TableClient, target: InvitationTarget, userId: string
+  table: TableClient, target: InvitationTarget, userId: string, currentHousehold?: string
 ): Promise<void> {
-  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(userId)) throw new HttpError(400, "Invalid household membership.");
-  const partitionKey = householdPartition(target.householdId);
-  const household = await optionalEntity<HouseholdEntity>(table, partitionKey, "household");
-  if (!household || household.deletedAt) {
-    throw new HttpError(410, "This invitation has expired or was already used.");
-  }
-  const invitation = await optionalEntity<InvitationEntity>(table, partitionKey, invitationRow(target.id));
-  const reservation = await optionalEntity<SlotReservation>(table, partitionKey, slotRow(target.slot));
-  if (!invitation || invitation.expiresAt <= Date.now()
-    || !reservation || reservation.id !== target.id || reservation.expiresAt <= Date.now()) {
-    throw new HttpError(410, "This invitation has expired or was already used.");
-  }
-  try {
-    await table.submitTransaction([
-      ["delete", { partitionKey, rowKey: invitationRow(target.id) }],
-      ["delete", { partitionKey, rowKey: slotRow(target.slot) }],
-      ["create", {
-        partitionKey,
-        rowKey: `m-${userId}`,
-        userId,
-        member: target.slot,
-        active: true,
-        membershipId: randomUUID()
-      }]
-    ]);
-  } catch (error) {
-    if (statusCode(error) === 409 || statusCode(error) === 404) {
-      throw new HttpError(410, "This invitation has expired or was already used.");
-    }
-    throw error;
-  }
+  await addHouseholdMembership(table, userId, {
+    householdId: target.householdId, member: target.slot, invitationId: target.id
+  }, currentHousehold);
 }
 
 export async function listInvitations(table: TableClient, context: AuthContext): Promise<Invitation[]> {

@@ -1,8 +1,9 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import type { TableClient } from "@azure/data-tables";
 import type { Member } from "../../shared/model";
 import type { AccountProfile } from "../../shared/profile";
 import { HttpError, type Config } from "./config";
+import { addHouseholdMembership, removeIndexedMembership } from "./membershipIndex";
 import { optionalEntity, statusCode } from "./storage";
 
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -21,7 +22,7 @@ export interface AuthContext extends AccountProfile {
 
 type SessionEntity = AuthContext & { membershipId: string };
 interface MembershipEntity { userId: string; member: Member; active: boolean; membershipId: string }
-interface UserAuthorizationEntity { userId: string; householdId: string; member: Member; deletionRequestedAt?: number }
+interface UserAuthorizationEntity { userId: string; deletionRequestedAt?: number }
 interface HouseholdAuthorizationEntity { deletedAt?: number }
 
 const isStableId = (value: unknown): value is string =>
@@ -38,7 +39,7 @@ function readCookie(request: Request, config: Config): string | null {
 
 export const isSessionKey = (value: unknown): value is string => typeof value === "string" && /^[a-zA-Z0-9_-]{43}$/.test(value);
 
-export async function authenticate(request: Request, config: Config, table: TableClient): Promise<AuthContext> {
+export async function authenticate(request: Request, config: Config, table: TableClient) {
   return verifySession(readCookie(request, config), config, table);
 }
 
@@ -54,33 +55,32 @@ export async function resumeSession(value: string, config: Config, table: TableC
 export async function createMembership(
   table: TableClient, householdId: string, userId: string, member: Member
 ): Promise<void> {
-  if (!isStableId(householdId) || !isStableId(userId)) throw new HttpError(400, "Invalid household membership.");
-  await table.createEntity({
-    partitionKey: householdPartition(householdId),
-    rowKey: `m-${userId}`,
-    userId,
-    member,
-    active: true,
-    membershipId: randomUUID()
-  });
+  await addHouseholdMembership(table, userId, { householdId, member });
 }
 
 export async function revokeMembership(table: TableClient, householdId: string, userId: string): Promise<void> {
   if (!isStableId(householdId) || !isStableId(userId)) throw new HttpError(400, "Invalid household membership.");
-  try { await table.deleteEntity(householdPartition(householdId), `m-${userId}`); }
-  catch (error) { if (statusCode(error) !== 404) throw error; }
+  await removeIndexedMembership(table, userId, householdId);
+}
+
+// Preparation is repeatable across tabs, but the retired bearer alone cannot derive
+// its successor: the random membership generation is never sent to the browser.
+export function householdSuccessor(request: Request, config: Config, membershipId: string): string {
+  const source = readCookie(request, config);
+  if (!isSessionKey(source)) throw new HttpError(401, "Sign in to sync this device.");
+  return createHmac("sha256", membershipId).update(`splitty-household:${source}`).digest("base64url");
 }
 
 export async function createUserSession(
-  config: Config, table: TableClient, context: AuthContext
+  config: Config, table: TableClient, context: AuthContext, replacement?: { source: string; key: string }
 ): Promise<{ cookie: string; deviceKey: string }> {
   if (!isStableId(context.userId) || !isStableId(context.householdId)
     || (context.member !== "a" && context.member !== "b")) {
     throw new HttpError(400, "Invalid sign-in context.");
   }
   const membership = await requireMembership(table, context);
-  const raw = randomToken();
-  await table.createEntity({
+  const raw = replacement?.key ?? randomToken();
+  const session = {
     partitionKey: sessionPartition,
     rowKey: `s-${digest(raw)}`,
     userId: context.userId,
@@ -91,7 +91,22 @@ export async function createUserSession(
     displayName: context.displayName,
     email: context.email,
     pictureUrl: context.pictureUrl
-  });
+  };
+  if (replacement) {
+    // The old key must still exist. Two requests authenticated before either switch
+    // committed cannot both mint usable successors from the same session.
+    try {
+      await table.submitTransaction([
+        ["delete", { partitionKey: sessionPartition, rowKey: replacement.source }],
+        ["create", session]
+      ]);
+    } catch (error) {
+      if ([404, 409, 412].includes(statusCode(error) ?? 0)) {
+        throw new HttpError(409, "The signed-in household changed. Retry sync on this device.");
+      }
+      throw error;
+    }
+  } else await table.createEntity(session);
   return { cookie: sessionCookie(config, raw, sessionMaxAge), deviceKey: raw };
 }
 
@@ -101,8 +116,8 @@ async function requireMembership(table: TableClient, context: AuthContext): Prom
   );
   if (household?.deletedAt) throw new HttpError(401, "Your household access has been revoked. Sign in again.");
   const user = await optionalEntity<UserAuthorizationEntity>(table, "users", `u-${context.userId}`);
-  if (user && (user.userId !== context.userId || user.householdId !== context.householdId
-    || user.member !== context.member || user.deletionRequestedAt)) {
+  // Accounts can belong to several households, so the membership row, not the default household, grants access.
+  if (user && (user.userId !== context.userId || user.deletionRequestedAt)) {
     throw new HttpError(401, "Your household access has been revoked. Sign in again.");
   }
   const membership = await optionalEntity<MembershipEntity>(
@@ -115,7 +130,7 @@ async function requireMembership(table: TableClient, context: AuthContext): Prom
   return membership;
 }
 
-async function verifySession(value: string | null, config: Config, table: TableClient): Promise<AuthContext> {
+async function verifySession(value: string | null, config: Config, table: TableClient) {
   if (!isSessionKey(value)) throw new HttpError(401, "Sign in to sync this device.");
   const key = `s-${digest(value)}`;
   const session = await optionalEntity<SessionEntity>(table, sessionPartition, key);
@@ -138,14 +153,14 @@ async function verifySession(value: string | null, config: Config, table: TableC
     if (session.membershipId !== membership.membershipId) {
       throw new HttpError(401, "Your household access has been revoked. Sign in again.");
     }
-    return context;
+    return { ...context, sessionId: key, membershipId: membership.membershipId };
   }
   throw new HttpError(401, "Sign in to sync this device.");
 }
 
-export async function logout(request: Request, config: Config, table: TableClient, deviceKey?: string): Promise<void> {
+export async function logout(request: Request, config: Config, table: TableClient, ...deviceKeys: unknown[]): Promise<void> {
   const cookie = readCookie(request, config);
-  const sessions = new Set([cookie, deviceKey].filter(isSessionKey));
+  const sessions = new Set([cookie, ...deviceKeys].filter(isSessionKey));
   for (const raw of sessions) {
     try { await table.deleteEntity(sessionPartition, `s-${digest(raw)}`); }
     catch (error) { if (statusCode(error) !== 404) throw error; }

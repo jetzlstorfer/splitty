@@ -1,4 +1,5 @@
 import { odata, type TableClient } from "@azure/data-tables";
+import { finishAccountMemberships } from "../../shared/accountDeletion";
 import {
   collect, deleteKeys, describeError, entities, identifier, isTime, type EntityKey, type Logger
 } from "./common";
@@ -82,6 +83,29 @@ async function purgeAccount(
 export async function purgeExpired(tables: DataTables, now: number, log: Logger): Promise<PurgeSummary> {
   const summary: PurgeSummary = { households: 0, accounts: 0, rows: 0, skipped: 0, failures: 0 };
 
+  const accounts: string[] = [];
+  for await (const row of entities<{
+    userId?: unknown; householdId?: unknown; deletionRequestedAt?: unknown; purgeAfter?: unknown
+  }>(tables.auth, {
+    filter: odata`PartitionKey eq ${"users"} and RowKey ge ${"u-"} and RowKey lt ${"u."}`,
+    select: ["PartitionKey", "RowKey", "userId", "householdId", "deletionRequestedAt", "purgeAfter"]
+  })) {
+    if (!isTime(row.deletionRequestedAt) || !isTime(row.purgeAfter)) continue;
+    const id = row.rowKey?.slice(2) ?? "";
+    if (!identifier.test(id) || row.userId !== id) {
+      summary.skipped++; log.warn("Skipped an account with an unexpected identifier.");
+      continue;
+    }
+    try {
+      // Finish interrupted requests even during grace; newly marked empty households join the sweep below.
+      summary.rows += await finishAccountMemberships(tables.auth, id, row.deletionRequestedAt, row.purgeAfter, [row.householdId]);
+      if (row.purgeAfter <= now) accounts.push(id);
+    } catch (error) {
+      summary.failures++;
+      log.error(`Account membership cleanup failed (${describeError(error)}).`);
+    }
+  }
+
   const households: string[] = [];
   for await (const row of entities<{ deletedAt?: unknown; purgeAfter?: unknown }>(tables.auth, {
     filter: odata`PartitionKey ge ${"h-"} and PartitionKey lt ${"h."} and RowKey eq ${"household"}`,
@@ -91,17 +115,6 @@ export async function purgeExpired(tables: DataTables, now: number, log: Logger)
     if (!isTime(row.deletedAt) || !isTime(row.purgeAfter) || row.purgeAfter > now) continue;
     if (identifier.test(id)) households.push(id);
     else { summary.skipped += 1; log.warn("Skipped a household with an unexpected identifier."); }
-  }
-
-  const accounts: string[] = [];
-  for await (const row of entities<{ userId?: unknown; deletionRequestedAt?: unknown; purgeAfter?: unknown }>(tables.auth, {
-    filter: odata`PartitionKey eq ${"users"}`,
-    select: ["PartitionKey", "RowKey", "userId", "deletionRequestedAt", "purgeAfter"]
-  })) {
-    if (!isTime(row.deletionRequestedAt) || !isTime(row.purgeAfter) || row.purgeAfter > now) continue;
-    const id = row.rowKey?.startsWith("u-") ? row.rowKey.slice(2) : "";
-    if (identifier.test(id) && row.userId === id) accounts.push(id);
-    else { summary.skipped += 1; log.warn("Skipped an account with an unexpected identifier."); }
   }
 
   if (!households.length && !accounts.length) return summary;

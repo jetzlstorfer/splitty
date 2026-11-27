@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronRight, ClipboardCheck, Download, Languages, Lock, Pencil, RotateCcw, Smartphone, UserRound } from "lucide-react";
+import { ChevronRight, ClipboardCheck, Download, House, Languages, Lock, Pencil, RotateCcw, Smartphone, UserRound } from "lucide-react";
 import type { Member } from "../shared/model";
 import { profilePictureUrl } from "../shared/profile";
 import { automaticInsuranceTodos, queueInsuranceTodoSetting, updatePreferences, type Preferences } from "./db";
@@ -50,12 +50,16 @@ function AccountDetails({ sync: { identity, online, busy, actionError }, account
 
 export default function SettingsPage({ preferences: p, sync, account, syncPopoverId, saved, backup, restore, onError }: {
   preferences: Preferences; sync: AccountSyncState; syncPopoverId: string;
-  account: Pick<AccountController, "providerAccount" | "signOutBusy" | "signOut" | "saveHouseholdName" | "runHouseholdAction">;
+  account: Pick<AccountController, "providerAccount" | "signOutBusy" | "signOut" | "saveHouseholdName" | "runHouseholdAction"
+    | "households" | "canCreateHousehold" | "householdsBusy" | "switchHousehold" | "createHousehold">;
   saved: () => void; backup: () => void; restore: (file?: File) => void | Promise<void>; onError: (message: string) => void;
 }) {
   const { t, language } = useLocale();
-  const { identity, online } = sync;
-  const { providerAccount, signOutBusy, saveHouseholdName, runHouseholdAction } = account;
+  const { identity, online, busy } = sync;
+  const { providerAccount, signOutBusy, saveHouseholdName, runHouseholdAction, households, canCreateHousehold, householdsBusy } = account;
+  const householdLabel = (household: { nameA: string; nameB: string }) =>
+    `${household.nameA.trim() || t("Unnamed")} & ${household.nameB.trim() || t("Unnamed")}`;
+  const currentHousehold = households.find((household) => household.householdId === identity?.householdId);
   return <section className="settings-page"><header className="page-heading"><div><h1>{t("Settings")}</h1><p>{p.nameA} & {p.nameB}</p></div></header>
     <AccountDetails sync={sync} account={account} syncPopoverId={syncPopoverId} />
     <section className="settings-card"><h2 className="section-label">{t("Language")}</h2>
@@ -64,10 +68,16 @@ export default function SettingsPage({ preferences: p, sync, account, syncPopove
           options={[{ value: "de", label: "Deutsch", lang: "de" }, { value: "en", label: "English", lang: "en" }]} /></label>
     </section>
     <section className="settings-card"><h2 className="section-label">{t("Household")}</h2>
+      {providerAccount && currentHousehold && households.length > 1 && <label className="settings-row">
+        <span className="settings-tile" aria-hidden="true"><House size={19} /></span>
+        <span className="entry-description"><strong>{t("Active household")}</strong></span>
+        <Select label={t("Active household")} value={currentHousehold.householdId} disabled={!online || busy || householdsBusy || signOutBusy}
+          onChange={(value) => void account.switchHousehold(value)}
+          options={households.map((household) => ({ value: household.householdId, label: householdLabel(household) }))} /></label>}
       {(["a", "b"] as const).map((member) => {
         const name = member === "a" ? p.nameA : p.nameB, key = member === "a" ? "nameA" : "nameB";
         return <div className="settings-row" key={member}><span className={`avatar payer-${member}`} aria-hidden="true">{name.trim().charAt(0).toUpperCase() || "?"}</span>
-          <span className="entry-description settings-name-field"><span className="settings-name-input"><input id={`household-name-${member}`} className="settings-name" defaultValue={name} key={`${member}-${name}`} maxLength={60} readOnly={!!identity && !providerAccount} aria-describedby={identity ? "household-names-note" : undefined}
+          <span className="entry-description settings-name-field"><span className="settings-name-input"><input id={`household-name-${member}`} className="settings-name" defaultValue={name} key={`${identity?.userId}:${identity?.householdId}:${member}-${name}`} maxLength={60} readOnly={!!identity && !providerAccount} aria-describedby={identity ? "household-names-note" : undefined}
             onBlur={(e) => { const value = e.target.value.trim(); if (value !== name) {
               if (providerAccount) void saveHouseholdName(member, value);
               else if (!identity && value) void updatePreferences({ [key]: value }).catch((err: Error) => onError(err.message));
@@ -81,6 +91,8 @@ export default function SettingsPage({ preferences: p, sync, account, syncPopove
         ? "EUR and an equal split are always the default. Signed-in names are shared with your household."
         : "EUR and an equal split are always the default. Signed-in names come from your household configuration.")}</p>
       {providerAccount && <div className="button-row">
+        {canCreateHousehold && <button className="secondary" disabled={!online || busy || householdsBusy || signOutBusy} aria-busy={householdsBusy}
+          onClick={() => void account.createHousehold()}>{t("Create another household")}</button>}
         <button className="secondary danger-button" disabled={!online || signOutBusy} onClick={() => void runHouseholdAction(
           "household/remove-member", "Remove the other member", "Remove the other member? They will lose server access, but data already on their devices will remain."
         )}>{t("Remove the other member")}</button>

@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { liveQuery } from "dexie";
 import type { Entry } from "../shared/model";
 import type { Todo } from "../shared/todo";
-import { db, localQueueState, type Conflict, type Preferences } from "./db";
+import { db, localQueueState, type Conflict, type Preferences, type SplittyDatabase } from "./db";
 
 export interface Snapshot {
+  database: SplittyDatabase;
   entries: Entry[]; todos: Todo[]; pending: number; preferences: Preferences;
   conflicts: Conflict[]; todoConflicts: Conflict<Todo>[];
 }
@@ -20,7 +21,7 @@ export function useLedger(): Snapshot | null {
           database.entries.toArray(), database.todos.toArray(), localQueueState(database),
           database.conflicts.toArray(), database.todoConflicts.toArray()
         ]);
-        return { entries, todos, ...queue, conflicts, todoConflicts };
+        return { database, entries, todos, ...queue, conflicts, todoConflicts };
       }).subscribe({
         next: setValue,
         error: (error: unknown) => window.dispatchEvent(new CustomEvent("splitty-error", {

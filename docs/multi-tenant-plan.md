@@ -53,9 +53,12 @@ pilot.
   Google, and Microsoft accounts. Splitty's API handles the sign-in flow and
   issues its own revocable server-side device sessions, preserving device-key
   cookie recovery. Entra sends the passcode emails; Splitty sends no email.
-- **Memberships:** membership records allow a user to belong to several
-  households, but v1 limits each user to one. Creating or joining another
-  household requires leaving the current one.
+- **Memberships:** a user can belong to up to 10 households and switch between
+  them in Settings. Signing in opens the last-used household. A signed-in user
+  joins another household by opening its invitation link, or creates one from
+  Settings. Leaving or deleting a household continues in another of the user's
+  households; only the last one signs the device out. Each switch issues a new
+  device session for the target membership.
 - **Members and permissions:** each household keeps exactly two accounting
   slots, `a` and `b`, and both members have equal rights. Either member can
   invite someone into an empty slot, remove the other member, rename members,
@@ -152,8 +155,12 @@ pilot.
   creates initial memberships or redeems invitations for new accounts. The
   retired member-token claim flow is no longer available. Non-local deployments
   reject new household creation unless `ALLOW_NEW_HOUSEHOLDS=true`.
-  Joining an invitation with an account already assigned to another household is
-  rejected until leave/transfer is implemented.
+  Signed-in accounts join further households through
+  [`api/src/households.ts`](../api/src/households.ts). The authoritative
+  membership stays in the household partition; a `users/m-<userId>.<householdId>`
+  index row lets an account list its households and is rebuilt for the default
+  household when missing. The user row's default household records the last one
+  used.
 - [`api/src/invitations.ts`](../api/src/invitations.ts) implements the
   household-scoped invitation lifecycle. The raw invitation code is returned
   only at creation; storage contains its SHA-256 digest and a transactional

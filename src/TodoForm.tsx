@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { Trash2 } from "lucide-react";
 import { MAX_TODO_TITLE, MAX_TODO_DESCRIPTION, type Todo } from "../shared/todo";
-import { queueTodos } from "./db";
+import { isActiveDatabase, queueTodos, type SplittyDatabase } from "./db";
 import { useLocale } from "./i18n";
 import { Form, Sheet, useConfirm } from "./Controls";
 
-export default function TodoForm({ todo, close, saved }: { todo?: Todo; close: () => void; saved: () => void }) {
+export default function TodoForm({ database, todo, close, saved }: { database: SplittyDatabase; todo?: Todo; close: () => void; saved: () => void }) {
   const { t, message, language } = useLocale();
   const confirm = useConfirm();
   const [title, setTitle] = useState(todo?.title ?? "");
@@ -21,8 +21,8 @@ export default function TodoForm({ todo, close, saved }: { todo?: Todo; close: (
         id: todo?.id ?? crypto.randomUUID(), title, description, done: todo?.done ?? false,
         ...(todo?.position !== undefined ? { position: todo.position } : {}),
         createdAt: todo?.createdAt ?? timestamp, updatedAt: timestamp, revision: todo?.revision ?? 0, deleted: false
-      }]);
-      saved(); close();
+      }], database);
+      if (isActiveDatabase(database)) { saved(); close(); }
     } catch (e) { setError(e instanceof Error ? e.message : "Could not save this to-do."); }
     finally { setBusy(false); }
   }

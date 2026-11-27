@@ -35,8 +35,7 @@ export async function signInLocally(
   await table.upsertEntity({
     partitionKey: "users", rowKey: `u-${userId}`, userId, issuer: "local-development",
     subject: `${householdId}:${member}`, name, householdId, member, membershipInitialized: true
-  }, "Replace");
-  try { await createMembership(table, householdId, userId, member); }
-  catch (error) { if (statusCode(error) !== 409) throw error; }
+  }, "Merge");
+  await createMembership(table, householdId, userId, member);
   return createUserSession(config, table, { userId, householdId, member, displayName: name, signInProvider: "local" });
 }

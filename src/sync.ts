@@ -1,4 +1,4 @@
-import { activateAccountDatabase, applyStorePage, applyStoreResults, db, expenseStore, todoStore, getDeviceKey, getPreferences, importLegacyDatabase, isActiveDatabase, setDeviceKey, SplittyDatabase, type SyncStore } from "./db";
+import { activateAccountDatabase, applyStorePage, applyStoreResults, db, expenseStore, todoStore, getDeviceKey, getPreparedDeviceKey, getPreferences, importLegacyDatabase, isActiveDatabase, setDeviceKey, SplittyDatabase, type SyncStore } from "./db";
 import { isInsuranceTodoSetting, type Member, type MutationResult, type SyncPage, type VersionedRecord } from "../shared/model";
 import type { AccountProfile } from "../shared/profile";
 
@@ -48,13 +48,21 @@ export async function identify(): Promise<Identity> {
   let identity: Identity;
   try { identity = await api<Identity>("me"); }
   catch (error) {
-    const deviceKey = error instanceof ApiError && error.status === 401 ? await getDeviceKey() : null;
-    if (!deviceKey) throw error;
-    try { await api("auth/resume", { deviceKey }); }
-    catch (resumeError) {
-      // Only a definite rejection revokes the key; network failures keep it for the next attempt.
-      if (resumeError instanceof ApiError && (resumeError.status === 401 || resumeError.status === 400)) await setDeviceKey(null);
-      throw resumeError;
+    if (!(error instanceof ApiError) || error.status !== 401) throw error;
+    const prepared = await getPreparedDeviceKey(), current = await getDeviceKey();
+    const keys = [prepared, current].filter((key): key is string => key !== null);
+    if (!keys.length) throw error;
+    for (const [index, deviceKey] of keys.entries()) {
+      try { await api("auth/resume", { deviceKey }); }
+      catch (resumeError) {
+        // A network error says nothing about either key. Only forget definitively rejected credentials.
+        if (!(resumeError instanceof ApiError) || ![400, 401].includes(resumeError.status)) throw resumeError;
+        if (index + 1 < keys.length) continue;
+        await setDeviceKey(null);
+        throw resumeError;
+      }
+      if (prepared === deviceKey) await setDeviceKey(deviceKey);
+      break;
     }
     identity = await api<Identity>("me");
   }
@@ -80,7 +88,9 @@ export async function signInLocally(member: Member): Promise<void> {
 }
 
 export async function signOutDevice(): Promise<void> {
-  await api("auth/logout", { deviceKey: await getDeviceKey() ?? undefined });
+  await api("auth/logout", {
+    deviceKey: await getDeviceKey() ?? undefined, preparedKey: await getPreparedDeviceKey() ?? undefined
+  });
   await setDeviceKey(null);
 }
 

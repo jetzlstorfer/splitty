@@ -5,7 +5,9 @@ import type { Member } from "../../shared/model";
 import { profileDisplayName, profilePictureUrl, type AccountProfile } from "../../shared/profile";
 import { createMembership, createUserSession, type AuthContext } from "./auth";
 import { HttpError, type Config } from "./config";
+import { fillEmptyMemberName } from "./households";
 import { consumeInvitation, inspectInvitation, type InvitationTarget } from "./invitations";
+import { addHouseholdMembership, listUserMemberships, recoverMembershipAddition, setDefaultHousehold } from "./membershipIndex";
 import { consumeRateLimit } from "./rateLimit";
 import { optionalEntity, statusCode } from "./storage";
 import { lookupDirectoryProvider, tokenProvider } from "./signInProvider";
@@ -26,8 +28,8 @@ interface LoginTransaction {
 }
 interface UserRecord {
   userId: string; subject: string; issuer: string; householdId: string;
-  member: Member | ""; membershipInitialized?: boolean; deletionRequestedAt?: number;
-  legacyClaimed?: boolean; name?: string; email?: string;
+  member: Member | ""; membershipInitialized?: boolean; deletionRequestedAt?: number; pendingMembership?: string;
+  legacyClaimed?: boolean; legacyHouseholdId?: string; name?: string; email?: string;
 }
 interface HouseholdRecord { nameA: string; nameB: string; deletedAt?: number }
 interface BootstrapRecord { userId: string; deviceKey: string; expiresAt: number }
@@ -132,14 +134,11 @@ async function ensureUser(
 ): Promise<AuthContext> {
   const userId = `user-${digest(`${claims.issuer}\0${claims.subject}`).slice(0, 40)}`;
   let user = await optionalEntity<UserRecord>(table, userPartition, `u-${userId}`);
-  let createdUser = false;
   if (!user) {
     if (!invitation && !config.allowNewHouseholds) {
       throw new HttpError(403, "New household registration is currently closed.");
     }
     if (!invitation) await consumeRateLimit(table, `new-households:${userId}`, 3, 30 * 24 * 60 * 60 * 1000);
-    const householdId = invitation?.householdId ?? `household-${randomValue().slice(0, 32)}`;
-    const member = invitation?.slot ?? "a";
     try {
       await table.createEntity({
         partitionKey: userPartition,
@@ -149,11 +148,11 @@ async function ensureUser(
         subject: claims.subject,
         email: claims.email,
         name: claims.name,
-        householdId,
-        member,
+        // Do not assign an invited slot until the invitation and membership commit together.
+        householdId: invitation ? "" : `household-${randomValue().slice(0, 32)}`,
+        member: invitation ? "" : "a",
         membershipInitialized: false
       });
-      createdUser = true;
     } catch (error) {
       if (statusCode(error) !== 409) throw error;
     }
@@ -164,42 +163,45 @@ async function ensureUser(
     throw new HttpError(500, "Could not load the signed-in account.");
   }
   if (user.deletionRequestedAt) throw new HttpError(410, "This account is scheduled for deletion.");
-  if (!user.householdId || !user.member) {
-    if (!invitation && !config.allowNewHouseholds) {
-      throw new HttpError(403, "New household registration is currently closed.");
+  if (user.pendingMembership) {
+    await recoverMembershipAddition(table, userId);
+    user = await table.getEntity<UserRecord>(userPartition, `u-${userId}`);
+    if (user.deletionRequestedAt) throw new HttpError(410, "This account is scheduled for deletion.");
+  }
+  if (invitation && (user.householdId !== invitation.householdId || user.member !== invitation.slot)) {
+    // Accepting an invitation adds a household; the account keeps its other memberships.
+    await consumeInvitation(table, invitation, userId);
+    const target = { householdId: invitation.householdId, member: invitation.slot };
+    await setDefaultHousehold(table, userId, target);
+    user = { ...user, ...target, membershipInitialized: true };
+  } else if (!user.householdId || !user.member) {
+    const existing = invitation ? undefined : (await listUserMemberships(table, userId))[0];
+    if (existing) {
+      await setDefaultHousehold(table, userId, existing);
+      user = { ...user, householdId: existing.householdId, member: existing.member, membershipInitialized: true };
+    } else {
+      if (!invitation && !config.allowNewHouseholds) {
+        throw new HttpError(403, "New household registration is currently closed.");
+      }
+      if (!invitation) await consumeRateLimit(table, `new-households:${userId}`, 3, 30 * 24 * 60 * 60 * 1000);
+      const householdId = invitation?.householdId ?? `household-${randomValue().slice(0, 32)}`;
+      const member = invitation?.slot ?? "a";
+      await table.updateEntity({
+        partitionKey: userPartition,
+        rowKey: `u-${userId}`,
+        householdId,
+        member,
+        membershipInitialized: false
+      }, "Merge", { etag: user.etag });
+      user = { ...user, householdId, member, membershipInitialized: false };
     }
-    if (!invitation) await consumeRateLimit(table, `new-households:${userId}`, 3, 30 * 24 * 60 * 60 * 1000);
-    const householdId = invitation?.householdId ?? `household-${randomValue().slice(0, 32)}`;
-    const member = invitation?.slot ?? "a";
-    await table.updateEntity({
-      partitionKey: userPartition,
-      rowKey: `u-${userId}`,
-      householdId,
-      member,
-      membershipInitialized: false
-    }, "Merge", { etag: user.etag });
-    user = { ...user, householdId, member, membershipInitialized: false };
-  } else if (invitation && (user.householdId !== invitation.householdId || user.member !== invitation.slot)) {
-    throw new HttpError(409, "This account already belongs to another household. Leave it before joining this one.");
   }
 
   const household = await optionalEntity<HouseholdRecord>(
     table, householdPartition(user.householdId), "household"
   );
   if (household?.deletedAt) throw new HttpError(410, "This household is scheduled for deletion.");
-  if (!household) {
-    if (invitation) throw new HttpError(410, "This invitation has expired or was already used.");
-    try {
-      await table.createEntity({
-        partitionKey: householdPartition(user.householdId),
-        rowKey: "household",
-        nameA: claims.name,
-        nameB: ""
-      });
-    } catch (error) {
-      if (statusCode(error) !== 409) throw error;
-    }
-  }
+  if (!household && invitation) throw new HttpError(410, "This invitation has expired or was already used.");
 
   if (user.member !== "a" && user.member !== "b") throw new HttpError(500, "Could not load the signed-in account.");
   const context: AuthContext = { userId, householdId: user.householdId, member: user.member };
@@ -216,17 +218,12 @@ async function ensureUser(
         const recoveredMembership = await optionalEntity<{ userId: string; member: Member }>(
           table, householdPartition(user.householdId), `m-${userId}`
         );
-        if (!recoveredMembership && createdUser) {
-          try { await table.deleteEntity(userPartition, `u-${userId}`); }
-          catch (cleanupError) { if (statusCode(cleanupError) !== 404) throw cleanupError; }
-        }
         if (!recoveredMembership) throw error;
       }
+    } else if (!household) {
+      await addHouseholdMembership(table, userId, { householdId: user.householdId, member: user.member, nameA: claims.name });
     } else {
-      try { await createMembership(table, user.householdId, userId, user.member); }
-      catch (error) {
-        if (statusCode(error) !== 409) throw error;
-      }
+      await createMembership(table, user.householdId, userId, user.member);
     }
   }
   const confirmedMembership = await optionalEntity<{ userId: string; member: Member }>(
@@ -244,22 +241,6 @@ async function ensureUser(
   }
   await fillEmptyMemberName(table, context, claims.name);
   return context;
-}
-
-async function fillEmptyMemberName(table: TableClient, context: AuthContext, name: string): Promise<void> {
-  const field = context.member === "a" ? "nameA" : "nameB";
-  const household = await optionalEntity<HouseholdRecord>(table, householdPartition(context.householdId), "household");
-  if (!household || household.deletedAt || household[field]?.trim() || !name.trim()) return;
-  try {
-    await table.updateEntity({
-      partitionKey: householdPartition(context.householdId),
-      rowKey: "household",
-      [field]: name.trim().slice(0, 60)
-    }, "Merge", { etag: household.etag });
-  } catch (error) {
-    // Another device or member changed the household concurrently; keep their value.
-    if (statusCode(error) !== 412) throw error;
-  }
 }
 
 export async function completeEntraSignIn(
@@ -346,9 +327,11 @@ export async function getAccountDetails(
   table: TableClient, identity: AuthContext
 ): Promise<AccountProfile & { legacyClaimed: boolean }> {
   const user = await optionalEntity<UserRecord>(table, userPartition, `u-${identity.userId}`);
-  const currentUser = user?.userId === identity.userId && user.householdId === identity.householdId ? user : undefined;
+  const currentUser = user?.userId === identity.userId ? user : undefined;
+  // Legacy device history belongs to the household the account claimed, even after switching.
+  const legacyHousehold = currentUser?.legacyHouseholdId || currentUser?.householdId;
   return {
-    legacyClaimed: currentUser?.legacyClaimed === true,
+    legacyClaimed: currentUser?.legacyClaimed === true && legacyHousehold === identity.householdId,
     signInProvider: identity.signInProvider,
     displayName: profileDisplayName(identity.displayName) ?? profileDisplayName(currentUser?.name),
     email: identity.email ?? currentUser?.email,

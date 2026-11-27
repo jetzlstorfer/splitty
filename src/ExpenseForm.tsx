@@ -1,14 +1,15 @@
 import { useRef, useState, type FormEvent } from "react";
 import { Check, ChevronDown, Trash2 } from "lucide-react";
 import { calculateShareA, expenseBalance, parseMoney, type Entry, type Member, type SplitType } from "../shared/model";
-import { queueEntries, queueNewReceipts, type Preferences } from "./db";
+import { isActiveDatabase, queueEntries, queueNewReceipts, type Preferences, type SplittyDatabase } from "./db";
 import { useLocale } from "./i18n";
 import { categoryLabels, detectCategory, expenseCategory, storedCategory, type Category } from "./categories";
 import ExpenseIcon from "./ExpenseIcon";
 import ReceiptScanner from "./ReceiptScanner";
 import { DateField, Form, Select, Sheet, dateValue as today, useConfirm } from "./Controls";
 
-export default function ExpenseForm({ entry, settlement, preferences: p, close, saved }: {
+export default function ExpenseForm({ database, entry, settlement, preferences: p, close, saved }: {
+  database: SplittyDatabase;
   entry?: Entry; settlement: boolean; preferences: Preferences; close: () => void; saved: (entry?: Entry) => void;
 }) {
   const { t, message, money, payer, language } = useLocale();
@@ -81,9 +82,9 @@ export default function ExpenseForm({ entry, settlement, preferences: p, close, 
           ...(entry?.skipInsuranceTodo ? { skipInsuranceTodo: true } : {})
         };
       }
-      if (!entry && !settlement) await queueNewReceipts([value]);
-      else await queueEntries([value]);
-      saved(value); close();
+      if (!entry && !settlement) await queueNewReceipts([value], database);
+      else await queueEntries([value], database);
+      if (isActiveDatabase(database)) { saved(value); close(); }
     } catch (e) { setError(e instanceof Error ? e.message : "Could not save this expense."); }
     finally { setBusy(false); }
   }
@@ -91,7 +92,10 @@ export default function ExpenseForm({ entry, settlement, preferences: p, close, 
   async function remove() {
     if (!entry || !await confirm({ title: t("Delete entry"), description: t("Delete this entry for both of you? This will sync when you are online."), action: t("Delete entry"), dangerous: true })) return;
     setBusy(true);
-    try { await queueEntries([{ ...entry, deleted: true }]); saved(); close(); }
+    try {
+      await queueEntries([{ ...entry, deleted: true }], database);
+      if (isActiveDatabase(database)) { saved(); close(); }
+    }
     catch (e) { setError(e instanceof Error ? e.message : "Could not delete this entry."); }
     finally { setBusy(false); }
   }

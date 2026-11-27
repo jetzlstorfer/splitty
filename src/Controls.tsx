@@ -209,10 +209,17 @@ export function ConfirmationProvider({ children }: { children: ReactNode }) {
     resolve.current = done;
     setRequest(options);
   }), []);
-  useEffect(() => () => { resolve.current?.(false); }, []);
-  function finish(accepted: boolean) {
+  const finish = useCallback((accepted: boolean) => {
     resolve.current?.(accepted); resolve.current = null; setRequest(null);
-  }
+  }, []);
+  useEffect(() => {
+    const cancel = () => finish(false);
+    window.addEventListener("splitty-database-changing", cancel);
+    return () => {
+      window.removeEventListener("splitty-database-changing", cancel);
+      resolve.current?.(false);
+    };
+  }, [finish]);
   return <ConfirmationContext.Provider value={confirm}>
     {children}
     {request && <Sheet title={request.title} close={() => finish(false)} compact initialFocus=".confirmation-cancel" describedBy={descriptionId}>

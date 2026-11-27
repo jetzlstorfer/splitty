@@ -1,7 +1,7 @@
 import { TableClient } from "@azure/data-tables";
 import { randomUUID } from "node:crypto";
 import { gunzipSync } from "node:zlib";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { createMembership, createUserSession, type AuthContext } from "../../api/src/auth";
 import { getConfig } from "../../api/src/config";
 import { deleteAccount, deleteHousehold } from "../../api/src/households";
@@ -122,6 +122,57 @@ describe.skipIf(!enabled)("scheduled jobs against Azurite", () => {
     expect(await purgeExpired(tables, now, silent)).toMatchObject({ households: 0, accounts: 0, failures: 0 });
   });
 
+  it("resumes each household of a deleted account without disturbing a refilled slot", async () => {
+    const tables = { auth: open("RecoveryAuth"), ledger: open("RecoveryLedger") };
+    const { auth, ledger } = tables;
+    await Promise.all([auth.createTable(), ledger.createTable()]);
+    const shared = `shared-${randomUUID()}`, solo = `solo-${randomUUID()}`;
+    const [stayer, leaver] = await seedHousehold(tables, shared, ["a", "b"]);
+    await seedHousehold(tables, solo, []);
+    await createMembership(auth, solo, leaver.userId, "a");
+    const { invitation } = await createInvitation(auth, { ...leaver, householdId: solo, member: "a" });
+    // The shared household transaction commits, but its index acknowledgement fails; solo is untouched.
+    const failAck = vi.spyOn(auth, "deleteEntity").mockRejectedValueOnce(new Error("interrupted"));
+    try { await expect(deleteAccount(auth, leaver)).rejects.toThrow("interrupted"); }
+    finally { failAck.mockRestore(); }
+    const requested = await auth.getEntity<{ deletionRequestedAt: number; purgeAfter: number }>("users", `u-${leaver.userId}`);
+    expect(await exists(auth, `h-${shared}`, `m-${leaver.userId}`)).toBe(false);
+    expect(await exists(auth, "users", `m-${leaver.userId}.${shared}`)).toBe(true);
+    expect(await exists(auth, `h-${solo}`, `m-${leaver.userId}`)).toBe(true);
+    const replacement = `replacement-${randomUUID()}`;
+    await auth.createEntity({
+      partitionKey: "users", rowKey: `u-${replacement}`, userId: replacement, householdId: shared, member: "b",
+      membershipInitialized: true
+    });
+    await createMembership(auth, shared, replacement, "b");
+    await auth.updateEntity({ partitionKey: `h-${shared}`, rowKey: "household", nameB: "Jamie" }, "Merge");
+
+    const failWork = vi.spyOn(auth, "submitTransaction").mockRejectedValueOnce(new Error("storage unavailable"));
+    try { expect(await purgeExpired(tables, requested.deletionRequestedAt, silent)).toMatchObject({ accounts: 0, failures: 1 }); }
+    finally { failWork.mockRestore(); }
+    expect(await exists(auth, "users", `u-${leaver.userId}`)).toBe(true);
+    expect(await exists(auth, "users", `m-${leaver.userId}.${solo}`)).toBe(true);
+
+    expect(await purgeExpired(tables, requested.purgeAfter - day, silent)).toMatchObject({ households: 0, accounts: 0, failures: 0 });
+    expect(await exists(auth, "users", `u-${leaver.userId}`)).toBe(true);
+    expect(await exists(auth, "users", `m-${leaver.userId}.${solo}`)).toBe(false);
+    expect(await exists(auth, `h-${solo}`, `m-${leaver.userId}`)).toBe(false);
+    expect(await exists(auth, `h-${solo}`, "invite-slot-b")).toBe(false);
+    expect(await exists(auth, `h-${solo}`, `i-${invitation.id}`)).toBe(false);
+    expect(await auth.getEntity(`h-${solo}`, "household")).toMatchObject({
+      nameA: "", deletedAt: requested.deletionRequestedAt, purgeAfter: requested.purgeAfter
+    });
+    expect(await count(ledger, `PartitionKey eq '${solo}'`)).toBe(3);
+
+    expect(await purgeExpired(tables, requested.purgeAfter, silent)).toMatchObject({ households: 1, accounts: 1, failures: 0 });
+    expect(await exists(auth, "users", `u-${leaver.userId}`)).toBe(false);
+    expect(await count(ledger, `PartitionKey eq '${solo}'`)).toBe(0);
+    expect(await exists(auth, `h-${shared}`, `m-${stayer.userId}`)).toBe(true);
+    expect(await exists(auth, `h-${shared}`, `m-${replacement}`)).toBe(true);
+    expect(await auth.getEntity(`h-${shared}`, "household")).toMatchObject({ nameA: "Alex", nameB: "Jamie" });
+    expect(await count(ledger, `PartitionKey eq '${shared}'`)).toBe(3);
+  });
+
   it("never purges a household that still has an active member", async () => {
     const householdId = `active-${randomUUID()}`;
     await seedHousehold(tables, householdId, ["a"]);
@@ -212,10 +263,11 @@ describe.skipIf(!enabled)("scheduled jobs against Azurite", () => {
     expect(first.tables).toEqual({
       [backupTables_.auth.tableName]: authRows.length, [backupTables_.ledger.tableName]: ledgerRows.length
     });
-    // The user row and its membership index row are both durable account data.
+    // Durable household data includes the receipt fencing retries of the membership addition.
     expect(authRows.map((row) => row.partitionKey).sort()).toEqual(
-      ["h-" + householdId, "h-" + householdId, "users", "users"]
+      ["h-" + householdId, "h-" + householdId, "h-" + householdId, "users", "users"]
     );
+    expect(authRows.find((row) => String(row.rowKey).startsWith("add-"))).toMatchObject({ outcome: "added" });
     expect(authRows.filter((row) => row.partitionKey === "users").map((row) => String(row.rowKey).slice(0, 2)).sort())
       .toEqual(["m-", "u-"]);
     expect(JSON.stringify(authRows)).not.toMatch(/sessions|entra-transactions|limit-|secret-verifier|auth-backup/);

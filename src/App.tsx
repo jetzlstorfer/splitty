@@ -5,7 +5,7 @@ import {
 import type { Entry } from "../shared/model";
 import { translate } from "../shared/i18n";
 import type { Todo } from "../shared/todo";
-import { queueEntries, queueTodos } from "./db";
+import { isActiveDatabase, queueEntries, queueTodos } from "./db";
 import { missingBackupRecords, readBackup, restoreBackup } from "./backup";
 import { LanguageContext, useLocale } from "./i18n";
 import { categoryLabels, expenseCategory, normalizeText } from "./categories";
@@ -78,8 +78,13 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   useEffect(() => {
     const failure = (event: Event) => setError(String((event as CustomEvent).detail));
     const available = (event: Event) => setUpdate(() => (event as CustomEvent<() => Promise<void>>).detail);
+    const closeDrafts = () => {
+      setForm(null); setTodoForm(null); setImporting(false); setSwipedEntry(null); setSaveFeedback(null);
+    };
+    window.addEventListener("splitty-database-changing", closeDrafts);
     window.addEventListener("splitty-error", failure); window.addEventListener("splitty-update", available);
     return () => {
+      window.removeEventListener("splitty-database-changing", closeDrafts);
       window.removeEventListener("splitty-error", failure); window.removeEventListener("splitty-update", available);
     };
   }, []);
@@ -117,16 +122,21 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   }
 
   async function restore(file?: File) {
-    if (!file) return;
+    if (!file || !ledger) return;
+    const { database } = ledger;
     try {
       if (file.size > 20_000_000) throw new Error("Choose a backup smaller than 20 MB.");
-      const data = readBackup(JSON.parse(await file.text()));
-      const missing = await missingBackupRecords(data);
+      const text = await file.text();
+      if (!isActiveDatabase(database)) return;
+      const data = readBackup(JSON.parse(text));
+      const missing = await missingBackupRecords(data, database);
+      if (!isActiveDatabase(database)) return;
       if (!await confirm({ title: t("Restore backup"), description: t("Restore {entries} missing entries and {todos} missing to-dos? Existing data will not be overwritten. Keep the same person A/B mapping as the original device.",
         { entries: number(missing.entries.length), todos: number(missing.todos.length) }), action: t("Restore backup") })) return;
-      await restoreBackup(data);
-      saved();
-    } catch (e) { setError(e instanceof Error ? e.message : "Could not restore the backup."); }
+      if (!isActiveDatabase(database)) return;
+      await restoreBackup(data, database);
+      if (isActiveDatabase(database)) saved();
+    } catch (e) { if (isActiveDatabase(database)) setError(e instanceof Error ? e.message : "Could not restore the backup."); }
   }
 
   const active = useMemo(() => ledger?.entries.filter((entry) => !entry.deleted) ?? [], [ledger?.entries]);
@@ -170,7 +180,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
   };
   const markSubmitted = (entry: Entry, submitted: boolean) => {
     const { insuranceSubmittedAt: _previous, ...rest } = entry;
-    return queueEntries([submitted ? { ...rest, insuranceSubmittedAt: new Date().toISOString() } : rest]);
+    return queueEntries([submitted ? { ...rest, insuranceSubmittedAt: new Date().toISOString() } : rest], ledger.database);
   };
 
   return <div className="app-shell">
@@ -203,14 +213,14 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
       {tab === "todos" ? <TodoList todos={todos} openCount={openTodos} blocked={conflictIds} open={setForm}
         conflicts={ledger.todoConflicts}
         edit={setTodoForm}
-        reorder={async (changes) => { await queueTodos(changes); saved(); }}
+        reorder={async (changes) => { await queueTodos(changes, ledger.database); saved(); }}
         remove={async (item) => {
-          if (item.kind === "manual") await queueTodos([{ ...item.todo, deleted: true }]);
-          else await queueEntries([{ ...item.entry, deleted: true }]);
+          if (item.kind === "manual") await queueTodos([{ ...item.todo, deleted: true }], ledger.database);
+          else await queueEntries([{ ...item.entry, deleted: true }], ledger.database);
           saved();
         }}
         onError={(e) => setError(e instanceof Error ? e.message : "Could not save this to-do.")}
-        toggleManual={(todo, done) => void queueTodos([{ ...todo, done }]).then(saved).catch((e: Error) => setError(e.message))}
+        toggleManual={(todo, done) => void queueTodos([{ ...todo, done }], ledger.database).then(saved).catch((e: Error) => setError(e.message))}
         toggle={(entry, submitted) => void markSubmitted(entry, submitted).then(saved).catch((e: Error) => setError(e.message))} /> : tab === "statistics" ? <Suspense fallback={<p className="loading">{t("Loading…")}</p>}><Statistics entries={ledger.entries} preferences={p} /></Suspense> : tab !== "settings" ? <>
         {tab === "expenses" ? <>
           <header className="page-heading">
@@ -263,7 +273,7 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
                 deleteConfirmation={t("Delete this entry for both of you? This will sync when you are online.")}
                 onError={(e) => setError(e instanceof Error ? e.message : "Could not delete this entry.")}
                 remove={async () => {
-                  await queueEntries([{ ...entry, deleted: true }]); saved();
+                  await queueEntries([{ ...entry, deleted: true }], ledger.database); saved();
                 }}>
                 <button className="expense-row" disabled={conflictIds.has(entry.id)} onClick={() => setForm(entry)}>
                 {saveFeedback?.entry.id === entry.id && <span key={saveFeedback.entry.updatedAt} className="saved-row-glow" aria-hidden="true" />}
@@ -297,12 +307,12 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
     <div aria-live="polite" aria-atomic="true">
       {saveFeedback && <div className="save-feedback" key={saveFeedback.entry.updatedAt}><Check size={18} aria-hidden="true" /><span>{t(saveFeedback.entry.kind === "settlement" ? "Payment saved on this device" : "Expense saved on this device")}</span></div>}
     </div>
-    {form && <ExpenseForm entry={typeof form === "object" ? form : undefined} settlement={form === "settlement" || (typeof form === "object" && form.kind === "settlement")} preferences={p} close={() => setForm(null)} saved={expenseSaved} />}
-    {todoForm && <TodoForm todo={todoForm === "new" ? undefined : todoForm} close={() => setTodoForm(null)} saved={() => {
+    {form && <ExpenseForm database={ledger.database} entry={typeof form === "object" ? form : undefined} settlement={form === "settlement" || (typeof form === "object" && form.kind === "settlement")} preferences={p} close={() => setForm(null)} saved={expenseSaved} />}
+    {todoForm && <TodoForm database={ledger.database} todo={todoForm === "new" ? undefined : todoForm} close={() => setTodoForm(null)} saved={() => {
       if (todoForm === "new") pulseLogo();
       saved();
     }} />}
-    {importing && <ImportForm preferences={p} close={() => setImporting(false)} saved={saved} />}
+    {importing && <ImportForm database={ledger.database} preferences={p} close={() => setImporting(false)} saved={saved} />}
     {install.guideOpen && <Sheet title={t("Install Splitty")} close={install.closeGuide}>
       <div className="install-guide">
         <p>{t("Add Splitty to your Home Screen for quick access and offline use.")}</p>

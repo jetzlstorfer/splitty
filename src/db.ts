@@ -65,7 +65,7 @@ export class SplittyDatabase extends Dexie {
 }
 
 class DeviceDatabase extends Dexie {
-  session!: EntityTable<DeviceSession, "id">;
+  session!: Table<{ id: "session" | "prepared"; key: string }, string>;
 
   constructor() {
     super("splitty-device");
@@ -135,6 +135,7 @@ export async function getDeviceKey(database?: SplittyDatabase): Promise<string |
   if (database) return (await database.session.get("session"))?.key ?? null;
   const current = (await deviceDatabase.session.get("session"))?.key;
   if (current) return current;
+  await legacyDatabase.open();
   const legacy = (await legacyDatabase.session.get("session"))?.key ?? null;
   if (legacy) {
     await deviceDatabase.session.put({ id: "session", key: legacy });
@@ -144,12 +145,28 @@ export async function getDeviceKey(database?: SplittyDatabase): Promise<string |
 }
 
 export async function setDeviceKey(key: string | null, database?: SplittyDatabase): Promise<void> {
-  const session = database?.session ?? deviceDatabase.session;
-  if (key) await session.put({ id: "session", key });
-  else {
-    await session.delete("session");
-    if (!database) await legacyDatabase.session.delete("session");
+  if (database) {
+    if (key) await database.session.put({ id: "session", key });
+    else await database.session.delete("session");
+    return;
   }
+  await deviceDatabase.transaction("rw", deviceDatabase.session, async () => {
+    if (key) await deviceDatabase.session.put({ id: "session", key });
+    else await deviceDatabase.session.delete("session");
+    await deviceDatabase.session.delete("prepared");
+  });
+  if (!key) {
+    await legacyDatabase.open();
+    await legacyDatabase.session.delete("session");
+  }
+}
+
+export async function getPreparedDeviceKey(): Promise<string | null> {
+  return (await deviceDatabase.session.get("prepared"))?.key ?? null;
+}
+
+export async function prepareDeviceKey(key: string): Promise<void> {
+  await deviceDatabase.session.put({ id: "prepared", key });
 }
 
 export async function clearAccountDatabase(database: SplittyDatabase): Promise<void> {

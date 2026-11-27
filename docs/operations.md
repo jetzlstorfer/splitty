@@ -53,8 +53,10 @@ through the real API functions to catch drift.
 | Job | Time (UTC) | What it does |
 | --- | --- | --- |
 | `backup` | 02:00 | Writes `<date>/SplittyAuth.ndjson.gz`, `<date>/SplittyLedger.ndjson.gz` and finally `<date>/manifest.json` to the backup container. A manifest means the backup is complete. A second run on the same day leaves the existing blobs untouched. |
-| `purge` | 03:00 | Permanently deletes households and accounts whose 30-day deletion grace period has ended. A household with an active member is skipped. The household tombstone is removed last, so an interrupted purge is finished by the next run. |
+| `purge` | 03:00 | Resumes interrupted account deletions using the remaining household membership index rows. Newly empty households inherit the account's deletion deadline; shared households keep their ledger. Accounts and households are permanently purged only after their 30-day grace period, with tombstones removed last. A household with an active member is skipped. |
 | `cleanup` | 04:00 | Deletes expired sign-in transactions, device-bootstrap keys and invitations, and rate-limit counters older than two days. Deletes use the row's ETag, so a row the API rewrote in the meantime is kept. |
+
+Household additions reserve one place on the account row using its ETag. If an API invocation stops mid-write, the next addition, sign-in, or account deletion finishes the pending operation. A receipt in the household partition keeps retries from creating another membership or consuming a second invitation. Keep these receipts and pending account fields when restoring a backup.
 
 Backups contain users (including their household membership index), households, memberships, invitations and both ledgers. They exclude sessions, legacy
 sessions, rate-limit counters and short-lived sign-in state, which are credentials or transient. Binary values are

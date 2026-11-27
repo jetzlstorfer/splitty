@@ -7,7 +7,7 @@ import { createMembership, createUserSession, type AuthContext } from "./auth";
 import { HttpError, type Config } from "./config";
 import { fillEmptyMemberName } from "./households";
 import { consumeInvitation, inspectInvitation, type InvitationTarget } from "./invitations";
-import { listUserMemberships, maxHouseholdsPerUser, setDefaultHousehold } from "./membershipIndex";
+import { addHouseholdMembership, listUserMemberships, recoverMembershipAddition, setDefaultHousehold } from "./membershipIndex";
 import { consumeRateLimit } from "./rateLimit";
 import { optionalEntity, statusCode } from "./storage";
 import { lookupDirectoryProvider, tokenProvider } from "./signInProvider";
@@ -28,7 +28,7 @@ interface LoginTransaction {
 }
 interface UserRecord {
   userId: string; subject: string; issuer: string; householdId: string;
-  member: Member | ""; membershipInitialized?: boolean; deletionRequestedAt?: number;
+  member: Member | ""; membershipInitialized?: boolean; deletionRequestedAt?: number; pendingMembership?: string;
   legacyClaimed?: boolean; legacyHouseholdId?: string; name?: string; email?: string;
 }
 interface HouseholdRecord { nameA: string; nameB: string; deletedAt?: number }
@@ -134,14 +134,11 @@ async function ensureUser(
 ): Promise<AuthContext> {
   const userId = `user-${digest(`${claims.issuer}\0${claims.subject}`).slice(0, 40)}`;
   let user = await optionalEntity<UserRecord>(table, userPartition, `u-${userId}`);
-  let createdUser = false;
   if (!user) {
     if (!invitation && !config.allowNewHouseholds) {
       throw new HttpError(403, "New household registration is currently closed.");
     }
     if (!invitation) await consumeRateLimit(table, `new-households:${userId}`, 3, 30 * 24 * 60 * 60 * 1000);
-    const householdId = invitation?.householdId ?? `household-${randomValue().slice(0, 32)}`;
-    const member = invitation?.slot ?? "a";
     try {
       await table.createEntity({
         partitionKey: userPartition,
@@ -151,11 +148,11 @@ async function ensureUser(
         subject: claims.subject,
         email: claims.email,
         name: claims.name,
-        householdId,
-        member,
+        // Do not assign an invited slot until the invitation and membership commit together.
+        householdId: invitation ? "" : `household-${randomValue().slice(0, 32)}`,
+        member: invitation ? "" : "a",
         membershipInitialized: false
       });
-      createdUser = true;
     } catch (error) {
       if (statusCode(error) !== 409) throw error;
     }
@@ -166,15 +163,13 @@ async function ensureUser(
     throw new HttpError(500, "Could not load the signed-in account.");
   }
   if (user.deletionRequestedAt) throw new HttpError(410, "This account is scheduled for deletion.");
+  if (user.pendingMembership) {
+    await recoverMembershipAddition(table, userId);
+    user = await table.getEntity<UserRecord>(userPartition, `u-${userId}`);
+    if (user.deletionRequestedAt) throw new HttpError(410, "This account is scheduled for deletion.");
+  }
   if (invitation && (user.householdId !== invitation.householdId || user.member !== invitation.slot)) {
     // Accepting an invitation adds a household; the account keeps its other memberships.
-    const memberships = await listUserMemberships(table, userId, [user.householdId]);
-    if (memberships.some((membership) => membership.householdId === invitation.householdId)) {
-      throw new HttpError(409, "This account is already a member of this household.");
-    }
-    if (memberships.length >= maxHouseholdsPerUser) {
-      throw new HttpError(409, "This account already belongs to the maximum number of households.");
-    }
     await consumeInvitation(table, invitation, userId);
     const target = { householdId: invitation.householdId, member: invitation.slot };
     await setDefaultHousehold(table, userId, target);
@@ -206,19 +201,7 @@ async function ensureUser(
     table, householdPartition(user.householdId), "household"
   );
   if (household?.deletedAt) throw new HttpError(410, "This household is scheduled for deletion.");
-  if (!household) {
-    if (invitation) throw new HttpError(410, "This invitation has expired or was already used.");
-    try {
-      await table.createEntity({
-        partitionKey: householdPartition(user.householdId),
-        rowKey: "household",
-        nameA: claims.name,
-        nameB: ""
-      });
-    } catch (error) {
-      if (statusCode(error) !== 409) throw error;
-    }
-  }
+  if (!household && invitation) throw new HttpError(410, "This invitation has expired or was already used.");
 
   if (user.member !== "a" && user.member !== "b") throw new HttpError(500, "Could not load the signed-in account.");
   const context: AuthContext = { userId, householdId: user.householdId, member: user.member };
@@ -235,17 +218,12 @@ async function ensureUser(
         const recoveredMembership = await optionalEntity<{ userId: string; member: Member }>(
           table, householdPartition(user.householdId), `m-${userId}`
         );
-        if (!recoveredMembership && createdUser) {
-          try { await table.deleteEntity(userPartition, `u-${userId}`); }
-          catch (cleanupError) { if (statusCode(cleanupError) !== 404) throw cleanupError; }
-        }
         if (!recoveredMembership) throw error;
       }
+    } else if (!household) {
+      await addHouseholdMembership(table, userId, { householdId: user.householdId, member: user.member, nameA: claims.name });
     } else {
-      try { await createMembership(table, user.householdId, userId, user.member); }
-      catch (error) {
-        if (statusCode(error) !== 409) throw error;
-      }
+      await createMembership(table, user.householdId, userId, user.member);
     }
   }
   const confirmedMembership = await optionalEntity<{ userId: string; member: Member }>(

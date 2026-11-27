@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { db, queueNewReceipts, type Preferences } from "./db";
+import { isActiveDatabase, queueNewReceipts, type Preferences, type SplittyDatabase } from "./db";
 import type { ImportPreview } from "./importer";
 import { useLocale } from "./i18n";
 import { Select, Sheet } from "./Controls";
@@ -16,7 +16,7 @@ function FilePicker({ label, accept, disabled, choose }: { label: string; accept
   </span></label>;
 }
 
-export default function ImportForm({ preferences: p, close, saved }: { preferences: Preferences; close: () => void; saved: () => void }) {
+export default function ImportForm({ database, preferences: p, close, saved }: { database: SplittyDatabase; preferences: Preferences; close: () => void; saved: () => void }) {
   const { t, message, money, number } = useLocale();
   const [text, setText] = useState("");
   const [members, setMembers] = useState<string[]>([]);
@@ -40,7 +40,7 @@ export default function ImportForm({ preferences: p, close, saved }: { preferenc
     setBusy(true); setError("");
     try {
       const { previewImport } = await import("./importer");
-      setPreview(await previewImport(text, memberA, new Set(await db.entries.toCollection().primaryKeys())));
+      setPreview(await previewImport(text, memberA, new Set(await database.entries.toCollection().primaryKeys())));
     }
     catch (e) { setError(e instanceof Error ? e.message : "Could not preview this import."); }
     finally { setBusy(false); }
@@ -49,8 +49,8 @@ export default function ImportForm({ preferences: p, close, saved }: { preferenc
     if (!preview || preview.errors.length) return;
     setBusy(true); setError("");
     try {
-      await queueNewReceipts(preview.entries);
-      saved(); close();
+      await queueNewReceipts(preview.entries, database);
+      if (isActiveDatabase(database)) { saved(); close(); }
     } catch (e) { setError(e instanceof Error ? e.message : "Import failed. No entries were added."); }
     finally { setBusy(false); }
   }

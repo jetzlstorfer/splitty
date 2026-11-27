@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mutation } from "../shared/model";
 import type { Todo } from "../shared/todo";
 import { example, exampleTodo } from "../tests/fixtures";
-import { activateAnonymousDatabase, automaticInsuranceTodos, db, getDeviceKey, getPreferences, queueInsuranceTodoSetting, queueTodos, setDeviceKey } from "./db";
+import { activateAnonymousDatabase, automaticInsuranceTodos, db, getDeviceKey, getPreparedDeviceKey, getPreferences, prepareDeviceKey, queueInsuranceTodoSetting, queueTodos, setDeviceKey } from "./db";
 import { ApiError, identify, signInLocally, signOutDevice, syncPollingInterval, synchronize } from "./sync";
 
 beforeEach(async () => {
@@ -81,6 +81,26 @@ describe("device session recovery", () => {
     expect(requests).toEqual(["/api/me", "/api/auth/device-key"]);
     expect(await getDeviceKey()).toBe(deviceKey);
     expect(replaceState).toHaveBeenCalledWith(null, "", "/");
+  });
+
+  it.each([true, false])("recovers after a lost household-change response (committed: %s)", async (committed) => {
+    const prepared = "H".repeat(43), valid = committed ? prepared : deviceKey;
+    await setDeviceKey(deviceKey);
+    await prepareDeviceKey(prepared);
+    let resumed = false;
+    const attempts: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (path: string, init: RequestInit) => {
+      if (path === "/api/auth/resume") {
+        const { deviceKey: tried } = JSON.parse(String(init.body));
+        attempts.push(tried);
+        resumed = tried === valid;
+      }
+      return resumed ? Response.json(identity) : Response.json({ error: "Sign in to sync this device." }, { status: 401 });
+    }));
+    await expect(identify()).resolves.toEqual(identity);
+    expect(attempts).toEqual(committed ? [prepared] : [prepared, deviceKey]);
+    expect(await getDeviceKey()).toBe(valid);
+    if (committed) expect(await getPreparedDeviceKey()).toBeNull();
   });
 
   it("forgets revoked keys but keeps them when the network fails", async () => {

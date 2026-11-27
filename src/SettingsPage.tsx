@@ -77,7 +77,7 @@ export default function SettingsPage({ preferences: p, sync, account, syncPopove
       {(["a", "b"] as const).map((member) => {
         const name = member === "a" ? p.nameA : p.nameB, key = member === "a" ? "nameA" : "nameB";
         return <div className="settings-row" key={member}><span className={`avatar payer-${member}`} aria-hidden="true">{name.trim().charAt(0).toUpperCase() || "?"}</span>
-          <span className="entry-description settings-name-field"><span className="settings-name-input"><input id={`household-name-${member}`} className="settings-name" defaultValue={name} key={`${member}-${name}`} maxLength={60} readOnly={!!identity && !providerAccount} aria-describedby={identity ? "household-names-note" : undefined}
+          <span className="entry-description settings-name-field"><span className="settings-name-input"><input id={`household-name-${member}`} className="settings-name" defaultValue={name} key={`${identity?.userId}:${identity?.householdId}:${member}-${name}`} maxLength={60} readOnly={!!identity && !providerAccount} aria-describedby={identity ? "household-names-note" : undefined}
             onBlur={(e) => { const value = e.target.value.trim(); if (value !== name) {
               if (providerAccount) void saveHouseholdName(member, value);
               else if (!identity && value) void updatePreferences({ [key]: value }).catch((err: Error) => onError(err.message));

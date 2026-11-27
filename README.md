@@ -73,7 +73,7 @@ For the shared multi-household design and Azure cost outlook, see the [multi-ten
 
 A signed-in account can belong to up to 10 households. Each household still has exactly two members and its own ledger, balances, and to-dos. Use **Settings → Household → Create another household** to start one, or open another household's invitation link while signed in and choose **Join this household**. When an account has more than one household, **Settings → Household → Active household** switches between them. The next sign-in opens the last household used.
 
-Each household keeps a separate local database on the device. Unsynced changes stay queued in their household and sync after switching back to it. The app language is a device setting and stays the same when switching. Leaving or deleting a household continues in another of the account's households; leaving or deleting the last one signs the device out.
+Each household keeps a separate local database on the device. Unsynced changes stay queued in their household and sync after switching back to it. Switching households, including in another tab, closes unsaved expense and to-do drafts, import previews, and pending restore confirmations. The app language is a device setting and stays the same when switching. Leaving or deleting a household continues in another of the account's households; leaving or deleting the last one signs the device out.
 
 ## Public legal pages
 

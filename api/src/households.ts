@@ -1,11 +1,13 @@
 import { randomBytes } from "node:crypto";
 import type { TableClient } from "@azure/data-tables";
+import { finishAccountMemberships } from "../../shared/accountDeletion";
 import { defaultInsuranceTodoSetting, type InsuranceTodoSetting, type Member } from "../../shared/model";
-import { createMembership, type AuthContext } from "./auth";
+import type { AuthContext } from "./auth";
 import { HttpError, type Config } from "./config";
 import { clearInvitationSlot, consumeInvitation, inspectInvitation } from "./invitations";
 import {
-  listUserMemberships, maxHouseholdsPerUser, removeMembershipIndex, setDefaultHousehold, verifiedMembership,
+  addHouseholdMembership, listUserMemberships, maxHouseholdsPerUser, recoverMembershipAddition,
+  removeIndexedMembership, setDefaultHousehold, verifiedMembership,
   type HouseholdMembership
 } from "./membershipIndex";
 import { consumeRateLimit } from "./rateLimit";
@@ -102,12 +104,6 @@ async function memberships(table: TableClient, householdId: string): Promise<Arr
   return results;
 }
 
-async function removeMembership(table: TableClient, householdId: string, userId: string): Promise<void> {
-  try { await table.deleteEntity(householdPartition(householdId), `m-${userId}`); }
-  catch (error) { if (statusCode(error) !== 404) throw error; }
-  await removeMembershipIndex(table, userId, householdId);
-}
-
 async function scheduleEmptyHouseholdDeletion(table: TableClient, householdId: string): Promise<void> {
   if ((await memberships(table, householdId)).length) return;
   const household = await optionalEntity<HouseholdEntity>(table, householdPartition(householdId), "household");
@@ -140,7 +136,7 @@ export async function renameHouseholdMember(
 export async function leaveHousehold(table: TableClient, context: AuthContext): Promise<void> {
   const household = await activeHousehold(table, context.householdId);
   await detachUser(table, context.userId, context.householdId, context.member);
-  await removeMembership(table, context.householdId, context.userId);
+  await removeIndexedMembership(table, context.userId, context.householdId);
   await table.updateEntity({
     partitionKey: householdPartition(context.householdId),
     rowKey: "household",
@@ -156,7 +152,7 @@ export async function removeOtherMember(table: TableClient, context: AuthContext
   const target = await membershipForSlot(table, context.householdId, other);
   if (!target) throw new HttpError(404, "The other household member is not present.");
   await detachUser(table, target.userId, context.householdId, other);
-  await removeMembership(table, context.householdId, target.userId);
+  await removeIndexedMembership(table, target.userId, context.householdId);
   const household = await activeHousehold(table, context.householdId);
   await table.updateEntity({
     partitionKey: householdPartition(context.householdId),
@@ -178,15 +174,23 @@ export async function deleteHousehold(table: TableClient, context: AuthContext):
   const members = await memberships(table, context.householdId);
   for (const member of members) {
     await detachUser(table, member.userId, context.householdId, member.member);
-    await removeMembership(table, context.householdId, member.userId);
+    await removeIndexedMembership(table, member.userId, context.householdId);
     await clearInvitationSlot(table, context.householdId, member.member);
   }
 }
 
 export async function deleteAccount(table: TableClient, context: AuthContext): Promise<void> {
   await activeHousehold(table, context.householdId);
-  const user = await optionalEntity<UserEntity>(table, userPartition, `u-${context.userId}`);
-  if (!user || user.userId !== context.userId) throw new HttpError(404, "Account not found.");
+  const readUser = async () => {
+    const user = await optionalEntity<UserEntity & { pendingMembership?: string }>(table, userPartition, `u-${context.userId}`);
+    if (!user || user.userId !== context.userId) throw new HttpError(404, "Account not found.");
+    return user;
+  };
+  let user = await readUser();
+  while (user.pendingMembership) {
+    await recoverMembershipAddition(table, context.userId);
+    user = await readUser();
+  }
   const now = Date.now();
   await table.updateEntity({
     partitionKey: userPartition,
@@ -194,20 +198,7 @@ export async function deleteAccount(table: TableClient, context: AuthContext): P
     deletionRequestedAt: now,
     purgeAfter: now + deletionGraceMs
   }, "Merge", { etag: user.etag });
-  const households = await listUserMemberships(table, context.userId, [context.householdId, user.householdId]);
-  for (const { householdId, member } of households) {
-    await removeMembership(table, householdId, context.userId);
-    const household = await optionalEntity<HouseholdEntity>(table, householdPartition(householdId), "household");
-    if (household && !household.deletedAt) {
-      await table.updateEntity({
-        partitionKey: householdPartition(householdId),
-        rowKey: "household",
-        [member === "a" ? "nameA" : "nameB"]: ""
-      }, "Merge", { etag: household.etag });
-    }
-    await clearInvitationSlot(table, householdId, member);
-    await scheduleEmptyHouseholdDeletion(table, householdId);
-  }
+  await finishAccountMemberships(table, context.userId, now, now + deletionGraceMs, [context.householdId, user.householdId]);
 }
 
 export interface HouseholdSummary {
@@ -218,9 +209,14 @@ export interface HouseholdSummary {
   current: boolean;
 }
 
-async function accountMemberships(table: TableClient, identity: AuthContext) {
+async function accountForMembership(table: TableClient, identity: AuthContext) {
   const user = await optionalEntity<UserEntity>(table, userPartition, `u-${identity.userId}`);
   if (!user || user.userId !== identity.userId) throw new HttpError(404, "Account not found.");
+  return user;
+}
+
+async function accountMemberships(table: TableClient, identity: AuthContext) {
+  const user = await accountForMembership(table, identity);
   return { user, memberships: await listUserMemberships(table, identity.userId, [identity.householdId, user.householdId]) };
 }
 
@@ -261,12 +257,8 @@ export async function joinHousehold(
   table: TableClient, identity: AuthContext, code: unknown
 ): Promise<Pick<HouseholdMembership, "householdId" | "member">> {
   const invitation = await inspectInvitation(table, code);
-  const { user, memberships } = await accountMemberships(table, identity);
-  if (memberships.some((membership) => membership.householdId === invitation.householdId)) {
-    throw new HttpError(409, "This account is already a member of this household.");
-  }
-  assertBelowHouseholdLimit(memberships);
-  await consumeInvitation(table, invitation, identity.userId);
+  const user = await accountForMembership(table, identity);
+  await consumeInvitation(table, invitation, identity.userId, identity.householdId);
   const target = { householdId: invitation.householdId, member: invitation.slot };
   await fillEmptyMemberName(table, target, identity.displayName ?? user.name ?? "");
   await setDefaultHousehold(table, identity.userId, target);
@@ -282,13 +274,9 @@ export async function createAdditionalHousehold(
   assertBelowHouseholdLimit(memberships);
   await consumeRateLimit(table, `new-households:${identity.userId}`, 3, 30 * 24 * 60 * 60 * 1000);
   const householdId = `household-${randomBytes(32).toString("base64url").slice(0, 32)}`;
-  await table.createEntity({
-    partitionKey: householdPartition(householdId),
-    rowKey: "household",
-    nameA: (identity.displayName ?? user.name ?? "").trim().slice(0, 60),
-    nameB: ""
-  });
-  await createMembership(table, householdId, identity.userId, "a");
+  await addHouseholdMembership(table, identity.userId, {
+    householdId, member: "a", nameA: (identity.displayName ?? user.name ?? "").trim().slice(0, 60)
+  }, identity.householdId);
   const target = { householdId, member: "a" as const };
   await setDefaultHousehold(table, identity.userId, target);
   return target;

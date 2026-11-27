@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Member } from "../shared/model";
 import type { MessageKey } from "../shared/i18n";
-import { activateAccountDatabase, activateAnonymousDatabase, clearAccountDatabase, db, getPreferences, localQueueState, setDeviceKey, updatePreferences } from "./db";
+import { activateAccountDatabase, activateAnonymousDatabase, clearAccountDatabase, db, getPreferences, localQueueState, prepareDeviceKey, setDeviceKey, updatePreferences } from "./db";
 import { api, signInLocally, signOutDevice } from "./sync";
 import { SYNC_STATUS } from "./syncStatus";
 import type { SyncController } from "./useSync";
@@ -58,20 +58,20 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
   const [createdInvitationId, setCreatedInvitationId] = useState("");
   const [invitationBusy, setInvitationBusy] = useState(false);
   const [invitationCopied, setInvitationCopied] = useState(false);
-  const [signedIn, setSignedIn] = useState(false);
+  const [shownHousehold, setShownHousehold] = useState<string>();
   const [households, setHouseholds] = useState<HouseholdSummary[]>([]);
   const [canCreateHousehold, setCanCreateHousehold] = useState(false);
   const [householdsBusy, setHouseholdsBusy] = useState(false);
   const [householdsVersion, setHouseholdsVersion] = useState(0);
   const [inviteCode, setInviteCode] = useState(pendingInviteCode);
 
-  // Invitations belong to a signed-in household, so every ended session discards them.
-  if (signedIn !== !!identity) {
-    setSignedIn(!!identity);
-    if (!identity) {
-      setInvitations([]); setInvitationLink(""); setCreatedInvitationId("");
-      setHouseholds([]); setCanCreateHousehold(false);
-    }
+  const userId = identity?.userId, householdId = identity?.householdId;
+  const context = userId && householdId ? { userId, householdId } : undefined;
+  const householdKey = context && `${context.userId}:${context.householdId}`;
+  if (shownHousehold !== householdKey) {
+    setShownHousehold(householdKey);
+    setInvitations([]); setInvitationLink(""); setCreatedInvitationId("");
+    setHouseholds([]); setCanCreateHousehold(false);
   }
 
   useEffect(() => {
@@ -94,9 +94,9 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
   }, []);
 
   useEffect(() => {
-    if (!identity?.householdId || !authOptions.entraEnabled || !online) return;
+    if (!userId || !householdId || !authOptions.entraEnabled || !online) return;
     let active = true;
-    void api<{ invitations: Invitation[] }>("household/invitations").then((result) => {
+    void api<{ invitations: Invitation[] }>("household/invitations", undefined, { userId, householdId }).then((result) => {
       if (!Array.isArray(result.invitations) || result.invitations.some((invite) =>
         !invite || typeof invite.id !== "string" || (invite.slot !== "a" && invite.slot !== "b")
         || typeof invite.expiresAt !== "number")) {
@@ -107,7 +107,7 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
       if (active) setActionError(e instanceof Error ? e.message : "Could not load household invitations.");
     });
     return () => { active = false; };
-  }, [authOptions.entraEnabled, identity?.householdId, online, setActionError]);
+  }, [authOptions.entraEnabled, userId, householdId, online, setActionError]);
 
   const providerAccount = !!identity?.userId;
   const canRemoveLocalData = providerAccount && db.name.startsWith("splitty-account-");
@@ -147,6 +147,17 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
     await sync(true);
   }
 
+  // Persist the successor before the server retires this tab's cookie and device key.
+  async function prepareHouseholdChange() {
+    const result = await api<{ deviceKey: string; source: string }>("households/prepare", {}, context);
+    if (typeof result?.deviceKey !== "string" || !/^[a-zA-Z0-9_-]{43}$/.test(result.deviceKey)
+      || typeof result.source !== "string" || !/^s-[a-f0-9]{64}$/.test(result.source)) {
+      throw new Error("Invalid household response.");
+    }
+    await prepareDeviceKey(result.deviceKey);
+    return result.source;
+  }
+
   /**
    * Switching, joining and creating return a session for the target household. Each household keeps
    * its own local database, so unsynced changes stay queued there until the account switches back.
@@ -161,7 +172,8 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
       await sync();
       // A pass still using the previous session would fail once the server replaces it.
       await suspendSync();
-      await enterHousehold(await api(path, data));
+      const source = await prepareHouseholdChange();
+      await enterHousehold(await api(path, { ...data, source }, context));
       changed = true;
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Could not change the household.");
@@ -225,11 +237,13 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
   }
 
   async function createHouseholdInvitation() {
+    const database = db;
     setInvitationBusy(true);
     setActionError("");
     setInvitationCopied(false);
     try {
-      const result = await api<{ invitation: Invitation; code: string }>("household/invitations", {});
+      const result = await api<{ invitation: Invitation; code: string }>("household/invitations", {}, context);
+      if (database !== db) return;
       if (!result.invitation || typeof result.invitation.id !== "string"
         || (result.invitation.slot !== "a" && result.invitation.slot !== "b")
         || typeof result.invitation.expiresAt !== "number" || typeof result.code !== "string") {
@@ -258,7 +272,7 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
     setInvitationBusy(true);
     setActionError("");
     try {
-      await api("household/invitations/revoke", { id: invitation.id });
+      await api("household/invitations/revoke", { id: invitation.id }, context);
       setInvitations((current) => current.filter((item) => item.id !== invitation.id));
       if (createdInvitationId === invitation.id) {
         setInvitationLink("");
@@ -271,13 +285,15 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
 
   async function saveHouseholdName(member: Member, value: string) {
     const name = value.trim();
+    const database = db;
     try {
-      await api("household/member-name", { slot: member, name });
-      await updatePreferences({ [member === "a" ? "nameA" : "nameB"]: name });
-      setIdentity((current) => current && ({
+      await api("household/member-name", { slot: member, name }, context);
+      if (db !== database) return;
+      await updatePreferences({ [member === "a" ? "nameA" : "nameB"]: name }, database);
+      setIdentity((current) => current && current.userId === userId && current.householdId === householdId ? ({
         ...current,
         [member === "a" ? "nameA" : "nameB"]: name
-      }));
+      }) : current);
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Could not update the household member name.");
     }
@@ -295,7 +311,8 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
     let continued = false;
     try {
       if (endsAccess) await suspendSync();
-      const result = await api<{ continued?: unknown }>(path, {});
+      const source = path === "household/delete" || path === "household/leave" ? await prepareHouseholdChange() : undefined;
+      const result = await api<{ continued?: unknown }>(path, { source }, context);
       if (!endsAccess) {
         await sync();
         return;
@@ -348,9 +365,8 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
         dangerous: true
       })) return;
       await suspendSync();
-      await api("auth/logout", {});
+      await signOutDevice();
       await activateAnonymousDatabase();
-      await setDeviceKey(null);
       await clearAccountDatabase(database);
       endSession(SYNC_STATUS.localDataRemoved);
       window.location.reload();

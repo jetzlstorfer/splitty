@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Member } from "../shared/model";
 import type { MessageKey } from "../shared/i18n";
-import { activateAnonymousDatabase, clearAccountDatabase, db, localQueueState, setDeviceKey, updatePreferences } from "./db";
+import { activateAccountDatabase, activateAnonymousDatabase, clearAccountDatabase, db, getPreferences, localQueueState, setDeviceKey, updatePreferences } from "./db";
 import { api, signInLocally, signOutDevice } from "./sync";
 import { SYNC_STATUS } from "./syncStatus";
 import type { SyncController } from "./useSync";
@@ -10,7 +10,19 @@ import { useConfirm } from "./Controls";
 
 export interface AuthOptions { entraEnabled: boolean; localSignInEnabled: boolean; newHouseholdsEnabled?: boolean }
 export interface Invitation { id: string; slot: Member; expiresAt: number }
+export interface HouseholdSummary { householdId: string; member: Member; nameA: string; nameB: string; current: boolean }
 const authOptionsKey = "splitty-auth-options";
+const stableId = /^[a-zA-Z0-9_-]{1,100}$/;
+
+const pendingInviteCode = () => new URLSearchParams(location.hash.slice(1)).get("invite") ?? "";
+
+function isHouseholdSummary(value: unknown): value is HouseholdSummary {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Record<string, unknown>;
+  return typeof item.householdId === "string" && stableId.test(item.householdId)
+    && (item.member === "a" || item.member === "b")
+    && typeof item.nameA === "string" && typeof item.nameB === "string" && typeof item.current === "boolean";
+}
 
 function savedAuthOptions(): AuthOptions {
   try {
@@ -47,12 +59,26 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
   const [invitationBusy, setInvitationBusy] = useState(false);
   const [invitationCopied, setInvitationCopied] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
+  const [households, setHouseholds] = useState<HouseholdSummary[]>([]);
+  const [canCreateHousehold, setCanCreateHousehold] = useState(false);
+  const [householdsBusy, setHouseholdsBusy] = useState(false);
+  const [householdsVersion, setHouseholdsVersion] = useState(0);
+  const [inviteCode, setInviteCode] = useState(pendingInviteCode);
 
   // Invitations belong to a signed-in household, so every ended session discards them.
   if (signedIn !== !!identity) {
     setSignedIn(!!identity);
-    if (!identity) { setInvitations([]); setInvitationLink(""); setCreatedInvitationId(""); }
+    if (!identity) {
+      setInvitations([]); setInvitationLink(""); setCreatedInvitationId("");
+      setHouseholds([]); setCanCreateHousehold(false);
+    }
   }
+
+  useEffect(() => {
+    const update = () => setInviteCode(pendingInviteCode());
+    window.addEventListener("hashchange", update);
+    return () => window.removeEventListener("hashchange", update);
+  }, []);
 
   useEffect(() => {
     const refresh = () => {
@@ -85,6 +111,88 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
 
   const providerAccount = !!identity?.userId;
   const canRemoveLocalData = providerAccount && db.name.startsWith("splitty-account-");
+
+  useEffect(() => {
+    if (!identity?.userId || !identity.householdId || !online) return;
+    let active = true;
+    void api<{ households?: unknown; canCreate?: unknown }>("households").then((result) => {
+      if (!Array.isArray(result.households) || !result.households.every(isHouseholdSummary)
+        || typeof result.canCreate !== "boolean") {
+        throw new Error("Invalid household response.");
+      }
+      if (active) { setHouseholds(result.households); setCanCreateHousehold(result.canCreate); }
+    }).catch((e: unknown) => {
+      if (active) setActionError(e instanceof Error ? e.message : "Could not load your households.");
+    });
+    return () => { active = false; };
+  }, [identity?.userId, identity?.householdId, online, householdsVersion, setActionError]);
+
+  /** Adopts a session the server issued for another of the account's households. */
+  async function enterHousehold(result: unknown) {
+    const next = result && typeof result === "object" ? result as Record<string, unknown> : {};
+    if (typeof next.userId !== "string" || typeof next.householdId !== "string"
+      || typeof next.deviceKey !== "string" || !/^[a-zA-Z0-9_-]{43}$/.test(next.deviceKey)) {
+      throw new Error("Invalid household response.");
+    }
+    const { language } = await getPreferences();
+    await setDeviceKey(next.deviceKey);
+    await activateAccountDatabase(next.userId, next.householdId);
+    // The app language is a device setting, so it follows the device into the other household.
+    await updatePreferences({ language });
+    setInvitations([]); setInvitationLink(""); setCreatedInvitationId("");
+  }
+
+  async function householdChanged() {
+    setHouseholdsVersion((version) => version + 1);
+    await sync(true);
+  }
+
+  /**
+   * Switching, joining and creating return a session for the target household. Each household keeps
+   * its own local database, so unsynced changes stay queued there until the account switches back.
+   */
+  async function changeHousehold(
+    path: "households/switch" | "households/join" | "households/create", data: Record<string, string>
+  ): Promise<boolean> {
+    setHouseholdsBusy(true);
+    setActionError("");
+    let changed = false;
+    try {
+      await sync();
+      // A pass still using the previous session would fail once the server replaces it.
+      await suspendSync();
+      await enterHousehold(await api(path, data));
+      changed = true;
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Could not change the household.");
+    } finally { resumeSync(); setHouseholdsBusy(false); }
+    if (changed) await householdChanged();
+    return changed;
+  }
+
+  async function switchHousehold(householdId: string) {
+    if (householdId === identity?.householdId) return;
+    await changeHousehold("households/switch", { householdId });
+  }
+
+  async function joinHousehold() {
+    if (!inviteCode) return;
+    if (await changeHousehold("households/join", { inviteCode })) dismissInvite();
+  }
+
+  function dismissInvite() {
+    history.replaceState(null, "", `${location.pathname}${location.search}`);
+    setInviteCode("");
+  }
+
+  async function createHousehold() {
+    if (!await confirm({
+      title: t("Create another household"),
+      description: t("Create a new household with its own ledger? You can switch between your households in Settings."),
+      action: t("Create another household")
+    })) return;
+    await changeHousehold("households/create", {});
+  }
 
   async function signIn(member: Member) {
     setSignInBusy(true); setActionError("");
@@ -183,19 +291,31 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
     if (!await confirm({ title: t(title), description: t(description), action: t(title), dangerous: true })) return;
     setSignOutBusy(true);
     setActionError("");
+    const endsAccess = path !== "household/remove-member";
+    let continued = false;
     try {
-      await api(path, {});
-      if (path === "household/remove-member") {
+      if (endsAccess) await suspendSync();
+      const result = await api<{ continued?: unknown }>(path, {});
+      if (!endsAccess) {
         await sync();
         return;
       }
-      await setDeviceKey(null);
-      await activateAnonymousDatabase();
-      endSession(SYNC_STATUS.accessEnded);
-      window.location.reload();
+      if (result.continued === true) {
+        await enterHousehold(result);
+        continued = true;
+      } else {
+        await setDeviceKey(null);
+        await activateAnonymousDatabase();
+        endSession(SYNC_STATUS.accessEnded);
+        window.location.reload();
+      }
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Could not update household access.");
-    } finally { setSignOutBusy(false); }
+    } finally {
+      if (endsAccess) resumeSync();
+      setSignOutBusy(false);
+    }
+    if (continued) await householdChanged();
   }
 
   async function signOut() {
@@ -242,8 +362,10 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
   return {
     authOptions, signInBusy, signOutBusy,
     invitations, invitationLink, invitationBusy, invitationCopied, providerAccount, canRemoveLocalData,
+    households, canCreateHousehold, householdsBusy, inviteCode,
     signIn, startProviderSignIn, createHouseholdInvitation, copyInvitationLink, revokeHouseholdInvitation,
-    saveHouseholdName, runHouseholdAction, signOut, removeLocalAccountData
+    saveHouseholdName, runHouseholdAction, signOut, removeLocalAccountData,
+    switchHousehold, joinHousehold, dismissInvite, createHousehold
   };
 }
 

@@ -20,7 +20,7 @@ through the real API functions to catch drift.
 | `purge` | 03:00 | Permanently deletes households and accounts whose 30-day deletion grace period has ended. A household with an active member is skipped. The household tombstone is removed last, so an interrupted purge is finished by the next run. |
 | `cleanup` | 04:00 | Deletes expired sign-in transactions, device-bootstrap keys and invitations, and rate-limit counters older than two days. Deletes use the row's ETag, so a row the API rewrote in the meantime is kept. |
 
-Backups contain users, households, memberships, invitations and both ledgers. They exclude sessions, legacy
+Backups contain users (including their household membership index), households, memberships, invitations and both ledgers. They exclude sessions, legacy
 sessions, rate-limit counters and short-lived sign-in state, which are credentials or transient. Binary values are
 stored as `{ "$base64": ... }`, 64-bit integers as strings and dates as ISO strings.
 

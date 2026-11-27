@@ -74,8 +74,13 @@ async function purgeAccount(
 ): Promise<{ rows: number; failed: number }> {
   const owned = await deleteKeys(auth, sessions.byUser.get(userId) ?? []);
   if (owned.failed) return { rows: owned.deleted, failed: owned.failed };
+  // Membership index rows (`m-<userId>.<householdId>`) let an account list its households.
+  const index = await deleteKeys(auth, await keysOf(
+    auth, odata`PartitionKey eq ${"users"} and RowKey ge ${`m-${userId}.`} and RowKey lt ${`m-${userId}/`}`
+  ));
+  if (index.failed) return { rows: owned.deleted + index.deleted, failed: index.failed };
   const final = await deleteKeys(auth, [{ partitionKey: "users", rowKey: `u-${userId}` }]);
-  return { rows: owned.deleted + final.deleted, failed: final.failed };
+  return { rows: owned.deleted + index.deleted + final.deleted, failed: final.failed };
 }
 
 /** Permanently removes households and accounts whose 30-day deletion grace has ended. */

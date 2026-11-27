@@ -52,7 +52,7 @@ After all enabled checks pass, the check job uploads the frontend and API build 
 
 For an existing Static Web App, configure Entra and keep `LOCAL_DEVELOPMENT=false`. A custom domain must use the exact HTTPS origin in `APP_ORIGIN` (no trailing slash); the API and frontend must share that origin.
 
-Production sign-in creates a server-side session in an HttpOnly, Secure, SameSite cookie that lasts 400 days. Signing out or revoking household membership invalidates the server session but deliberately keeps the device's local ledger.
+Production sign-in creates a server-side session in an HttpOnly, Secure, SameSite cookie that lasts 400 days. Signing out or revoking household membership invalidates the server session but deliberately keeps the device's local ledger. A session belongs to one household membership: switching, joining, or creating a household issues a new session and device key for the target household and revokes the previous one.
 
 Some Android Chrome installs have dropped the session cookie while keeping IndexedDB. Sign-in therefore also returns the session value as a device key, stored in a separate IndexedDB table (never included in backups). When `/api/me` returns 401, the app exchanges that key for a fresh cookie via `POST /api/auth/resume`. The key is the same server session: signing out (which sends the key, so it works even without a cookie) or revoking membership invalidates it. Unlike the HttpOnly cookie, scripts running on the Splitty origin can read the key, so keep the app free of third-party scripts and use trusted devices.
 

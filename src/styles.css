@@ -356,6 +356,8 @@ input:disabled { opacity: .55; cursor: default; }
 .update-card h2 > svg { flex-shrink: 0; color: #b5e9d8; }
 .update-card p { margin: 10px 0 16px; color: #c3dfd4; font-size: 14px; }
 .update-card .primary:focus-visible { outline-color: #b5e9d8; }
+.update-card .button-row { flex-wrap: wrap; }
+.update-card .button-row > button { flex: 1 1 140px; }
 .conflict-panel { margin-top: 24px; border: 1px solid var(--cp-warning); padding: 16px; background: var(--cp-surface); border-radius: 12px; font-size: 13px; }
 .conflict-panel h3 { font-size: 16px; }
 .conflict-panel > div + div { margin-top: 24px; }

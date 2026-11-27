@@ -3,6 +3,7 @@ import type { TableClient } from "@azure/data-tables";
 import type { Member } from "../../shared/model";
 import type { AuthContext } from "./auth";
 import { HttpError } from "./config";
+import { addMembershipIndex, removeMembershipIndex } from "./membershipIndex";
 import { consumeRateLimit } from "./rateLimit";
 import { optionalEntity, statusCode } from "./storage";
 
@@ -72,6 +73,10 @@ export async function consumeInvitation(
     || !reservation || reservation.id !== target.id || reservation.expiresAt <= Date.now()) {
     throw new HttpError(410, "This invitation has expired or was already used.");
   }
+  if (await optionalEntity<MembershipEntity>(table, partitionKey, `m-${userId}`)) {
+    throw new HttpError(409, "This account is already a member of this household.");
+  }
+  await addMembershipIndex(table, userId, target.householdId);
   try {
     await table.submitTransaction([
       ["delete", { partitionKey, rowKey: invitationRow(target.id) }],
@@ -86,6 +91,9 @@ export async function consumeInvitation(
       }]
     ]);
   } catch (error) {
+    if (!await optionalEntity<MembershipEntity>(table, partitionKey, `m-${userId}`)) {
+      await removeMembershipIndex(table, userId, target.householdId);
+    }
     if (statusCode(error) === 409 || statusCode(error) === 404) {
       throw new HttpError(410, "This invitation has expired or was already used.");
     }

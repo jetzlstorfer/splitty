@@ -82,6 +82,13 @@ describe.skipIf(!enabled)("scheduled jobs against Azurite", () => {
     const [stayer, leaver] = await seedHousehold(tables, kept, ["a", "b"]);
     await deleteHousehold(tables.auth, owner);
     await deleteAccount(tables.auth, leaver);
+    // An interrupted membership change can leave an index row behind; purging the account removes it.
+    await tables.auth.createEntity({
+      partitionKey: "users", rowKey: `m-${leaver.userId}.stale-${randomUUID()}`, userId: leaver.userId, joinedAt: 0
+    });
+    const indexRows = (userId: string) =>
+      count(tables.auth, `PartitionKey eq 'users' and RowKey ge 'm-${userId}.' and RowKey lt 'm-${userId}/'`);
+    expect(await indexRows(stayer.userId)).toBe(1);
 
     const early = await purgeExpired(tables, Date.now(), silent);
     expect(early).toMatchObject({ households: 0, accounts: 0, failures: 0 });
@@ -94,8 +101,10 @@ describe.skipIf(!enabled)("scheduled jobs against Azurite", () => {
     expect(await count(tables.auth, `PartitionKey eq 'sessions' and householdId eq '${doomed}'`)).toBe(0);
 
     expect(await exists(tables.auth, "users", `u-${leaver.userId}`)).toBe(false);
+    expect(await indexRows(leaver.userId)).toBe(0);
     expect(await count(tables.auth, `PartitionKey eq 'sessions' and userId eq '${leaver.userId}'`)).toBe(0);
     expect(await exists(tables.auth, "users", `u-${stayer.userId}`)).toBe(true);
+    expect(await indexRows(stayer.userId)).toBe(1);
     expect(await count(tables.auth, `PartitionKey eq 'sessions' and userId eq '${stayer.userId}'`)).toBe(1);
     expect(await count(tables.ledger, `PartitionKey eq '${kept}'`)).toBe(3);
     expect(await exists(tables.auth, `h-${kept}`, "household")).toBe(true);
@@ -203,9 +212,12 @@ describe.skipIf(!enabled)("scheduled jobs against Azurite", () => {
     expect(first.tables).toEqual({
       [backupTables_.auth.tableName]: authRows.length, [backupTables_.ledger.tableName]: ledgerRows.length
     });
+    // The user row and its membership index row are both durable account data.
     expect(authRows.map((row) => row.partitionKey).sort()).toEqual(
-      ["h-" + householdId, "h-" + householdId, "users"]
+      ["h-" + householdId, "h-" + householdId, "users", "users"]
     );
+    expect(authRows.filter((row) => row.partitionKey === "users").map((row) => String(row.rowKey).slice(0, 2)).sort())
+      .toEqual(["m-", "u-"]);
     expect(JSON.stringify(authRows)).not.toMatch(/sessions|entra-transactions|limit-|secret-verifier|auth-backup/);
     expect(authRows.every((row) => !("etag" in row))).toBe(true);
     const typed = ledgerRows.find((row) => row.rowKey === "typed")!;

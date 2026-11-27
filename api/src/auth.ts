@@ -3,6 +3,7 @@ import type { TableClient } from "@azure/data-tables";
 import type { Member } from "../../shared/model";
 import type { AccountProfile } from "../../shared/profile";
 import { HttpError, type Config } from "./config";
+import { addMembershipIndex, removeMembershipIndex } from "./membershipIndex";
 import { optionalEntity, statusCode } from "./storage";
 
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -21,7 +22,7 @@ export interface AuthContext extends AccountProfile {
 
 type SessionEntity = AuthContext & { membershipId: string };
 interface MembershipEntity { userId: string; member: Member; active: boolean; membershipId: string }
-interface UserAuthorizationEntity { userId: string; householdId: string; member: Member; deletionRequestedAt?: number }
+interface UserAuthorizationEntity { userId: string; deletionRequestedAt?: number }
 interface HouseholdAuthorizationEntity { deletedAt?: number }
 
 const isStableId = (value: unknown): value is string =>
@@ -55,6 +56,7 @@ export async function createMembership(
   table: TableClient, householdId: string, userId: string, member: Member
 ): Promise<void> {
   if (!isStableId(householdId) || !isStableId(userId)) throw new HttpError(400, "Invalid household membership.");
+  await addMembershipIndex(table, userId, householdId);
   await table.createEntity({
     partitionKey: householdPartition(householdId),
     rowKey: `m-${userId}`,
@@ -69,6 +71,7 @@ export async function revokeMembership(table: TableClient, householdId: string, 
   if (!isStableId(householdId) || !isStableId(userId)) throw new HttpError(400, "Invalid household membership.");
   try { await table.deleteEntity(householdPartition(householdId), `m-${userId}`); }
   catch (error) { if (statusCode(error) !== 404) throw error; }
+  await removeMembershipIndex(table, userId, householdId);
 }
 
 export async function createUserSession(
@@ -101,8 +104,8 @@ async function requireMembership(table: TableClient, context: AuthContext): Prom
   );
   if (household?.deletedAt) throw new HttpError(401, "Your household access has been revoked. Sign in again.");
   const user = await optionalEntity<UserAuthorizationEntity>(table, "users", `u-${context.userId}`);
-  if (user && (user.userId !== context.userId || user.householdId !== context.householdId
-    || user.member !== context.member || user.deletionRequestedAt)) {
+  // Accounts can belong to several households, so the membership row, not the default household, grants access.
+  if (user && (user.userId !== context.userId || user.deletionRequestedAt)) {
     throw new HttpError(401, "Your household access has been revoked. Sign in again.");
   }
   const membership = await optionalEntity<MembershipEntity>(

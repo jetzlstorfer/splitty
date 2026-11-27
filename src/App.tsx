@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useId, useMemo, useState } from "react";
 import {
-  BarChart3, Check, ClipboardCheck, Download, Plus, Receipt, RefreshCw, Search, Settings, Sparkles, Upload, X
+  BarChart3, Check, ClipboardCheck, Download, Plus, Receipt, RefreshCw, Search, Settings, Sparkles, Upload, UsersRound, X
 } from "lucide-react";
 import type { Entry } from "../shared/model";
 import { translate } from "../shared/i18n";
@@ -190,6 +190,15 @@ function AppContent({ ledger }: { ledger: Snapshot | null }) {
           <p>{t("Your saved entries will be kept.")}</p>
         </div>
         <button onClick={() => void update().catch((e: Error) => setError(e.message))} className="primary"><RefreshCw size={18} aria-hidden="true" />{t("Update")}</button>
+      </section>}
+      {account.providerAccount && account.inviteCode && <section className="update-card accent-hero" aria-labelledby="join-household-title">
+        <h2 id="join-household-title"><UsersRound size={24} aria-hidden="true" />{t("Household invitation")}</h2>
+        <p>{t("Join the invited household with this account? Your current household stays available in Settings.")}</p>
+        <div className="button-row">
+          <button className="primary" disabled={!sync.online || account.householdsBusy} aria-busy={account.householdsBusy}
+            onClick={() => void account.joinHousehold()}>{t("Join this household")}</button>
+          <button className="secondary" disabled={account.householdsBusy} onClick={account.dismissInvite}>{t("Not now")}</button>
+        </div>
       </section>}
       {tab === "todos" ? <TodoList todos={todos} openCount={openTodos} blocked={conflictIds} open={setForm}
         conflicts={ledger.todoConflicts}

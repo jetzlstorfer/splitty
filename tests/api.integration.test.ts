@@ -484,6 +484,114 @@ describe.skipIf(!enabled)("Azure Table Storage integration (Azurite)", () => {
     expect(await auth.getEntity<Record<string, unknown>>(`h-${householdId}`, "household"))
       .toMatchObject({ nameA: "", nameB: "Sam" });
   });
+  it("lets one account join, create, switch between, and leave several households", async () => {
+    const { auth } = await tables(getConfig());
+    const userId = `user-${crypto.randomUUID()}`, ownerId = `user-${crypto.randomUUID()}`;
+    const first = `multi-first-${crypto.randomUUID()}`, invited = `multi-invited-${crypto.randomUUID()}`;
+    partitions.push(first, invited);
+    for (const [householdId, id, name] of [[first, userId, "Una"], [invited, ownerId, "Olli"]] as const) {
+      await auth.createEntity({ partitionKey: `h-${householdId}`, rowKey: "household", nameA: name, nameB: "" });
+      await auth.createEntity({
+        partitionKey: "users", rowKey: `u-${id}`, userId: id, issuer: "test", subject: id,
+        name, householdId, member: "a", membershipInitialized: true
+      });
+      await createMembership(auth, householdId, id, "a");
+    }
+    const cookieOf = (response: Response) => response.headers.get("set-cookie")!.split(";")[0];
+    const indexRows = async () => {
+      const rows: string[] = [];
+      for await (const row of auth.listEntities({ queryOptions: {
+        filter: `PartitionKey eq 'users' and RowKey ge 'm-${userId}.' and RowKey lt 'm-${userId}/'`
+      } })) rows.push(row.rowKey!);
+      return rows;
+    };
+    // Each change replaces the device session, so the previous cookie stops working.
+    async function change(path: string, data: unknown, cookie: string) {
+      const response = await call(path, data, cookie);
+      expect(response.status).toBe(200);
+      const result = await response.json() as { householdId: string; member: string; deviceKey: string };
+      expect(result.deviceKey).toMatch(/^[a-zA-Z0-9_-]{43}$/);
+      expect((await call("me", undefined, cookie)).status).toBe(401);
+      const next = cookieOf(response);
+      expect(await (await call("me", undefined, next)).json()).toMatchObject({
+        userId, householdId: result.householdId, member: result.member
+      });
+      return { ...result, cookie: next };
+    }
+
+    const start = (await createUserSession(getConfig(), auth, { userId, householdId: first, member: "a" })).cookie.split(";")[0];
+    // Memberships from before the index are found through the default household and indexed.
+    await auth.deleteEntity("users", `m-${userId}.${first}`);
+    expect(await (await call("households", undefined, start)).json()).toEqual({
+      households: [{ householdId: first, member: "a", nameA: "Una", nameB: "", current: true }], canCreate: true
+    });
+    expect(await indexRows()).toEqual([`m-${userId}.${first}`]);
+
+    const ownInvite = await (await call("household/invitations", {}, start)).json() as { code: string };
+    const alreadyMember = await call("households/join", { inviteCode: ownInvite.code }, start);
+    expect(alreadyMember.status).toBe(409);
+    expect(await alreadyMember.json()).toEqual({ error: "This account is already a member of this household." });
+
+    const owner = (await createUserSession(getConfig(), auth, { userId: ownerId, householdId: invited, member: "a" })).cookie.split(";")[0];
+    const { code } = await (await call("household/invitations", {}, owner)).json() as { code: string };
+    const joined = await change("households/join", { inviteCode: code }, start);
+    expect(joined).toMatchObject({ householdId: invited, member: "b" });
+    expect(await auth.getEntity<Record<string, unknown>>(`h-${invited}`, "household")).toMatchObject({ nameA: "Olli", nameB: "Una" });
+    expect((await call("me", undefined, owner)).status).toBe(200);
+
+    const created = await change("households/create", {}, joined.cookie);
+    partitions.push(created.householdId);
+    expect(created.member).toBe("a");
+    expect(await auth.getEntity<Record<string, unknown>>(`h-${created.householdId}`, "household"))
+      .toMatchObject({ nameA: "Una", nameB: "" });
+    expect(await (await call("households", undefined, created.cookie)).json()).toEqual({
+      households: [
+        { householdId: first, member: "a", nameA: "Una", nameB: "", current: false },
+        { householdId: invited, member: "b", nameA: "Olli", nameB: "Una", current: false },
+        { householdId: created.householdId, member: "a", nameA: "Una", nameB: "", current: true }
+      ],
+      canCreate: true
+    });
+    expect(await auth.getEntity<Record<string, unknown>>("users", `u-${userId}`))
+      .toMatchObject({ householdId: created.householdId, member: "a" });
+
+    expect((await call("households/switch", { householdId: "not valid!" }, created.cookie)).status).toBe(400);
+    expect((await call("households/switch", { householdId: `missing-${crypto.randomUUID()}` }, created.cookie)).status).toBe(404);
+    const switched = await change("households/switch", { householdId: first }, created.cookie);
+    expect(switched).toMatchObject({ householdId: first, member: "a" });
+
+    // Leaving or deleting continues in the account's next household instead of signing the device out.
+    const left = await call("household/leave", {}, switched.cookie);
+    expect(left.status).toBe(200);
+    expect(await left.json()).toMatchObject({ left: true, continued: true, userId, householdId: invited, member: "b" });
+    expect((await call("me", undefined, switched.cookie)).status).toBe(401);
+    expect(await (await call("me", undefined, cookieOf(left))).json()).toMatchObject({ householdId: invited, member: "b" });
+    expect(await auth.getEntity<Record<string, unknown>>(`h-${first}`, "household"))
+      .toMatchObject({ deletedAt: expect.any(Number) });
+
+    const backToCreated = await change("households/switch", { householdId: created.householdId }, cookieOf(left));
+    const deleted = await call("household/delete", {}, backToCreated.cookie);
+    expect(await deleted.json()).toMatchObject({ deleted: true, continued: true, householdId: invited, member: "b" });
+    const current = cookieOf(deleted);
+    expect(await indexRows()).toEqual([`m-${userId}.${invited}`]);
+
+    for (let index = 0; index < 9; index++) {
+      const householdId = `multi-cap-${index}-${crypto.randomUUID()}`;
+      partitions.push(householdId);
+      await createMembership(auth, householdId, userId, "a");
+    }
+    expect(await (await call("households", undefined, current)).json()).toMatchObject({ canCreate: false });
+    const overLimit = await call("households/create", {}, current);
+    expect(overLimit.status).toBe(409);
+    expect(await overLimit.json()).toEqual({ error: "This account already belongs to the maximum number of households." });
+
+    const removed = await call("account/delete", {}, current);
+    expect(await removed.json()).toEqual({ deletionScheduled: true });
+    expect(removed.headers.get("set-cookie")).toContain("Max-Age=0");
+    expect(await indexRows()).toEqual([]);
+    await expect(auth.getEntity("h-" + invited, `m-${userId}`)).rejects.toMatchObject({ statusCode: 404 });
+    expect((await call("me", undefined, owner)).status).toBe(200);
+  });
   it("enforces active-record and daily household quotas with retry guidance", async () => {
     const expenseHousehold = `quota-expenses-${crypto.randomUUID()}`;
     process.env.LOCAL_HOUSEHOLD_ID = expenseHousehold;

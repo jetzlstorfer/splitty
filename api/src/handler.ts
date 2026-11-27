@@ -2,14 +2,15 @@ import type { TableClient } from "@azure/data-tables";
 import { isInsuranceTodoSetting, validateChange, validateEntry, type MutationResult, type VersionedRecord } from "../../shared/model";
 import { validateTodo } from "../../shared/todo";
 import { scrubLog } from "../../shared/logScrub";
-import { authenticate, isSessionKey, logout, resumeSession, sessionCookie } from "./auth";
+import { authenticate, createUserSession, isSessionKey, logout, resumeSession, sessionCookie } from "./auth";
 import { getConfig, HttpError } from "./config";
 import { beginEntraSignIn, completeEntraSignIn, getAccountDetails, getHouseholdNames, redeemDeviceKey } from "./entra";
 import { signInLocally } from "./localSignIn";
 import { expenseLedger, todoLedger, type createLedger } from "./ledger";
 import { createInvitation, listInvitations, revokeInvitation } from "./invitations";
 import {
-  deleteAccount, deleteHousehold, insuranceTodoSetting, leaveHousehold, removeOtherMember, renameHouseholdMember
+  createAdditionalHousehold, deleteAccount, deleteHousehold, insuranceTodoSetting, joinHousehold, leaveHousehold,
+  listHouseholds, remainingHousehold, removeOtherMember, renameHouseholdMember, switchHousehold
 } from "./households";
 import { consumeRateLimit, signInRateLimitKey } from "./rateLimit";
 import { tables } from "./storage";
@@ -100,6 +101,29 @@ export async function handler(
         ...(await getHouseholdNames(auth, identity.householdId) ?? { nameA: "", nameB: "" })
       });
     }
+    if (path === "households" && request.method === "GET") {
+      return json(await listHouseholds(auth, config, identity));
+    }
+    // A session is bound to one household membership, so changing households issues a new device session.
+    const continueIn = async (target: { householdId: string; member: "a" | "b" }, result: Record<string, unknown> = {}) => {
+      const { cookie, deviceKey } = await createUserSession(config, auth, {
+        userId: identity.userId,
+        ...target,
+        signInProvider: identity.signInProvider,
+        displayName: identity.displayName,
+        email: identity.email,
+        pictureUrl: identity.pictureUrl
+      });
+      await logout(request, config, auth);
+      return json({ ...result, userId: identity.userId, ...target, deviceKey }, 200, { "Set-Cookie": cookie });
+    };
+    if (["households/switch", "households/join", "households/create"].includes(path) && request.method === "POST") {
+      const data = await body(request);
+      const target = path === "households/switch" ? await switchHousehold(auth, identity, data.householdId)
+        : path === "households/join" ? await joinHousehold(auth, identity, data.inviteCode)
+          : await createAdditionalHousehold(auth, config, identity);
+      return await continueIn(target);
+    }
     if (path === "household/invitations" && request.method === "GET") {
       return json({ invitations: await listInvitations(auth, identity) });
     }
@@ -117,19 +141,19 @@ export async function handler(
       await renameHouseholdMember(auth, identity, data.slot, data.name);
       return json({ renamed: true });
     }
-    if (path === "household/leave" && request.method === "POST") {
-      await leaveHousehold(auth, identity);
+    if ((path === "household/leave" || path === "household/delete") && request.method === "POST") {
+      if (path === "household/leave") await leaveHousehold(auth, identity);
+      else await deleteHousehold(auth, identity);
+      const result = path === "household/leave" ? { left: true } : { deleted: true };
+      // Accounts with another household continue there instead of signing out.
+      const next = await remainingHousehold(auth, identity.userId);
+      if (next) return await continueIn(next, { ...result, continued: true });
       await logout(request, config, auth);
-      return json({ left: true }, 200, { "Set-Cookie": sessionCookie(config, "", 0) });
+      return json(result, 200, { "Set-Cookie": sessionCookie(config, "", 0) });
     }
     if (path === "household/remove-member" && request.method === "POST") {
       await removeOtherMember(auth, identity);
       return json({ removed: true });
-    }
-    if (path === "household/delete" && request.method === "POST") {
-      await deleteHousehold(auth, identity);
-      await logout(request, config, auth);
-      return json({ deleted: true }, 200, { "Set-Cookie": sessionCookie(config, "", 0) });
     }
     if (path === "account/delete" && request.method === "POST") {
       await deleteAccount(auth, identity);

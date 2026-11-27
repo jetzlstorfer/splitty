@@ -16,7 +16,7 @@ The screenshots below show the expenses and to-do screens with synthetic sample 
 
 - Add expenses locally, split equally or enter exact and percentage shares.
 - Track settlements, balances, and searchable history.
-- Share expenses and household to-dos across two devices with member sign-in.
+- Share expenses and household to-dos across two devices with member sign-in. One account can belong to several households, each with its own two-person ledger.
 - Install the PWA from the app on supported Android browsers; on iPhone, use **Install** for the browser's Add to Home Screen steps. The button disappears after installation. The app works offline; queued changes sync when a device reconnects.
 - Import German or English Splitwise CSV exports and check the final balance before confirming.
 - Categorize expenses automatically, switch between German and English, and download or restore backups.
@@ -67,6 +67,12 @@ To enable this lookup in an external tenant, open the **Splitty web app registra
 For conflict handling, data retention, and the full sync lifecycle, see [synchronization and deployment](docs/synchronization-and-deployment.md).
 
 For the shared multi-household design and Azure cost outlook, see the [multi-tenant plan](docs/multi-tenant-plan.md). The code includes Entra-based accounts, existing-household claims, local-history adoption, household-scoped sessions and storage, invitations, lifecycle controls, and quota/rate enforcement. Production stays on **Static Web Apps Free**; Standard is not a launch prerequisite. Operational infrastructure was deployed on 2026-11-27; see [operations](docs/operations.md) for verification and remaining gaps. Keep public sign-up closed until operational verification, migration/restore rehearsals, provider validation and operational/legal review are complete.
+
+### Several households
+
+A signed-in account can belong to up to 10 households. Each household still has exactly two members and its own ledger, balances, and to-dos. Use **Settings → Household → Create another household** to start one, or open another household's invitation link while signed in and choose **Join this household**. When an account has more than one household, **Settings → Household → Active household** switches between them. The next sign-in opens the last household used.
+
+Each household keeps a separate local database on the device. Unsynced changes stay queued in their household and sync after switching back to it. The app language is a device setting and stays the same when switching. Leaving or deleting a household continues in another of the account's households; leaving or deleting the last one signs the device out.
 
 ## Public legal pages
 

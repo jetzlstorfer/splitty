@@ -53,10 +53,10 @@ var rules = concat([
     description: 'No successful backup in the last 26 hours. Also fires until the first backup has run after a deployment.'
     severity: 1
     frequency: 'PT1H'
-    window: 'PT26H'
+    window: 'P2D'
     operator: 'LessThan'
     threshold: 1
-    query: 'AppRequests | where ${jobsFilter} | where Name =~ "backup" and Success == true'
+    query: 'AppRequests | where TimeGenerated > ago(26h) | where ${jobsFilter} | where Name =~ "backup" and Success == true'
   }
 ])
 

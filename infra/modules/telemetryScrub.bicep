@@ -21,7 +21,7 @@ func stripUrl(column string) string => '${column} = tostring(split(tostring(spli
 // device secrets) and e-mail addresses.
 func redactText(column string) string => '${column} = iif(${column} matches regex "[?&](code|state|id_token|access_token|refresh_token|token|sig|key|password|secret)=" or ${column} matches regex "[A-Za-z0-9_-]{43}" or ${column} matches regex "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+[.][A-Za-z]{2,}", "[redacted]", ${column})'
 
-func redactDynamic(column string) string => '${column} = iif(tostring(${column}) matches regex "[?&](code|state|id_token|access_token|refresh_token|token|sig|key|password|secret)=" or tostring(${column}) matches regex "[A-Za-z0-9_-]{43}" or tostring(${column}) matches regex "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+[.][A-Za-z]{2,}", dynamic(null), ${column})'
+func redactDynamic(column string) string => '${column} = iif(tostring(${column}) matches regex "[?&](code|state|id_token|access_token|refresh_token|token|sig|key|password|secret)=" or tostring(${column}) matches regex "[A-Za-z0-9_-]{43}" or tostring(${column}) matches regex "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+[.][A-Za-z]{2,}", parse_json("null"), ${column})'
 
 var destinationName = 'workspace'
 
@@ -61,7 +61,6 @@ resource rule 'Microsoft.Insights/dataCollectionRules@2023-03-11' = {
       streams: [flow.stream]
       destinations: [destinationName]
       transformKql: flow.kql
-      outputStream: flow.stream
     }]
   }
 }

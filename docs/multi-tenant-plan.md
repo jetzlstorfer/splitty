@@ -1,6 +1,6 @@
 # Multi-tenant plan and Azure cost outlook
 
-Status: production migration complete; retirement cleanup remains. Originally prepared: 2026-10-25; key
+Status: production migration and retirement cleanup complete; launch verification remains. Originally prepared: 2026-10-25; key
 decisions recorded: 2026-11-17. The code now includes server-derived
 user/household sessions and revocation checks, an Entra authorization-code
 flow with persisted PKCE/state and one-time device-key bootstrap, hashed
@@ -12,9 +12,10 @@ accounts, and the audit found no household dependent on member-token sign-in.
 Retirement removes the obsolete token session and claim code while retaining
 `legacyClaimed` for importing existing local IndexedDB history. The scheduled
 backup, permanent-deletion and cleanup jobs, monitoring, alerts and budget now
-exist as opt-in code and infrastructure (see [operations](operations.md)) but
-are not yet deployed or verified. Keep public household registration closed
-until those services and the legal pages are ready. Household record/daily
+exist as opt-in code and infrastructure; production infrastructure was deployed
+on 2026-11-27 (see [operations](operations.md) for verification and remaining gaps).
+Keep public household registration closed until operational verification,
+restore/migration rehearsals, provider validation and legal review are complete. Household record/daily
 quotas, invitation and household-creation limits, per-session request limits,
 and sign-in IP limits are enforced in the API. Real Entra callback validation
 requires tenant and application credentials. Cost figures have not been
@@ -34,7 +35,7 @@ current accounting model explicitly uses members `a` and `b`, `shareA`, and
 balances, settlements, imports, statistics, and the interface.
 
 This plan does not provision Azure resources. Production sign-up must remain
-closed until the incomplete migration and operational requirements above are
+closed until the remaining launch requirements above are
 addressed.
 
 ## Decisions
@@ -82,17 +83,21 @@ pilot.
   languages, households of three or more, Sign in with Apple, and email or push
   notifications are out of scope.
 - **Migration:** the existing production household has been migrated in place.
-  The remaining retirement step removes obsolete Static Web App member-token
-  settings and 11 legacy session rows after the code deployment; devices that
-  have not moved to Entra must sign in again.
+  Obsolete Static Web App member-token settings and 11 legacy auth rows
+  (10 sessions and one rate counter) were removed on 2026-11-27. Devices that
+  have not moved to Entra must sign in again; local-history claim markers remain.
 
 ### Operations
 
-- **Hosting:** Static Web Apps Free for a staging deployment at its own
-  address, and Standard for production before sign-up opens. Production keeps
-  its existing custom domain: IndexedDB is bound to the origin, so devices keep
-  local data and unsynced edits during migration, and installed PWAs keep
-  working.
+- **Hosting:** keep Static Web Apps Free for production and isolated staging
+  (decision updated 2026-11-27). Standard is optional, not a launch prerequisite:
+  Splitty's API handles Entra authentication, and scheduled jobs use a separate
+  Functions app. Accept Free's lack of an SLA and its 100 GB monthly bandwidth
+  allowance per subscription, with no paid overage. Monitor usage across all
+  Free apps in the subscription and review an upgrade well before that limit,
+  or when an SLA or Standard-only feature is needed. Production keeps its
+  existing custom domain: IndexedDB is bound to the origin, so devices keep
+  local data and unsynced edits, and installed PWAs keep working.
 - **Data residency:** EU only. Azure resources stay in West Europe, and the
   Entra External ID tenant is created in Europe; its location cannot be changed
   later. Static assets may be served from global edge locations but contain no
@@ -196,8 +201,8 @@ Splitty's control.
 Household creation, invitations, joining, leaving, member removal, renaming,
 account deletion requests, and household deletion are implemented in the API
 and client. Existing-household claims are implemented, and the member-token
-session path is retired. After deploying, complete the manual settings and
-stale-session cleanup described in the [README](../README.md#existing-household-sign-in-retirement).
+session path is retired. Production settings and stale-session cleanup is complete,
+as recorded in the [README](../README.md#existing-household-sign-in-retirement).
 
 Every expense, to-do, sync, export, and administrative request must verify the
 authenticated user's current membership and permissions. Never treat a
@@ -264,8 +269,8 @@ backup.
    tabs, session recovery, revocation, and offline account switching.
 4. The code now includes provider-aware sign-in, invitations, adaptive sync
    cadence, and household lifecycle operations. The scheduled backup and
-   deletion jobs now exist as code ([operations](operations.md)); still add
-   scoped restore and deploy and verify the jobs. Validate two-device
+   deletion jobs and infrastructure are implemented ([operations](operations.md));
+   still add scoped restore and complete the operational verification. Validate two-device
    convergence and existing accounting behavior.
 5. Pilot in a separate staging deployment with synthetic households. Rehearse
    the existing-household claim using a disposable household and
@@ -295,16 +300,19 @@ modest daily use, controlled logging, and no paid identity add-ons.
 | 1,000 | 500 | $10-30 |
 | 10,000 | 5,000 | $30-150+, depending on usage and backend configuration |
 
-Hundreds of light users could plausibly remain near-free. For a public
-production service, budget for Standard hosting rather than promise permanent
-Free-tier operation. The 1,000-user range is a useful initial budget target,
-not a validated capacity guarantee.
+Hundreds of light users could plausibly remain near-free. Production will stay
+on Free initially; this does not make storage, scheduled jobs, monitoring or
+alerts free, or promise permanent Free-tier operation. The 1,000-user range is
+a useful initial budget target, not a validated capacity guarantee.
 
 ### Cost drivers and assumptions to verify
 
-- **Hosting:** Static Web Apps Standard has an indicative base price of about
-  $9 per app/month, not per household. Confirm regional pricing, bandwidth
-  allowances, API limits, and the chosen authentication integration.
+- **Hosting:** the selected Static Web Apps Free plan has no hosting base fee.
+  Standard is an optional upgrade with an indicative base price of about
+  $9 per app/month, not per household. Recheck pricing and quotas before
+  upgrading, and change the Bicep SKU as well as the live hosting plan.
+  Include optional receipt-scanner downloads (about 16 MB per uncached device)
+  when estimating bandwidth; an empty metric series is not proof of no usage.
 - **Storage:** Table Storage is inexpensive for small text records. Include
   current records, retained changes, operation receipts, tombstones, and
   sessions in the estimate, not just the visible ledger.

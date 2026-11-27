@@ -38,6 +38,10 @@ jobs:
       - run: npm test
       - run: npm run check:e2e
       - run: npm run build && npm run build:api && npm run build:jobs
+      - name: Compile infrastructure entry points
+        run: |
+          az bicep build --file infra/main.bicep --stdout > /dev/null
+          az bicep build --file infra/operations.bicep --stdout > /dev/null
       - name: Start isolated table emulator
         run: |
           mkdir -p "$RUNNER_TEMP/splitty-azurite"

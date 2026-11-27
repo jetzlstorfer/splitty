@@ -1,5 +1,5 @@
 *.test.ts
-src
+/src/
 tsconfig.json
 .npmrc
 local.settings.json

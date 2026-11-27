@@ -42,10 +42,10 @@ param entraClientSecret string = ''
 @description('Public HTTPS origin. Leave empty to use the default Static Web App hostname.')
 param appOrigin string = ''
 
-@description('Allow provider sign-in to create new households. Keep false until launch readiness is complete.')
+@description('Allow provider sign-in to create new households. When false, only existing members and invited accounts can sign in. This template writes the value to the Static Web App settings, so redeploying it to a live site resets the setting.')
 param allowNewHouseholds bool = false
 
-@description('Create Log Analytics and Application Insights for the API and the scheduled jobs. Enable before opening public sign-up.')
+@description('Create Log Analytics and Application Insights for the API and the scheduled jobs. Enable on any deployment that accepts new households.')
 param enableMonitoring bool = false
 
 @description('Redact credentials, tokens, e-mail addresses and query strings from telemetry before it is stored. Only used with enableMonitoring.')
@@ -61,7 +61,7 @@ param logRetentionDays int = 30
 @description('Daily Log Analytics ingestion cap in GB. Ingestion, including alert data, stops for the rest of the day once reached.')
 param logDailyQuotaGb string = '0.2'
 
-@description('Deploy the timer-triggered Functions app that backs up data and purges expired records, with its storage. Enable before opening public sign-up.')
+@description('Deploy the timer-triggered Functions app that backs up data and purges expired records, with its storage. Enable on any deployment that accepts new households.')
 param enableScheduledJobs bool = false
 
 @minValue(1)

@@ -66,7 +66,7 @@ To enable this lookup in an external tenant, open the **Splitty web app registra
 
 For conflict handling, data retention, and the full sync lifecycle, see [synchronization and deployment](docs/synchronization-and-deployment.md).
 
-For the shared multi-household design and Azure cost outlook, see the [multi-tenant plan](docs/multi-tenant-plan.md). The code includes Entra-based accounts, existing-household claims, local-history adoption, household-scoped sessions and storage, invitations, lifecycle controls, and quota/rate enforcement. The scheduled backup, deletion and cleanup jobs, monitoring, alerts and budget exist as opt-in code and infrastructure described in [operations](docs/operations.md) but have not been deployed or rehearsed; public sign-up is not production-ready until migration is rehearsed, those operations are deployed and verified, and provider validation and operational/legal review are complete.
+For the shared multi-household design and Azure cost outlook, see the [multi-tenant plan](docs/multi-tenant-plan.md). The code includes Entra-based accounts, existing-household claims, local-history adoption, household-scoped sessions and storage, invitations, lifecycle controls, and quota/rate enforcement. Production stays on **Static Web Apps Free**; Standard is not a launch prerequisite. Operational infrastructure was deployed on 2026-11-27; see [operations](docs/operations.md) for verification and remaining gaps. Keep public sign-up closed until operational verification, migration/restore rehearsals, provider validation and operational/legal review are complete.
 
 ## Public legal pages
 
@@ -166,7 +166,7 @@ See [import details](docs/importing.md) for duplicate handling, reconciliation, 
 The Azure resources are described in [`infra/main.bicep`](infra/main.bicep); deployment is not automatic resource provisioning. In brief:
 
 1. For a new hosted deployment, create an Entra External ID user flow and confidential web application. Register `https://<static-web-app-host>/api/auth/callback` as its redirect URI. Set `entraAuthority` to the HTTPS CIAM URL with the tenant ID or domain path (for example, `https://<tenant-subdomain>.ciamlogin.com/<tenant-id>`), supply `entraClientId` and secure `entraClientSecret`.
-2. Deploy the Bicep template only when creating new Azure resources. For an existing production deployment, do not redeploy this template or replace its storage account as part of the application cutover.
+2. Use `infra/main.bicep` for new deployments; `appOrigin` sets a custom origin and `allowNewHouseholds` defaults to `false`. For an existing production deployment, use `infra/operations.bicep` to manage operations without replacing its SWA settings or ledger storage account. Do not redeploy the main template as an application cutover.
 3. Configure the Static Web App deployment secret `AZURE_STATIC_WEB_APPS_API_TOKEN` in the GitHub `production` environment.
 4. Push or merge to `main` to run [Deploy to Azure](.github/workflows/deploy.yml), then sign in on each device.
 
@@ -179,11 +179,12 @@ manual enabling steps and what has not been verified. Enable them before opening
 The production cutover used the existing Static Web App, custom domain, and
 Table Storage account. Both household members have now claimed their provider
 accounts and the production audit found no household dependent on member-token
-sign-in. After deploying this retirement, remove these obsolete Static Web App
-settings: `HOUSEHOLD_ID`, `MEMBER_A_TOKEN`, `MEMBER_B_TOKEN`,
+sign-in. Production cleanup completed on 2026-11-27: these obsolete Static Web App
+settings were removed: `HOUSEHOLD_ID`, `MEMBER_A_TOKEN`, `MEMBER_B_TOKEN`,
 `MEMBER_A_TOKEN_HASH`, `MEMBER_B_TOKEN_HASH`, `MEMBER_A_NAME`, and
-`MEMBER_B_NAME`. Delete the 11 remaining rows in the old
-`auth-<household-id>` partition. Do not delete the household ledger or the
+`MEMBER_B_NAME`. The 11 rows in the old `auth-<household-id>` partition
+(10 sessions and one login-rate counter) were deleted with ETag guards.
+The household ledger and non-legacy auth rows were verified unchanged. Do not delete the household ledger or the
 provider accounts' `legacyClaimed` markers; those markers allow existing
 accounts to import their old local IndexedDB history.
 

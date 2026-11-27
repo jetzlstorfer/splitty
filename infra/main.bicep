@@ -39,11 +39,20 @@ param entraClientId string = ''
 @description('Entra External ID application client secret.')
 param entraClientSecret string = ''
 
+@description('Public HTTPS origin. Leave empty to use the default Static Web App hostname.')
+param appOrigin string = ''
+
+@description('Allow provider sign-in to create new households. Keep false until launch readiness is complete.')
+param allowNewHouseholds bool = false
+
 @description('Create Log Analytics and Application Insights for the API and the scheduled jobs. Enable before opening public sign-up.')
 param enableMonitoring bool = false
 
 @description('Redact credentials, tokens, e-mail addresses and query strings from telemetry before it is stored. Only used with enableMonitoring.')
 param scrubTelemetry bool = true
+
+@description('Set true when the monitoring workspace already exists; preserves its scrub-rule link during redeployment.')
+param monitoringWorkspaceExists bool = false
 
 @minValue(30)
 @maxValue(730)
@@ -61,6 +70,9 @@ param backupRetentionDays int = 30
 
 param backupContainerName string = 'splitty-backups'
 
+@description('Optional exact GitHub OIDC subject for the jobs deployment identity.')
+param jobsDeploymentSubject string = ''
+
 @description('Recipients for alerts and budget notifications. Alerts and the budget are only created when this is not empty.')
 param alertEmails array = []
 
@@ -73,80 +85,26 @@ param budgetStartDate string = utcNow('yyyy-MM-01')
 
 var useStorageRbac = storageAuthMode == 'rbac'
 var storageTableDataContributorRoleId = '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3'
-var uniqueSuffix = uniqueString(resourceGroup().id)
-var hasAlertRecipients = !empty(alertEmails)
-var jobsAppName = '${appName}-jobs-${take(uniqueSuffix, 5)}'
 
-module monitoring 'modules/monitoring.bicep' = if (enableMonitoring) {
-  name: 'monitoring'
+module operations 'operations.bicep' = {
+  name: 'operations'
+  dependsOn: [storage]
   params: {
     location: location
-    workspaceName: '${appName}-logs'
-    appInsightsName: '${appName}-insights'
-    scrubRuleName: '${appName}-telemetry-scrub'
-    retentionInDays: logRetentionDays
-    dailyQuotaGb: logDailyQuotaGb
+    appName: appName
+    storageName: storageName
+    enableMonitoring: enableMonitoring
     scrubTelemetry: scrubTelemetry
-  }
-}
-
-module backupStorage 'modules/backupStorage.bicep' = if (enableScheduledJobs) {
-  name: 'backup-storage'
-  params: {
-    location: location
-    name: '${take(storageName, 15)}bk${take(uniqueSuffix, 7)}'
-    containerName: backupContainerName
-    retentionDays: backupRetentionDays
-  }
-}
-
-module scheduledJobs 'modules/scheduledJobs.bicep' = if (enableScheduledJobs) {
-  name: 'scheduled-jobs'
-  params: {
-    location: location
-    functionAppName: jobsAppName
-    planName: '${appName}-jobs-plan'
-    hostStorageName: '${take(storageName, 15)}jh${take(uniqueSuffix, 7)}'
-    dataStorageName: storage.name
-    backupStorageName: backupStorage.?outputs.name ?? ''
+    monitoringWorkspaceExists: monitoringWorkspaceExists
+    logRetentionDays: logRetentionDays
+    logDailyQuotaGb: logDailyQuotaGb
+    enableScheduledJobs: enableScheduledJobs
+    backupRetentionDays: backupRetentionDays
     backupContainerName: backupContainerName
-    appInsightsConnectionString: monitoring.?outputs.connectionString ?? ''
-  }
-}
-
-module alerts 'modules/alerts.bicep' = if (enableMonitoring && hasAlertRecipients) {
-  name: 'alerts'
-  params: {
-    location: location
-    workspaceId: monitoring.?outputs.workspaceId ?? ''
-    jobsAppName: enableScheduledJobs ? jobsAppName : ''
-    emails: alertEmails
-  }
-}
-
-resource budget 'Microsoft.Consumption/budgets@2023-05-01' = if (monthlyBudget > 0 && hasAlertRecipients) {
-  name: '${appName}-monthly'
-  properties: {
-    category: 'Cost'
-    amount: monthlyBudget
-    timeGrain: 'Monthly'
-    timePeriod: { startDate: '${budgetStartDate}T00:00:00Z' }
-    notifications: {
-      actual80: {
-        enabled: true
-        operator: 'GreaterThan'
-        threshold: 80
-        thresholdType: 'Actual'
-        contactEmails: alertEmails
-      }
-      forecast100: {
-        enabled: true
-        operator: 'GreaterThan'
-        threshold: 100
-        thresholdType: 'Forecasted'
-        contactEmails: alertEmails
-      }
-    }
+    jobsDeploymentSubject: jobsDeploymentSubject
+    alertEmails: alertEmails
+    monthlyBudget: monthlyBudget
+    budgetStartDate: budgetStartDate
   }
 }
 
@@ -190,7 +148,8 @@ resource settings 'Microsoft.Web/staticSites/config@2023-12-01' = {
   parent: site
   name: 'appsettings'
   properties: union({
-      APP_ORIGIN: 'https://${site.properties.defaultHostname}'
+      APP_ORIGIN: empty(appOrigin) ? 'https://${site.properties.defaultHostname}' : appOrigin
+      ALLOW_NEW_HOUSEHOLDS: string(allowNewHouseholds)
       LOCAL_DEVELOPMENT: 'false'
     }, useStorageRbac ? {
       TABLE_STORAGE_ACCOUNT_NAME: storage.name
@@ -204,7 +163,7 @@ resource settings 'Microsoft.Web/staticSites/config@2023-12-01' = {
       ENTRA_CLIENT_ID: entraClientId
       ENTRA_CLIENT_SECRET: entraClientSecret
     } : {}, enableMonitoring ? {
-      APPLICATIONINSIGHTS_CONNECTION_STRING: monitoring.?outputs.connectionString ?? ''
+      APPLICATIONINSIGHTS_CONNECTION_STRING: operations.outputs.applicationInsightsConnectionString
     } : {})
 }
 
@@ -213,7 +172,7 @@ output storageTableDataContributorAssignmentId string = useStorageRbac ? storage
 output appUrl string = 'https://${site.properties.defaultHostname}'
 output staticSiteName string = site.name
 output storageAccountName string = storage.name
-output scheduledJobsAppName string = enableScheduledJobs ? jobsAppName : ''
-output backupStorageAccountName string = backupStorage.?outputs.name ?? ''
-output applicationInsightsName string = monitoring.?outputs.appInsightsName ?? ''
-output logAnalyticsWorkspaceName string = monitoring.?outputs.workspaceName ?? ''
+output scheduledJobsAppName string = operations.outputs.scheduledJobsAppName
+output backupStorageAccountName string = operations.outputs.backupStorageAccountName
+output applicationInsightsName string = operations.outputs.applicationInsightsName
+output logAnalyticsWorkspaceName string = operations.outputs.logAnalyticsWorkspaceName

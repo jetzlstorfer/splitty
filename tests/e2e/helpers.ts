@@ -39,11 +39,18 @@ export async function expectSyncBackdrop(page: Page) {
 }
 
 export async function openSync(page: Page) {
-  if (await syncIndicator(page).getAttribute("aria-expanded") !== "true") await syncIndicator(page).click();
+  const popover = page.locator(".sync-popover");
+  // Native visibility changes before React receives the asynchronous toggle event.
+  if (!await popover.isVisible()) await syncIndicator(page).click();
+  await expect(popover).toBeVisible();
+  await expect(syncIndicator(page)).toHaveAttribute("aria-expanded", "true");
 }
 
 export async function closeSync(page: Page) {
-  if (await syncIndicator(page).getAttribute("aria-expanded") === "true") await syncIndicator(page).click();
+  const popover = page.locator(".sync-popover");
+  if (await popover.isVisible()) await syncIndicator(page).click();
+  await expect(popover).not.toBeVisible();
+  await expect(syncIndicator(page)).toHaveAttribute("aria-expanded", "false");
 }
 
 export const upToDate = (page: Page) =>

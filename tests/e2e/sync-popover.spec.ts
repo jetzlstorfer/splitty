@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "./fixtures";
+import { confirmAction } from "./controls";
 import { expectSyncBackdrop, failNextConflictResolution, signIn as signInMember, storedRecords, synchronize as sync, useEnglish as english } from "./helpers";
 
 test.use({ hasTouch: true });
@@ -225,6 +226,7 @@ test("development sign-in and sync stay in the popover while sign-out is in Sett
   const account = page.getByRole("region", { name: "Account", exact: true });
   await expect(account.getByRole("button", { name: "Sign out", exact: true })).toBeVisible();
   await account.getByRole("button", { name: "Sign out", exact: true }).click();
+  await confirmAction(page, "Sign out");
   await indicator(page).click();
   await expect(popover(page).locator(".sync-summary")).toHaveText("Signed out · local history remains on this device");
   await expect(popover(page).getByRole("button", { name: "Development sign-in as first member", exact: true })).toBeVisible();

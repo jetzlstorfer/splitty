@@ -41,8 +41,8 @@ function AccountDetails({ sync: { identity, online, busy, actionError }, account
       <p className="settings-note">{t("Entra did not identify a single sign-in method for this session.")}</p>}
     <div className="button-row">
       {identity
-        ? <button className="text-button" disabled={!online || busy || account.signOutBusy} aria-busy={busy || account.signOutBusy} onClick={() => void account.signOut()}>{t("Sign out")}</button>
-        : <button className="text-button" popoverTarget={syncPopoverId} popoverTargetAction="show">{t("Sign in")}</button>}
+        ? <button className="secondary" disabled={!online || busy || account.signOutBusy} aria-busy={busy || account.signOutBusy} onClick={() => void account.signOut()}>{t("Sign out")}</button>
+        : <button className="secondary" popoverTarget={syncPopoverId} popoverTargetAction="show">{t("Sign in")}</button>}
     </div>
     {actionError && <p className="error" role="alert">{message(actionError)}</p>}
   </section>;
@@ -81,16 +81,16 @@ export default function SettingsPage({ preferences: p, sync, account, syncPopove
         ? "EUR and an equal split are always the default. Signed-in names are shared with your household."
         : "EUR and an equal split are always the default. Signed-in names come from your household configuration.")}</p>
       {providerAccount && <div className="button-row">
-        <button className="secondary" disabled={!online || signOutBusy} onClick={() => void runHouseholdAction(
+        <button className="secondary danger-button" disabled={!online || signOutBusy} onClick={() => void runHouseholdAction(
           "household/remove-member", "Remove the other member", "Remove the other member? They will lose server access, but data already on their devices will remain."
         )}>{t("Remove the other member")}</button>
-        <button className="secondary" disabled={!online || signOutBusy} onClick={() => void runHouseholdAction(
+        <button className="secondary danger-button" disabled={!online || signOutBusy} onClick={() => void runHouseholdAction(
           "household/leave", "Leave this household", "Leave this household? Its ledger will remain available to the other member."
         )}>{t("Leave this household")}</button>
-        <button className="secondary" disabled={!online || signOutBusy} onClick={() => void runHouseholdAction(
+        <button className="secondary danger-button" disabled={!online || signOutBusy} onClick={() => void runHouseholdAction(
           "household/delete", "Delete this household", "Delete this household? It will be inaccessible and recoverable for 30 days."
         )}>{t("Delete this household")}</button>
-        <button className="text-button" disabled={!online || signOutBusy} onClick={() => void runHouseholdAction(
+        <button className="secondary danger-button" disabled={!online || signOutBusy} onClick={() => void runHouseholdAction(
           "account/delete", "Delete your account", "Delete your account? Your sessions will be revoked immediately and deletion will be scheduled."
         )}>{t("Delete your account")}</button>
       </div>}

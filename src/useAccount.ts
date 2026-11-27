@@ -199,6 +199,11 @@ export function useAccount({ online, identity, setIdentity, setActionError, sync
   }
 
   async function signOut() {
+    if (!await confirm({
+      title: t("Sign out"),
+      description: t("Sign out on this device? Your offline history will remain on this device."),
+      action: t("Sign out")
+    })) return;
     setSignOutBusy(true); setActionError("");
     try {
       await suspendSync();

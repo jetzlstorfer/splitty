@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, type BrowserContext, type Page } from "./fixtures";
 import { signIn as signInMember, useEnglish } from "./helpers";
+import { confirmAction } from "./controls";
 
 async function syncDetails(page: Page) {
   await page.getByRole("button", { name: "Sync status", exact: true }).click();
@@ -102,6 +103,7 @@ test("recovers when the browser drops the session cookie but keeps offline data"
     await syncDetails(page);
     await page.getByRole("navigation").getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByRole("region", { name: "Account", exact: true }).getByRole("button", { name: "Sign out", exact: true }).click();
+    await confirmAction(page, "Sign out");
     await syncDetails(page);
     await expect(page.locator(".sync-popover").getByRole("button", {
       name: "Development sign-in as first member", exact: true

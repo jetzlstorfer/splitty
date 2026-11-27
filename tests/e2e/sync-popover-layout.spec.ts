@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "./fixtures";
+import { confirmAction } from "./controls";
 import { openSync, signIn, syncIndicator, upToDate, useEnglish } from "./helpers";
 
 test.use({ isMobile: true, hasTouch: true, deviceScaleFactor: 3 });
@@ -65,6 +66,11 @@ async function expectActionFits(button: Locator) {
 
 for (const language of ["de", "en"] as const) {
   test(`${language} sync and account actions fit mobile viewports in light and dark mode`, async ({ page }, info) => {
+    test.setTimeout(120_000);
+    let logoutRequests = 0;
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname === "/api/auth/logout") logoutRequests++;
+    });
     if (language === "en") await useEnglish(page);
     else await page.goto("/");
     await signIn(page, "A", language);
@@ -108,19 +114,42 @@ for (const language of ["de", "en"] as const) {
     await page.getByRole("navigation").getByRole("button", { name: language === "de" ? "Einstellungen" : "Settings", exact: true }).tap();
     await expect(popover).not.toBeVisible();
     await expect(signOut).toBeVisible();
-    for (const viewport of viewports.slice(0, 2)) {
-      await page.setViewportSize(viewport);
+    const confirmation = page.getByRole("dialog", { name: language === "de" ? "Abmelden" : "Sign out", exact: true });
+    const cancel = confirmation.getByRole("button", { name: language === "de" ? "Abbrechen" : "Cancel", exact: true });
+    for (const width of [320, 393, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
       for (const theme of themes) {
         await useTheme(page, theme);
         await expectActionFits(signOut);
+        await signOut.tap();
+        await expect(confirmation).toBeVisible();
+        await expect(confirmation).toContainText(language === "de"
+          ? "Auf diesem Gerät abmelden? Dein Offline-Verlauf bleibt auf diesem Gerät erhalten."
+          : "Sign out on this device? Your offline history will remain on this device.");
+        await expect(cancel).toBeFocused();
+        await expectActionFits(cancel);
+        await expectActionFits(confirmation.getByRole("button", { name: language === "de" ? "Abmelden" : "Sign out", exact: true }));
+        await cancel.tap();
+        await expect(confirmation).not.toBeVisible();
+        await expect(signOut).toBeEnabled();
+        expect(logoutRequests).toBe(0);
       }
     }
+    await signOut.focus();
+    await page.keyboard.press("Enter");
+    await expect(confirmation).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(confirmation).not.toBeVisible();
+    await expect(signOut).toBeFocused();
+    expect(logoutRequests).toBe(0);
     await signOut.tap();
+    await confirmAction(page, language === "de" ? "Abmelden" : "Sign out");
     await openSync(page);
     await expect(popover.getByRole("button", {
       name: language === "de" ? "Als erstes Mitglied zur Entwicklung anmelden" : "Development sign-in as first member",
       exact: true
     })).toBeVisible();
+    expect(logoutRequests).toBe(1);
     await close.tap();
     await page.getByRole("navigation").getByRole("button", { name: language === "de" ? "Einstellungen" : "Settings", exact: true }).tap();
     const accountSignIn = page.getByRole("region", { name: language === "de" ? "Konto" : "Account", exact: true })

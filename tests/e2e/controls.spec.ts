@@ -289,6 +289,61 @@ test.describe("touch controls", () => {
     await expect(second).toHaveValue("Jamie");
   });
 
+  test("settings account buttons share a consistent shape and distinguish destructive actions", async ({ page }, info) => {
+    await page.route("**/api/me", (route) => route.fulfill({ json: {
+      userId: "user-buttons", householdId: "household-buttons", member: "a",
+      nameA: "Alex", nameB: "Sam", signInProvider: "email"
+    } }));
+    await mockHouseholdSync(page);
+    await page.goto("/");
+    await page.getByRole("navigation").getByRole("button", { name: "Einstellungen", exact: true }).tap();
+    const settings = page.locator(".settings-page");
+    const accountButtons = settings.locator(".button-row > button");
+    await expect(accountButtons).toHaveCount(5);
+    for (const language of ["de", "en"] as const) {
+      if (language === "en") await chooseOption(page, page.getByLabel("App-Sprache", { exact: true }), "English");
+      for (const width of [320, 393, 1280]) {
+        await page.setViewportSize({ width, height: 900 });
+        await inEachTheme(page, async (theme, background) => {
+          await expect(accountButtons.first()).toHaveCSS("background-color", background);
+          const buttons = await accountButtons.evaluateAll((elements) => elements.map((element) => {
+            const style = getComputedStyle(element);
+            const box = element.getBoundingClientRect();
+            return {
+              shape: [style.borderRadius, style.borderWidth, style.borderStyle, style.padding, style.fontSize, style.fontWeight],
+              color: style.color, background: style.backgroundColor,
+              x: box.x, y: box.y, width: box.width, height: box.height,
+              fits: element.scrollWidth <= element.clientWidth
+            };
+          }));
+          const [signOut, ...destructive] = buttons;
+          for (const button of buttons) {
+            expect(button.shape).toEqual(signOut.shape);
+            expect(button.background).toBe(signOut.background);
+            expect(button.height).toBeGreaterThanOrEqual(48);
+            expect(button.x).toBeGreaterThanOrEqual(0);
+            expect(button.x + button.width).toBeLessThanOrEqual(width);
+            expect(button.fits).toBe(true);
+          }
+          for (const button of destructive) {
+            expect(button.color).toBe(destructive[0].color);
+            expect(button.color).not.toBe(signOut.color);
+            for (const neighbor of destructive.filter((other) => Math.abs(other.y - button.y) < 1)) {
+              expect(button.height).toBeCloseTo(neighbor.height, 0);
+            }
+          }
+          await fits(page);
+          if (width === 393) await page.screenshot({ path: info.outputPath(`settings-buttons-${language}-${theme}.png`), fullPage: true });
+        });
+      }
+    }
+    await settings.getByRole("button", { name: "Delete your account", exact: true }).tap();
+    const confirmation = page.getByRole("dialog", { name: "Delete your account", exact: true });
+    await expect(confirmation).toContainText("Your sessions will be revoked immediately");
+    await confirmAction(page, "Cancel");
+    await expect(accountButtons).toHaveCount(5);
+  });
+
   test("account settings show each sign-in provider and the available profile in both languages and themes", async ({ page }, info) => {
     const providers = ["email", "google", "microsoft"] as const;
     const label = { email: "E-Mail", google: "Google", microsoft: "Microsoft" } as const;

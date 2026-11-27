@@ -9,11 +9,16 @@ export interface Identity extends AccountProfile {
   userId?: string;
   householdId?: string;
   legacyClaimed?: boolean;
+  /** Server-confirmed membership of the other slot; a name or pending invitation does not count. */
+  otherMemberJoined?: boolean;
 }
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) { super(message); }
 }
+
+/** The device has no session or key: it is used locally rather than having lost a sign-in. */
+export class NotSignedInError extends ApiError {}
 
 export interface SyncContext { userId: string; householdId: string }
 
@@ -51,7 +56,7 @@ export async function identify(): Promise<Identity> {
     if (!(error instanceof ApiError) || error.status !== 401) throw error;
     const prepared = await getPreparedDeviceKey(), current = await getDeviceKey();
     const keys = [prepared, current].filter((key): key is string => key !== null);
-    if (!keys.length) throw error;
+    if (!keys.length) throw new NotSignedInError(error.message, error.status);
     for (const [index, deviceKey] of keys.entries()) {
       try { await api("auth/resume", { deviceKey }); }
       catch (resumeError) {

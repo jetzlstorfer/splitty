@@ -1,11 +1,14 @@
 import { expect, type Page } from "./fixtures";
 import { chooseOption } from "./controls";
 
+/** Switches the device to English. Choosing it again is harmless, and the language survives sign-in. */
 export async function useEnglish(page: Page) {
   await page.goto("/");
-  await page.getByRole("navigation").getByRole("button", { name: "Einstellungen", exact: true }).click();
-  await chooseOption(page, page.getByLabel("App-Sprache", { exact: true }), "English");
-  await page.getByRole("navigation").getByRole("button", { name: "Expenses", exact: true }).click();
+  const nav = page.getByRole("navigation", { name: /^(Hauptnavigation|Main navigation)$/ });
+  // Actions auto-wait, so a database switch while signing in cannot skip the language change.
+  await nav.getByRole("button", { name: /^(Einstellungen|Settings)$/ }).click();
+  await chooseOption(page, page.getByLabel(/^(App-Sprache|App language)$/), "English");
+  await nav.getByRole("button", { name: "Expenses", exact: true }).click();
 }
 
 export const syncIndicator = (page: Page) =>
@@ -58,7 +61,7 @@ export const upToDate = (page: Page) =>
 
 export async function signIn(page: Page, member: "A" | "B" = "A", language: "en" | "de" = "en") {
   await openSync(page);
-  await page.getByRole("button", {
+  await page.locator(".sync-popover").getByRole("button", {
     name: member === "A" ? /^(Development sign-in as first member|Als erstes Mitglied zur Entwicklung anmelden)$/
       : /^(Development sign-in as second member|Als zweites Mitglied zur Entwicklung anmelden)$/
   }).click();

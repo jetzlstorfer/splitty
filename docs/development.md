@@ -26,7 +26,7 @@ npm --prefix api run dev
 npm run dev
 ```
 
-The cloud popover displays synthetic member sign-in buttons only when `LOCAL_DEVELOPMENT=true`, the app origin is loopback, and a local household ID is configured. Local development mode is restricted to loopback addresses. Never commit `local.settings.json`, CSV exports, or backups.
+The cloud popover and **Settings → Account** display synthetic member sign-in buttons only when `LOCAL_DEVELOPMENT=true`, the app origin is loopback, and a local household ID is configured. Local development mode is restricted to loopback addresses. Never commit `local.settings.json`, CSV exports, or backups.
 
 To check the installable production app shell locally:
 
@@ -46,7 +46,7 @@ npm run dev:seeded
 npm run dev:seeded -- --reset --port 5180
 ```
 
-This starts a private Table emulator, the real API handler, and the Vite development server at <http://127.0.0.1:5174> by default. The first run seeds Alex and Sam with expenses with equal, exact, percentage, and single-person splits, a settlement, open and completed insurance reminders, and open and completed manual to-dos. Dates are relative to the seeding day. Sign in from the cloud icon using the first- or second-member development sign-in button; synthetic sign-in is enabled only on this loopback-only stack.
+This starts a private Table emulator, the real API handler, and the Vite development server at <http://127.0.0.1:5174> by default. The first run seeds Alex and Sam with expenses with equal, exact, percentage, and single-person splits, a settlement, open and completed insurance reminders, and open and completed manual to-dos. Dates are relative to the seeding day. Sign in from the cloud icon or **Settings → Account** using the first- or second-member development sign-in button; synthetic sign-in is enabled only on this loopback-only stack.
 
 Data persists in the ignored `.azure\seeded` folder, so restarts keep your changes. `--reset` deletes it and seeds again; afterwards clear the browser's site data for that origin (or use a fresh profile), because a device cursor newer than the reset server is rejected. The default port keeps this data separate from `npm run dev` at port 5173. Use `--port` to run several sessions side by side. The emulator can take a minute or two to start on Windows. No `local.settings.json` is needed.
 

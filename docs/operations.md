@@ -69,7 +69,7 @@ table entity per line. A restore tool must confirm the destination household, ne
 metadata, and re-type the `$base64`, 64-bit integer and date values by schema before upserting. Backups of purged
 data expire within the retention period, which is what makes the 60-day deletion timeline true.
 
-**Settings → Backups** in the app is a separate, client-side feature: it exports expenses and manual to-dos as JSON,
+**Settings → This device** in the app is a separate, client-side feature: it exports expenses and manual to-dos as JSON,
 and restoring adds only the missing ones without overwriting existing data.
 
 ### Known gaps

@@ -60,11 +60,14 @@ test("joins another household while signed in and continues in the first one aft
   await addExpense(page, "Shared flat rent");
   await createHousehold(page);
   await addExpense(page, "Holiday cabin");
-  await openSync(page);
-  const popover = page.getByRole("dialog", { name: "Synchronization", exact: true });
-  await popover.getByRole("button", { name: "Create invitation", exact: true }).click();
-  const link = await popover.getByLabel("Invitation link").inputValue();
-  await closeSync(page);
+  const setup = page.getByRole("region", { name: "Set up your household", exact: true });
+  await expect(setup.getByRole("listitem")).toHaveCount(3);
+  await expect(setup.getByRole("listitem").nth(2)).toHaveClass("done");
+  await navigate(page, "Settings");
+  const invite = page.getByRole("region", { name: "Invite the other person", exact: true });
+  await invite.getByRole("button", { name: "Create invitation", exact: true }).click();
+  const link = await invite.getByLabel("Invitation link").inputValue();
+  await navigate(page, "Expenses");
 
   const guestContext = await browser.newContext({ baseURL, serviceWorkers: "block" });
   try {
@@ -82,6 +85,19 @@ test("joins another household while signed in and continues in the first one aft
     await upToDate(guest);
     await expect(guest.locator(".expense-row")).toHaveText([/Holiday cabin/]);
     expect(new URL(guest.url()).hash).toBe("");
+
+    // The owner now sees a confirmed member instead of invitation controls, and setup is complete.
+    await page.reload();
+    await upToDate(page);
+    await expect(page.locator(".expense-row")).toHaveText([/Holiday cabin/]);
+    await expect(page.getByRole("region", { name: "Set up your household", exact: true })).toHaveCount(0);
+    await navigate(page, "Settings");
+    const ownerHousehold = page.getByRole("region", { name: "Household", exact: true });
+    await expect(ownerHousehold.locator(".member-status")).toHaveText(["· You", "· Joined"]);
+    await expect(ownerHousehold.getByRole("region", { name: "Invite the other person", exact: true })).toHaveCount(0);
+    await expect(ownerHousehold.getByRole("button", { name: "Remove the other member", exact: true })).toBeVisible();
+    await navigate(page, "Expenses");
+
     await navigate(guest, "Settings");
     await expect(activeHousehold(guest)).toContainText("Alex & Sam");
     await chooseOption(guest, activeHousehold(guest), 0);

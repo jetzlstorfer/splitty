@@ -10,7 +10,7 @@ import { expenseLedger, todoLedger, type createLedger } from "./ledger";
 import { createInvitation, listInvitations, revokeInvitation } from "./invitations";
 import {
   createAdditionalHousehold, deleteAccount, deleteHousehold, insuranceTodoSetting, joinHousehold, leaveHousehold,
-  listHouseholds, remainingHousehold, removeOtherMember, renameHouseholdMember, switchHousehold
+  listHouseholds, otherMemberJoined, remainingHousehold, removeOtherMember, renameHouseholdMember, switchHousehold
 } from "./households";
 import { consumeRateLimit, signInRateLimitKey } from "./rateLimit";
 import { tables } from "./storage";
@@ -104,12 +104,18 @@ export async function handler(
       return json({ deviceKey: householdSuccessor(request, config, identity.membershipId), source: identity.sessionId });
     }
     if (path === "me" && request.method === "GET") {
+      const [account, names, joined] = await Promise.all([
+        getAccountDetails(auth, identity),
+        getHouseholdNames(auth, identity.householdId),
+        otherMemberJoined(auth, identity)
+      ]);
       return json({
         userId: identity.userId,
         householdId: identity.householdId,
         member: identity.member,
-        ...await getAccountDetails(auth, identity),
-        ...(await getHouseholdNames(auth, identity.householdId) ?? { nameA: "", nameB: "" })
+        ...account,
+        ...(names ?? { nameA: "", nameB: "" }),
+        otherMemberJoined: joined
       });
     }
     if (path === "households" && request.method === "GET") {

@@ -39,8 +39,11 @@ for (const language of ["en", "de"] as const) {
 
 test("the cloud is the only sync entry point across tabs, widths and themes, with keyboard and touch dismissal", async ({ page }, info) => {
   await english(page);
-  await expect(page.locator(".sync-status")).toHaveText("Sign in to sync");
-  await expect(indicator(page)).toHaveText("Needs attention");
+  await expect(page.locator(".sync-status")).toHaveText("Not signed in · saved only on this device");
+  // Using the app without an account is a supported mode, not a problem to fix.
+  await expect(indicator(page)).toHaveText("Local only");
+  await expect(indicator(page)).not.toHaveClass(/needs-attention/);
+  await expect(indicator(page).locator(".sync-icon")).toHaveAttribute("data-sync-state", "local");
   for (const tab of ["Expenses", "To-dos", "Search", "Statistics", "Settings"]) {
     await page.getByRole("navigation").getByRole("button", { name: tab, exact: true }).click();
     await expect(page.locator("main .sync-status, main .sync-summary")).toHaveCount(0);
@@ -48,9 +51,9 @@ test("the cloud is the only sync entry point across tabs, widths and themes, wit
     await expect(page.getByRole("button", { name: "Sync now" })).toHaveCount(0);
     await expect(page.getByLabel("Member token")).toHaveCount(0);
     await indicator(page).click();
-    await expect(popover(page).locator(".sync-summary")).toHaveText("Sign in to sync");
+    await expect(popover(page).locator(".sync-summary")).toHaveText("Not signed in · saved only on this device");
     await expect(detail(page, "Connection")).toHaveText("Online");
-    await expect(detail(page, "Changes waiting to sync")).toHaveText("0");
+    await expect(detail(page, "Saved only on this device")).toHaveText("0");
     await expect(detail(page, "Last sync this session")).toHaveText("Not yet synced");
     await indicator(page).click();
   }
@@ -236,6 +239,34 @@ test("development sign-in and sync stay in the popover while sign-out is in Sett
     expect.objectContaining({ description: expense, amountCents: 1000 })
   ]));
   expect(retained.todos).toEqual(expect.arrayContaining([expect.objectContaining({ title: todo })]));
+});
+
+test("the signed-in cloud stays about sync and links to household management in Settings", async ({ page }) => {
+  await page.route("**/api/auth/config", (route) =>
+    route.fulfill({ json: { entraEnabled: true, localSignInEnabled: true, newHouseholdsEnabled: true } }));
+  await english(page);
+  // This spec's sign-in helper leaves the popover open.
+  await signIn(page);
+  await expect(popover(page)).toBeVisible();
+  for (const name of ["Create invitation", "Remove local data from this device", "Remove the other member", "Sign out"]) {
+    await expect(popover(page).getByRole("button", { name, exact: true })).toHaveCount(0);
+  }
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Tab");
+  const shortcut = popover(page).getByRole("button", { name: "Household and invitations in Settings", exact: true });
+  await expect(shortcut).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(popover(page)).not.toBeVisible();
+  await expect(page.getByRole("navigation").getByRole("button", { name: "Settings", exact: true })).toHaveAttribute("aria-current", "page");
+  await expect(page.locator("#settings-household")).toBeFocused();
+  await expect(page.locator("#settings-household")).toHaveCSS("outline-style", "solid");
+  await expect(page.locator("#settings-household")).toBeInViewport();
+  const household = page.getByRole("region", { name: "Household", exact: true });
+  await expect(household.getByRole("region", { name: "Invite the other person", exact: true })
+    .getByRole("button", { name: "Create invitation", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "This device", exact: true })
+    .getByRole("button", { name: "Remove local data from this device", exact: true })).toBeVisible();
 });
 
 test("expense conflicts are resolved in the popover without changing the pending balance rules", async ({ browser, baseURL }) => {

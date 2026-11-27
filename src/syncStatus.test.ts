@@ -6,10 +6,12 @@ const inputs = (overrides: Partial<SyncStatusInputs> = {}): SyncStatusInputs => 
 });
 
 const fixed = Object.values(SYNC_STATUS);
-const quiet = [SYNC_STATUS.upToDate, SYNC_STATUS.syncing, SYNC_STATUS.savedOnDevice, SYNC_STATUS.savedLocally, SYNC_STATUS.offline];
+const quiet = [
+  SYNC_STATUS.upToDate, SYNC_STATUS.syncing, SYNC_STATUS.savedOnDevice, SYNC_STATUS.savedLocally, SYNC_STATUS.offline,
+  SYNC_STATUS.localOnly, SYNC_STATUS.signedOut
+];
 const loud = [
-  SYNC_STATUS.needsAttention, SYNC_STATUS.signInRequired, SYNC_STATUS.signedOut,
-  SYNC_STATUS.accessEnded, SYNC_STATUS.localDataRemoved
+  SYNC_STATUS.needsAttention, SYNC_STATUS.signInRequired, SYNC_STATUS.accessEnded, SYNC_STATUS.localDataRemoved
 ];
 
 // The original derivation compared the displayed English sentences.
@@ -17,13 +19,18 @@ function compared(input: SyncStatusInputs) {
   const status = describeSyncStatus(input.status, "en");
   const idle = status === "Saved locally · changes waiting to sync" && !input.pending && !input.conflictCount ? "Up to date" : status;
   const current = !input.online ? "Offline · changes stay on this device" : input.busy ? "Syncing…" : idle;
+  const localOnly = [
+    "Not signed in · saved only on this device", "Signed out · local history remains on this device"
+  ].includes(idle);
   return {
     current,
     upToDate: input.online && !input.busy && !input.pending && !input.conflictCount && idle === "Up to date",
     needsAttention: !!input.actionError || !!input.conflictCount || ![
       "Up to date", "Syncing…", "Saved on this device", "Saved locally · changes waiting to sync",
-      "Offline · changes stay on this device"
-    ].includes(current)
+      "Offline · changes stay on this device", "Not signed in · saved only on this device",
+      "Signed out · local history remains on this device"
+    ].includes(current),
+    localOnly
   };
 }
 
@@ -34,10 +41,19 @@ describe("sync status derivation", () => {
         for (const pending of [0, 2]) for (const conflictCount of [0, 1]) for (const actionError of ["", "Could not sign in."]) {
           const input = inputs({ status, online, busy, pending, conflictCount, actionError });
           const view = deriveSyncStatus(input);
-          expect({ current: describeSyncStatus(view.current, "en"), upToDate: view.upToDate, needsAttention: view.needsAttention })
-            .toEqual(compared(input));
+          expect({
+            current: describeSyncStatus(view.current, "en"), upToDate: view.upToDate,
+            needsAttention: view.needsAttention, localOnly: view.localOnly
+          }).toEqual(compared(input));
         }
     }
+  });
+
+  it("treats intentional local use as local-only but an expired sign-in as needing attention", () => {
+    expect(deriveSyncStatus(inputs({ status: SYNC_STATUS.localOnly, pending: 2 }))).toMatchObject({ localOnly: true, needsAttention: false });
+    expect(deriveSyncStatus(inputs({ status: SYNC_STATUS.signedOut }))).toMatchObject({ localOnly: true, needsAttention: false });
+    expect(deriveSyncStatus(inputs({ status: SYNC_STATUS.signInRequired }))).toMatchObject({ localOnly: false, needsAttention: true });
+    expect(deriveSyncStatus(inputs({ status: SYNC_STATUS.upToDate })).localOnly).toBe(false);
   });
 
   it.each(quiet)("does not need attention for $kind", (status) => {
@@ -99,6 +115,7 @@ describe("sync status descriptions", () => {
     [SYNC_STATUS.syncing, "Syncing…"],
     [SYNC_STATUS.offline, "Offline · changes stay on this device"],
     [SYNC_STATUS.needsAttention, "Some edits need your attention"],
+    [SYNC_STATUS.localOnly, "Not signed in · saved only on this device"],
     [SYNC_STATUS.signInRequired, "Sign in to sync"],
     [SYNC_STATUS.signedOut, "Signed out · local history remains on this device"],
     [SYNC_STATUS.accessEnded, "Your household access has ended."],

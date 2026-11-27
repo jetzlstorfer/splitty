@@ -292,14 +292,15 @@ test.describe("touch controls", () => {
   test("settings account buttons share a consistent shape and distinguish destructive actions", async ({ page }, info) => {
     await page.route("**/api/me", (route) => route.fulfill({ json: {
       userId: "user-buttons", householdId: "household-buttons", member: "a",
-      nameA: "Alex", nameB: "Sam", signInProvider: "email"
+      nameA: "Alex", nameB: "Sam", signInProvider: "email", otherMemberJoined: true
     } }));
     await mockHouseholdSync(page);
     await page.goto("/");
     await page.getByRole("navigation").getByRole("button", { name: "Einstellungen", exact: true }).tap();
     const settings = page.locator(".settings-page");
     const accountButtons = settings.locator(".button-row > button");
-    await expect(accountButtons).toHaveCount(5);
+    // Sign out, then account deletion, member removal, leaving, household deletion and local data removal.
+    await expect(accountButtons).toHaveCount(6);
     for (const language of ["de", "en"] as const) {
       if (language === "en") await chooseOption(page, page.getByLabel("App-Sprache", { exact: true }), "English");
       for (const width of [320, 393, 1280]) {
@@ -341,7 +342,7 @@ test.describe("touch controls", () => {
     const confirmation = page.getByRole("dialog", { name: "Delete your account", exact: true });
     await expect(confirmation).toContainText("Your sessions will be revoked immediately");
     await confirmAction(page, "Cancel");
-    await expect(accountButtons).toHaveCount(5);
+    await expect(accountButtons).toHaveCount(6);
   });
 
   test("account settings show each sign-in provider and the available profile in both languages and themes", async ({ page }, info) => {

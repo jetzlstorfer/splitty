@@ -21,7 +21,7 @@ test("German is the default and category icons update while typing, saving and e
   await page.goto("/");
   await expect(page.locator("html")).toHaveAttribute("lang", "de");
   await expect(page.getByRole("heading", { name: /^Ausgaben/, level: 1 })).toBeVisible();
-  await expect(page.getByRole("status")).toContainText("Zum Synchronisieren anmelden");
+  await expect(page.getByRole("status")).toContainText("Nicht angemeldet · nur auf diesem Gerät gespeichert");
   const dialog = await addGerman(page, "Billa");
   for (const [term, category] of [
     ["Billa", "Lebensmittel"], ["Tanken", "Tanken"],
@@ -113,7 +113,7 @@ test("language persists offline and does not change expenses or manual categorie
   await chooseOption(page, page.getByLabel("App-Sprache", { exact: true }), "English");
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
   await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
-  await expect(page.getByRole("status")).toContainText("Sign in to sync");
+  await expect(page.getByRole("status")).toContainText("Not signed in · saved only on this device");
   await expect(page.getByLabel("First person", { exact: true })).toHaveValue("Alex");
   await expect(page.getByLabel("Second person", { exact: true })).toHaveValue("Sam");
   await page.getByRole("button", { name: "Expenses", exact: true }).click();

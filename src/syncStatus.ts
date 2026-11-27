@@ -3,7 +3,7 @@ import { localizeMessage, type Language, type MessageKey } from "../shared/i18n"
 export type SyncStatus =
   | {
     kind: "saved-on-device" | "saved-locally" | "up-to-date" | "syncing" | "offline" | "needs-attention"
-      | "sign-in-required" | "signed-out" | "access-ended" | "local-data-removed";
+      | "local-only" | "sign-in-required" | "signed-out" | "access-ended" | "local-data-removed";
   }
   | { kind: "error"; message: string };
 
@@ -16,6 +16,7 @@ export const SYNC_STATUS = {
   syncing: { kind: "syncing" },
   offline: { kind: "offline" },
   needsAttention: { kind: "needs-attention" },
+  localOnly: { kind: "local-only" },
   signInRequired: { kind: "sign-in-required" },
   signedOut: { kind: "signed-out" },
   accessEnded: { kind: "access-ended" },
@@ -29,14 +30,16 @@ const messageKeys = {
   syncing: "Syncing…",
   offline: "Offline · changes stay on this device",
   "needs-attention": "Some edits need your attention",
+  "local-only": "Not signed in · saved only on this device",
   "sign-in-required": "Sign in to sync",
   "signed-out": "Signed out · local history remains on this device",
   "access-ended": "Your household access has ended.",
   "local-data-removed": "Local account data was removed from this device."
 } as const satisfies Record<FixedSyncStatus["kind"], MessageKey>;
 
+// Using the app without an account, including after signing out on purpose, is not a problem to fix.
 const quietKinds: ReadonlySet<SyncStatus["kind"]> = new Set([
-  "up-to-date", "syncing", "saved-on-device", "saved-locally", "offline"
+  "up-to-date", "syncing", "saved-on-device", "saved-locally", "offline", "local-only", "signed-out"
 ]);
 
 export interface SyncStatusInputs {
@@ -52,6 +55,8 @@ export interface SyncStatusView {
   current: SyncStatus;
   upToDate: boolean;
   needsAttention: boolean;
+  /** This device is intentionally used without an account, so nothing will sync. */
+  localOnly: boolean;
 }
 
 export function deriveSyncStatus({ online, busy, pending, conflictCount, actionError, status }: SyncStatusInputs): SyncStatusView {
@@ -61,7 +66,8 @@ export function deriveSyncStatus({ online, busy, pending, conflictCount, actionE
   return {
     current,
     upToDate: online && !busy && !pending && !conflictCount && idle.kind === "up-to-date",
-    needsAttention: !!actionError || !!conflictCount || !quietKinds.has(current.kind)
+    needsAttention: !!actionError || !!conflictCount || !quietKinds.has(current.kind),
+    localOnly: idle.kind === "local-only" || idle.kind === "signed-out"
   };
 }
 

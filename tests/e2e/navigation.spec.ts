@@ -222,7 +222,7 @@ test("search owns import, filtering, pagination and editing without filtering Ex
   await expect(page.getByRole("heading", { name: "Noch keine Ausgaben" })).toBeVisible();
 
   await importExpenses(page, 105);
-  await expect(page.getByRole("status")).toContainText("Zum Synchronisieren anmelden");
+  await expect(page.getByRole("status")).toContainText("Nicht angemeldet · nur auf diesem Gerät gespeichert");
   const rows = page.locator(".expense-row");
   await expect(rows).toHaveCount(100);
   await page.getByRole("button", { name: "Mehr anzeigen (5)", exact: true }).click();
@@ -321,7 +321,7 @@ test("compact mobile layout measures density at 320px and 393px and keeps all fi
   await page.goto("/");
   await importExpenses(page, 8);
   await page.getByRole("button", { name: "Ausgaben", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("Zum Synchronisieren anmelden");
+  await expect(page.getByRole("status")).toContainText("Nicht angemeldet · nur auf diesem Gerät gespeichert");
   for (const [width, height, minimumRows] of [[320, 740, 5], [393, 851, 6]]) {
     await page.setViewportSize({ width, height });
     for (const font of ["", "Arial, sans-serif"]) {

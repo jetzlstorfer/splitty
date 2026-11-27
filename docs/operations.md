@@ -3,8 +3,44 @@
 Operational infrastructure was first deployed on 2026-11-27: a separate jobs app and backup storage, Log Analytics,
 Application Insights with ingestion-time scrubbing, three alerts, and a monthly resource-group budget of EUR 20.
 SWA remains **Free**. The rollout uses the existing custom domain and ledger
-storage and keeps `ALLOW_NEW_HOUSEHOLDS=false`. See the verification record below and the
-[multi-tenant plan](multi-tenant-plan.md#operations) for the remaining launch requirements.
+storage. New households have been accepted since the same day (see [Registration](#registration)). The verification
+record is below and the [open items](#open-items) are at the end; the plan has the
+[operations decisions](multi-tenant-plan.md#operations).
+
+## Registration
+
+New households can be created while the Static Web App application setting `ALLOW_NEW_HOUSEHOLDS` is `true`.
+Production has accepted them since 2026-11-27. It was opened by changing the live setting directly, without a
+staging pilot (see [open items](#open-items)).
+
+The setting is not managed by Bicep. [`main.bicep`](../infra/main.bicep) defaults `allowNewHouseholds` to `false`
+and rewrites every SWA application setting, so deploying it to production would close registration and replace the
+other settings. Change only this setting instead. `az staticwebapp appsettings set` merges the named setting into
+the existing ones. Suppress its output with `-o none`, because it echoes every setting, including secrets, and pass
+the subscription explicitly, because the default Azure CLI subscription may not be the production one:
+
+```powershell
+az staticwebapp appsettings set --name <static-web-app-name> --resource-group <resource-group> `
+  --subscription <subscription> --setting-names ALLOW_NEW_HOUSEHOLDS=false -o none
+```
+
+Use `ALLOW_NEW_HOUSEHOLDS=true` to reopen. The change takes effect within seconds. Confirm it without signing in;
+the response reports `newHouseholdsEnabled`:
+
+```powershell
+Invoke-RestMethod https://<app-origin>/api/auth/config
+```
+
+- Only the values `true` and `false` are valid. Any other non-empty value makes the API answer 503
+  `ALLOW_NEW_HOUSEHOLDS must be true or false.`; an empty value means `false` on a hosted deployment.
+- While `true`, any account that signs in with a supported provider can create a household. The limits still apply:
+  3 new households per user per 30 days, 20 sign-in or session-recovery attempts per IP address per minute, and the
+  per-household quotas in the [plan](multi-tenant-plan.md#operations). The plan relies on Entra's email verification
+  as the initial protection against automated sign-ups.
+- While `false`, an account with no household and no valid invitation gets 403
+  `New household registration is currently closed.`, including a former member who left their household. Existing
+  members, their sessions and valid invitations are unaffected, so pausing does not sign anyone out.
+- A new deployment has no household and no invitation, so it needs `true` once for its first household.
 
 ## Scheduled jobs
 
@@ -30,6 +66,9 @@ There is no restore tool yet, and restore has not been rehearsed. A backup blob 
 table entity per line. A restore tool must confirm the destination household, never grant membership from backup
 metadata, and re-type the `$base64`, 64-bit integer and date values by schema before upserting. Backups of purged
 data expire within the retention period, which is what makes the 60-day deletion timeline true.
+
+**Settings → Backups** in the app is a separate, client-side feature: it exports expenses and manual to-dos as JSON,
+and restoring adds only the missing ones without overwriting existing data.
 
 ### Known gaps
 
@@ -68,7 +107,8 @@ host storage. Backups live in a separate account with shared-key access disabled
 in an immutable container.
 
 `main.bicep` still writes all Static Web App application settings. Its `appOrigin` and `allowNewHouseholds`
-parameters default to the SWA hostname and `false`; it is not a safe patch for an existing site's settings.
+parameters default to the SWA hostname and `false`, so deploying it to production would close
+[registration](#registration) and replace the other settings; it is not a safe patch for an existing site's settings.
 Use `operations.bicep` for the operational rollout, preserve unrelated settings when connecting Insights, and
 review `az deployment group what-if` before every production infrastructure change.
 
@@ -100,7 +140,8 @@ these log alerts. Each one resolves automatically when the condition clears.
 ## Enabling it
 
 1. Confirm the subscription, resource group, existing SWA and storage account. Obtain approval for recurring costs,
-   the budget amount and notification recipients. Do not change the SWA SKU or enable registrations.
+   the budget amount and notification recipients. Do not change the SWA SKU, and leave `ALLOW_NEW_HOUSEHOLDS` as it
+   is (see [Registration](#registration)).
 2. Compile and preview `infra/operations.bicep`, then deploy it in incremental mode with the same parameters.
    Supply `enableMonitoring=true`, `enableScheduledJobs=true`, `alertEmails`, `monthlyBudget`, and a pinned
    `budgetStartDate`. Set `monitoringWorkspaceExists=true` if the workspace already exists. Keep recipient
@@ -157,17 +198,18 @@ Verified on 2026-11-27:
   telemetry also arrived with query strings removed. The scrub-rule link and 30-day table retention were verified.
 - The EUR 20 budget is active, with 80% actual and 100% forecast notifications.
 
-**Still blocked: alert email delivery.** The action group and receiver are enabled, the configured address matches
+**Open: alert email delivery.** The action group and receiver are enabled, the configured address matches
 the approved recipient, and all three rules point at that group. Azure recorded `ActionsTriggered` for the expected
 initial `splitty-backup-missing` alert, but the recipient reported no email. Both the CLI and documented REST
 test-notification endpoints returned `There are no valid receivers in the request`. Do not treat alert delivery
-as working until a real notification arrives; check the recipient's filtering and Azure Monitor delivery settings.
+as working until a real notification arrives; check the recipient's filtering and Azure Monitor delivery settings,
+and watch the alerts in the Azure portal in the meantime.
 The first successful backup now satisfies the backup rule's query; its initial fired state can remain until Azure's
 scheduled reevaluation and automatic resolution.
 
 The backup policy remains unlocked by design, pending explicit approval to lock it. A restore tool and restore
-rehearsal are still outstanding; deploying backups does not establish recoverability. These gaps, provider validation,
-the staging/migration rehearsal and legal review still block public registration.
+rehearsal are still outstanding; deploying backups does not establish recoverability. See the
+[open items](#open-items).
 
 ### Member-token retirement cleanup
 
@@ -177,10 +219,24 @@ Completed on 2026-11-27 after confirming both accounting slots had provider-back
 - deleted 10 legacy sessions and one `login-rate` counter (11 rows total) from the retired `auth-<household-id>`
   partition using their ETags;
 - verified no legacy rows remained and the ledger and all non-legacy auth rows were unchanged;
-- preserved provider sessions, memberships, `legacyClaimed` markers, the custom origin and the closed-registration gate.
+- preserved provider sessions, memberships, `legacyClaimed` markers and the custom origin.
 
-## Deferred
+## Open items
+
+Registration is open with these items unresolved:
+
+- **Alert email delivery** is unconfirmed ([Deployment verification](#deployment-verification)).
+- **Restore:** there is no server-side restore tool and no restore rehearsal ([Restore](#restore)).
+- **Backup retention** is unlocked. Locking it is irreversible and needs explicit approval (step 7 of
+  [Enabling it](#enabling-it)).
+- **Sign-up with each provider** (email one-time passcode, Google and Microsoft) has not been verified in production
+  with a new account.
+- **No staging pilot:** registration was opened in production without a staging pilot or measured cost, latency and
+  failure rates.
+- **Legal pages:** `/privacy` and `/terms` are published, but their legal review is not recorded here and there is
+  no imprint page.
+
+Deferred features:
 
 - Session expiry and the matching cleanup.
 - A `Content-Security-Policy` header in `public/staticwebapp.config.json`.
-- A restore tool and a restore rehearsal.

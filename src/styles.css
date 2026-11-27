@@ -345,6 +345,7 @@ input:disabled { opacity: .55; cursor: default; }
 .primary:hover:not(:disabled) { background: var(--cp-accent-hover); }
 .add-button:hover:not(:disabled) { background: var(--cp-accent-hover); }
 .secondary { background: var(--cp-surface); color: var(--cp-text); border: 1px solid var(--cp-border); }
+.secondary.danger-button { color: var(--cp-danger); }
 .danger-link { display: flex; justify-content: center; align-items: center; gap: 6px; min-height: 48px; width: 100%; margin-top: 12px; color: var(--cp-danger); background: none; }
 .error { color: var(--cp-danger); font-size: 13px; line-height: 1.6; }
 .notice { color: var(--cp-text-muted); padding: 12px; border: 1px solid var(--cp-border); border-radius: 10px; background: var(--cp-surface-soft); font-size: 12px; }
@@ -369,7 +370,7 @@ input:disabled { opacity: .55; cursor: default; }
 .import-preview > p { font-size: 13px; }
 .settings-card { margin: 0; }
 .settings-card .section-label { margin-top: 28px; }
-.settings-card > .button-row { flex-wrap: wrap; margin-top: 16px; }
+.settings-card > .button-row { flex-wrap: wrap; align-items: stretch; margin-top: 16px; }
 .settings-card > .button-row > button { flex: 1 1 160px; }
 .settings-row { position: relative; display: flex; flex-direction: row; align-items: center; gap: 14px; width: 100%; min-height: 68px; margin: 0; padding: 12px 0; border-radius: 0; background: none; color: var(--cp-text); font-size: 16px; font-weight: 400; text-align: left; }
 label.settings-row { cursor: pointer; }

@@ -271,6 +271,7 @@ export const german = {
   "Tap Add to confirm.": "Tippe zur Bestätigung auf „Hinzufügen“.",
   "Sync now": "Jetzt synchronisieren",
   "Sign out": "Abmelden",
+  "Sign out on this device? Your offline history will remain on this device.": "Auf diesem Gerät abmelden? Dein Offline-Verlauf bleibt auf diesem Gerät erhalten.",
   "Signing out does not erase this device's offline history. Use a trusted device.": "Beim Abmelden bleibt der Offline-Verlauf auf diesem Gerät. Verwende nur ein vertrauenswürdiges Gerät.",
   "Remove local data from this device": "Lokale Daten von diesem Gerät entfernen",
   "This device has {count} unsynced changes or conflicts. Removing local data permanently discards them. Synced household data is not deleted. Continue?": "Auf diesem Gerät gibt es {count} nicht synchronisierte Änderungen oder Konflikte. Beim Entfernen der lokalen Daten gehen sie dauerhaft verloren. Synchronisierte Haushaltsdaten werden nicht gelöscht. Fortfahren?",

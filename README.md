@@ -16,7 +16,7 @@ The screenshots below show the expenses and to-do screens with synthetic sample 
 
 - Add expenses locally, split equally or enter exact and percentage shares.
 - Track settlements, balances, and searchable history.
-- Share expenses and household to-dos across two devices with member sign-in.
+- Share expenses and household to-dos across two devices. Sign in with email, Google, or Microsoft to create a household or accept an invitation; see [Registration](#registration).
 - Install the PWA from the app on supported Android browsers; on iPhone, use **Install** for the browser's Add to Home Screen steps. The button disappears after installation. The app works offline; queued changes sync when a device reconnects.
 - Import German or English Splitwise CSV exports and check the final balance before confirming.
 - Categorize expenses automatically, switch between German and English, and download or restore backups.
@@ -66,13 +66,11 @@ To enable this lookup in an external tenant, open the **Splitty web app registra
 
 For conflict handling, data retention, and the full sync lifecycle, see [synchronization and deployment](docs/synchronization-and-deployment.md).
 
-For the shared multi-household design and Azure cost outlook, see the [multi-tenant plan](docs/multi-tenant-plan.md). The code includes Entra-based accounts, existing-household claims, local-history adoption, household-scoped sessions and storage, invitations, lifecycle controls, and quota/rate enforcement. Production stays on **Static Web Apps Free**; Standard is not a launch prerequisite. Operational infrastructure was deployed on 2026-11-27; see [operations](docs/operations.md) for verification and remaining gaps. Keep public sign-up closed until operational verification, migration/restore rehearsals, provider validation and operational/legal review are complete.
+For the shared multi-household design and Azure cost outlook, see the [multi-tenant plan](docs/multi-tenant-plan.md). The code includes Entra-based accounts, local-history adoption, household-scoped sessions and storage, invitations, lifecycle controls, and quota/rate enforcement. Production runs on **Static Web Apps Free** and accepts new households (see [Registration](#registration)). Scheduled backups, purge and cleanup jobs, monitoring, alerts and a budget have been deployed there since 2026-11-27; see [operations](docs/operations.md) for verification and open items.
 
 ## Public legal pages
 
 `/privacy` and `/terms` are public, sign-in-free pages linked from the app. Direct visits do not open the ledger or call the API. German is the default; use `?lang=en` or the language links for English. App links preserve the selected language. The existing SPA fallback serves direct visits to either URL.
-
-These pages do not enable account sign-in or public registration.
 
 Google uses the public `google1b3a5bb6a7449fa9.html` file in `public/` to verify
 ownership of `https://splitty.jetzlstorfer.org/` for OAuth branding. Keep it at
@@ -166,18 +164,29 @@ See [import details](docs/importing.md) for duplicate handling, reconciliation, 
 The Azure resources are described in [`infra/main.bicep`](infra/main.bicep); deployment is not automatic resource provisioning. In brief:
 
 1. For a new hosted deployment, create an Entra External ID user flow and confidential web application. Register `https://<static-web-app-host>/api/auth/callback` as its redirect URI. Set `entraAuthority` to the HTTPS CIAM URL with the tenant ID or domain path (for example, `https://<tenant-subdomain>.ciamlogin.com/<tenant-id>`), supply `entraClientId` and secure `entraClientSecret`.
-2. Use `infra/main.bicep` for new deployments; `appOrigin` sets a custom origin and `allowNewHouseholds` defaults to `false`. For an existing production deployment, use `infra/operations.bicep` to manage operations without replacing its SWA settings or ledger storage account. Do not redeploy the main template as an application cutover.
+2. Use `infra/main.bicep` for new deployments; `appOrigin` sets a custom origin and `allowNewHouseholds` defaults to `false`, which admits only existing members and invited accounts (see [Registration](#registration)). The main template rewrites every Static Web App application setting, so do not redeploy it to an existing production site; use `infra/operations.bicep` to manage its operations without replacing the SWA settings or the ledger storage account.
 3. Configure the Static Web App deployment secret `AZURE_STATIC_WEB_APPS_API_TOKEN` in the GitHub `production` environment.
 4. Push or merge to `main` to run [Deploy to Azure](.github/workflows/deploy.yml), then sign in on each device.
 
 Backups, scheduled deletion, monitoring, alerts and the budget are opt-in Bicep parameters and a separate
 [Deploy scheduled jobs](.github/workflows/deploy-jobs.yml) workflow; see [operations](docs/operations.md) for the parameters, the
-manual enabling steps and what has not been verified. Enable them before opening public sign-up.
+manual enabling steps and what has not been verified. Enable them on any deployment that accepts new households.
+
+### Registration
+
+New households can be created while the Static Web App application setting `ALLOW_NEW_HOUSEHOLDS` is `true`.
+Production has accepted them since 2026-11-27: anyone who signs in with email, Google or Microsoft can create a
+household and invite a partner, within the per-user, per-household and per-IP limits in the
+[multi-tenant plan](docs/multi-tenant-plan.md#operations). That value is a live app setting, not Bicep
+state. A new deployment must set it to `true` once, because with `false` nobody can create the first household.
+
+To pause or reopen registration without a deployment, and for what the setting does and does not affect, see
+[operations](docs/operations.md#registration). Pausing does not sign out existing members or invalidate invitations.
 
 ### Existing household sign-in retirement
 
-The production cutover used the existing Static Web App, custom domain, and
-Table Storage account. Both household members have now claimed their provider
+Member-token sign-in no longer exists. The original household kept its Static Web App, custom domain, and
+Table Storage account. Both members have claimed their provider
 accounts and the production audit found no household dependent on member-token
 sign-in. Production cleanup completed on 2026-11-27: these obsolete Static Web App
 settings were removed: `HOUSEHOLD_ID`, `MEMBER_A_TOKEN`, `MEMBER_B_TOKEN`,
@@ -188,11 +197,10 @@ The household ledger and non-legacy auth rows were verified unchanged. Do not de
 provider accounts' `legacyClaimed` markers; those markers allow existing
 accounts to import their old local IndexedDB history.
 
-Devices that still have only a legacy member-token session will receive 401
-responses after deployment and must sign in with Entra. Their local data is
-preserved. Keep `ALLOW_NEW_HOUSEHOLDS=false`: public registration should remain
-closed until scheduled jobs, backups, monitoring and alerts are deployed and
-verified, and the legal pages have been reviewed.
+Devices that still have only a legacy member-token session receive 401
+responses and must sign in with Entra. Their local data is preserved.
+
+### Staging, checks and costs
 
 For an isolated staging deployment, set `storageAuthMode` to `rbac` and provide
 the workforce-tenant service principal's tenant ID, client ID, secret, and object

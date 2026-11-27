@@ -32,7 +32,8 @@ Entra External ID application and deploy [`infra/main.bicep`](../infra/main.bice
 with globally unique app and storage names plus its `entraAuthority`,
 `entraClientId`, and secure `entraClientSecret` parameters. Never commit secrets
 or deployment parameter files. Do not redeploy the template to the existing
-production resource group as part of the sign-in retirement.
+production resource group: it rewrites every Static Web App application setting,
+including `ALLOW_NEW_HOUSEHOLDS`.
 
 1. Configure the Entra External ID application and its callback at
    `https://<app-origin>/api/auth/callback`.
@@ -41,10 +42,13 @@ production resource group as part of the sign-in retirement.
    environment secret `AZURE_STATIC_WEB_APPS_API_TOKEN`.
 4. Push or merge to `main` to run [Deploy to Azure](../.github/workflows/deploy.yml),
    or start the workflow manually from the intended branch.
-5. Keep `ALLOW_NEW_HOUSEHOLDS=false` until scheduled jobs, backups, monitoring,
-   alerts, and the legal pages have been verified. Then sign in on each device,
+5. Set `ALLOW_NEW_HOUSEHOLDS=true` (the `allowNewHouseholds` Bicep parameter) so
+   the first account can create a household. The default `false` admits only
+   existing members and invited accounts, and a new deployment has neither; see
+   [registration](operations.md#registration). Then sign in on each device,
    import existing local history once, and confirm both devices show the shared
-   balance.
+   balance. Enable [scheduled jobs, monitoring and alerts](operations.md#infrastructure)
+   on any deployment that accepts new households.
 
 Both automatic and manual deployments depend on the reusable [Check workflow](../.github/workflows/check.yml), including lint, unit tests, TypeScript checks, builds, and API integration tests. Pull requests and manual deployments also install browsers and run the Playwright suite. Automatic deployments on `main` pass `run-e2e: false` to avoid repeating the PR browser suite; other callers default to running it. Direct pushes to `main` also skip browser tests, so use pull requests for changes and require the PR check before merging. If enabled checks fail or are cancelled, the deployment job is skipped.
 

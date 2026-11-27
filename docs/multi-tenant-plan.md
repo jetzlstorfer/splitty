@@ -1,6 +1,6 @@
 # Multi-tenant plan and Azure cost outlook
 
-Status: production migration and retirement cleanup complete; launch verification remains. Originally prepared: 2026-10-25; key
+Status: production migration, retirement cleanup and operations rollout complete; new households accepted since 2026-11-27. Originally prepared: 2026-10-25; key
 decisions recorded: 2026-11-17. The code now includes server-derived
 user/household sessions and revocation checks, an Entra authorization-code
 flow with persisted PKCE/state and one-time device-key bootstrap, hashed
@@ -13,9 +13,11 @@ Retirement removes the obsolete token session and claim code while retaining
 `legacyClaimed` for importing existing local IndexedDB history. The scheduled
 backup, permanent-deletion and cleanup jobs, monitoring, alerts and budget now
 exist as opt-in code and infrastructure; production infrastructure was deployed
-on 2026-11-27 (see [operations](operations.md) for verification and remaining gaps).
-Keep public household registration closed until operational verification,
-restore/migration rehearsals, provider validation and legal review are complete. Household record/daily
+on 2026-11-27 (see [operations](operations.md) for verification and open items).
+Production has accepted new households since the same day through the
+`ALLOW_NEW_HOUSEHOLDS` application setting ([registration](operations.md#registration));
+the restore rehearsal, per-provider sign-up verification and other open items are
+tracked there. Household record/daily
 quotas, invitation and household-creation limits, per-session request limits,
 and sign-in IP limits are enforced in the API. Real Entra callback validation
 requires tenant and application credentials. Cost figures have not been
@@ -34,9 +36,9 @@ current accounting model explicitly uses members `a` and `b`, `shareA`, and
 `balanceA`; arbitrary-sized households would require changes to splits,
 balances, settlements, imports, statistics, and the interface.
 
-This plan does not provision Azure resources. Production sign-up must remain
-closed until the remaining launch requirements above are
-addressed.
+This plan does not provision Azure resources. Registration of new households is
+controlled by the `ALLOW_NEW_HOUSEHOLDS` application setting; see
+[operations](operations.md#registration).
 
 ## Decisions
 
@@ -90,7 +92,7 @@ pilot.
 ### Operations
 
 - **Hosting:** keep Static Web Apps Free for production and isolated staging
-  (decision updated 2026-11-27). Standard is optional, not a launch prerequisite:
+  (decision updated 2026-11-27). Standard is optional:
   Splitty's API handles Entra authentication, and scheduled jobs use a separate
   Functions app. Accept Free's lack of an SLA and its 100 GB monthly bandwidth
   allowance per subscription, with no paid overage. Monitor usage across all
@@ -128,10 +130,11 @@ pilot.
   storage permissions those jobs need. The managed API that serves requests
   stays unchanged.
 - **Legal:** the operator writes the privacy policy, terms of use, and imprint
-  from reputable templates for their jurisdiction and has them reviewed before
-  sign-up opens. Base them on documentation of the stored data, processors
-  (Azure, Entra External ID, Google and Microsoft sign-in), retention, deletion,
-  and a contact for restore and deletion requests.
+  from reputable templates for their jurisdiction and has them reviewed. Base
+  them on documentation of the stored data, processors (Azure, Entra External
+  ID, Google and Microsoft sign-in), retention, deletion, and a contact for
+  restore and deletion requests. Privacy and terms pages are published; no
+  imprint page and no legal review are recorded yet.
 
 ## Current architecture
 
@@ -272,11 +275,13 @@ backup.
    deletion jobs and infrastructure are implemented ([operations](operations.md));
    still add scoped restore and complete the operational verification. Validate two-device
    convergence and existing accounting behavior.
-5. Pilot in a separate staging deployment with synthetic households. Rehearse
-   the existing-household claim using a disposable household and
-   production-equivalent settings, never the live production storage. Before
-   opening sign-up, configure budget alerts and publish the reviewed legal
-   pages; measure costs, latency, concurrency, and failure rates.
+5. Pilot in a separate staging deployment with synthetic households, never the
+   live production storage, and measure costs, latency, concurrency, and failure
+   rates. The existing-household claim no longer needs a rehearsal because the
+   migration is complete. Budget alerts exist, and production has accepted new
+   households since 2026-11-27 without this pilot; the pilot, the restore
+   rehearsal and the measurements remain open
+   ([operations](operations.md#open-items)).
 
 Use the existing [checks](../README.md#checks),
 [offline-sync validation](../.github/skills/offline-sync-validation/SKILL.md),

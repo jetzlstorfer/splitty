@@ -54,7 +54,11 @@ resource telemetryTables 'Microsoft.OperationalInsights/workspaces/tables@2022-1
   parent: existingWorkspace
   name: tableName
   dependsOn: [insights]
-  properties: { schema: { name: tableName } }
+  properties: {
+    schema: { name: tableName }
+    retentionInDays: retentionInDays
+    totalRetentionInDays: retentionInDays
+  }
 }]
 
 module scrub 'telemetryScrub.bicep' = if (scrubTelemetry) {

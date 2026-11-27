@@ -1,8 +1,8 @@
 # Operations
 
 Operational infrastructure was first deployed on 2026-11-27: a separate jobs app and backup storage, Log Analytics,
-Application Insights with ingestion-time scrubbing, three alerts, and a monthly resource-group budget of 20 in the
-subscription's billing currency. SWA remains **Free**. The rollout uses the existing custom domain and ledger
+Application Insights with ingestion-time scrubbing, three alerts, and a monthly resource-group budget of EUR 20.
+SWA remains **Free**. The rollout uses the existing custom domain and ledger
 storage and keeps `ALLOW_NEW_HOUSEHOLDS=false`. See the verification record below and the
 [multi-tenant plan](multi-tenant-plan.md#operations) for the remaining launch requirements.
 
@@ -140,13 +140,34 @@ The first rollout caught and corrected Azure-specific issues that local Bicep co
 - the ingestion KQL parser accepts `parse_json("null")`, not the `dynamic(null)` literal used initially;
 - the backup alert uses a supported two-day evaluation window with an explicit 26-hour query filter;
 - built-in telemetry tables are explicitly configured for workspace transformations;
+- table retention is explicitly set to the workspace retention; Application Insights otherwise defaults these
+  tables to 90 days even when the workspace is configured for 30;
 - GitHub's actual OIDC subject includes immutable owner/repository IDs.
 - `.funcignore` must anchor `/src/` at the package root; unanchored `src` also excluded the compiled
   `dist/jobs/src` directory and produced a successful deployment with no registered timers.
 
-The Azure deployment and scrub-rule link have been verified. Storage-backed jobs regressions passed on an
-isolated Azurite instance. The backup policy remains unlocked by design. A restore tool and restore rehearsal
-are still outstanding; deploying backups does not establish recoverability.
+Verified on 2026-11-27:
+
+- The GitHub jobs deployment passed its checks and registered all three timers after the packaging fix.
+- Manual backup, purge and cleanup invocations all produced successful request telemetry. Purge had no eligible
+  households or accounts and deleted no rows; cleanup removed two expired sign-in transactions.
+- The first backup's manifest and both nonempty table blobs were verified. Only the manifest and blob metadata
+  were read, not the ledger backup. The temporary container-scoped reader grant used for verification was removed.
+- All four synthetic telemetry types were ingested with the expected redactions; actual managed-API request
+  telemetry also arrived with query strings removed. The scrub-rule link and 30-day table retention were verified.
+- The EUR 20 budget is active, with 80% actual and 100% forecast notifications.
+
+**Still blocked: alert email delivery.** The action group and receiver are enabled, the configured address matches
+the approved recipient, and all three rules point at that group. Azure recorded `ActionsTriggered` for the expected
+initial `splitty-backup-missing` alert, but the recipient reported no email. Both the CLI and documented REST
+test-notification endpoints returned `There are no valid receivers in the request`. Do not treat alert delivery
+as working until a real notification arrives; check the recipient's filtering and Azure Monitor delivery settings.
+The first successful backup now satisfies the backup rule's query; its initial fired state can remain until Azure's
+scheduled reevaluation and automatic resolution.
+
+The backup policy remains unlocked by design, pending explicit approval to lock it. A restore tool and restore
+rehearsal are still outstanding; deploying backups does not establish recoverability. These gaps, provider validation,
+the staging/migration rehearsal and legal review still block public registration.
 
 ### Member-token retirement cleanup
 
